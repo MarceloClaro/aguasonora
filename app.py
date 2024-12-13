@@ -282,10 +282,16 @@ def classificar_audio():
     st.header("Classificação de Novo Áudio")
 
     st.write("### Passo 1: Carregar o Modelo Treinado")
-    model_file = st.file_uploader("Faça upload do arquivo do modelo (.keras, .h5, .pth)", type=["keras", "h5", "pth"], key="model_upload")
+    st.write("**Formato Aceito:** `.keras`, `.h5` para modelos Keras ou `.pth` para modelos PyTorch.")
+    model_file = st.file_uploader(
+        "Faça upload do arquivo do modelo", 
+        type=["keras", "h5", "pth"], 
+        key="model_upload"
+    )
 
     if model_file is not None:
         try:
+            st.write(f"**Modelo Carregado:** {model_file.name}")
             # Salva o modelo temporariamente
             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(model_file.name)[1]) as tmp:
                 tmp.write(model_file.read())
@@ -296,24 +302,36 @@ def classificar_audio():
                 # Para modelos PyTorch, carregue de forma apropriada
                 model = torch.load(tmp_path, map_location=torch.device('cpu'))
                 model.eval()
+                st.write("**Tipo de Modelo:** PyTorch")
             elif tmp_path.endswith(('.h5', '.keras')):
                 # Para modelos Keras (.h5 e .keras)
                 model = load_model(tmp_path, compile=False)
+                st.write("**Tipo de Modelo:** Keras")
             else:
                 st.error("Formato de modelo não suportado. Utilize .keras, .h5 ou .pth.")
                 return
             st.success("Modelo carregado com sucesso!")
 
             # Carrega as classes
-            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_upload")
+            st.write("### Passo 1.1: Carregar o Arquivo de Classes")
+            classes_file = st.file_uploader(
+                "Faça upload do arquivo com as classes (classes.txt)", 
+                type=["txt"], 
+                key="classes_upload"
+            )
             if classes_file is not None:
                 classes = classes_file.read().decode("utf-8").splitlines()
                 labelencoder = LabelEncoder()
                 labelencoder.fit(classes)
                 st.success("Classes carregadas com sucesso!")
+                st.write(f"**Classes:** {', '.join(classes)}")
 
                 st.write("### Passo 2: Upload do Arquivo de Áudio para Classificação")
-                uploaded_audio = st.file_uploader("Faça upload de um arquivo de áudio .wav, .mp3, .flac, .ogg ou .m4a", type=["wav", "mp3", "flac", "ogg", "m4a"], key="audio_upload")
+                uploaded_audio = st.file_uploader(
+                    "Faça upload de um arquivo de áudio (.wav, .mp3, .flac, .ogg ou .m4a)", 
+                    type=["wav", "mp3", "flac", "ogg", "m4a"], 
+                    key="audio_upload"
+                )
 
                 if uploaded_audio is not None:
                     # Salva o arquivo de áudio temporariamente
@@ -353,6 +371,10 @@ def classificar_audio():
                         os.remove(tmp_audio.name)
         except Exception as e:
             st.error(f"Erro ao carregar o modelo: {e}")
+        finally:
+            # Garante que o arquivo temporário do modelo seja removido
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
     # **Opção para Baixar o Modelo Treinado**
     st.write("### Passo 3: Baixar o Modelo Treinado")
@@ -393,7 +415,11 @@ def treinar_modelo():
     ```
     """)
 
-    uploaded_zip = st.file_uploader("Faça upload do arquivo ZIP contendo as pastas das classes", type=["zip"], key="dataset_upload")
+    uploaded_zip = st.file_uploader(
+        "Faça upload do arquivo ZIP contendo as pastas das classes", 
+        type=["zip"], 
+        key="dataset_upload"
+    )
 
     if uploaded_zip is not None:
         try:
@@ -864,6 +890,18 @@ def treinar_modelo():
 
         except Exception as e:
             st.error(f"Erro durante o processamento do dataset: {e}")
+        finally:
+            # Garante que o arquivo temporário do ZIP seja removido
+            if 'zip_path' in locals() and os.path.exists(zip_path):
+                os.remove(zip_path)
+            # Garante que o diretório extraído seja removido
+            if 'base_path' in locals() and os.path.exists(base_path):
+                for cat in categories:
+                    cat_path = os.path.join(base_path, cat)
+                    for file in os.listdir(cat_path):
+                        os.remove(os.path.join(cat_path, file))
+                    os.rmdir(cat_path)
+                os.rmdir(base_path)
 
 if __name__ == "__main__":
     main()
