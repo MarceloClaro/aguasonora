@@ -14,51 +14,79 @@ from sklearn.metrics import confusion_matrix, classification_report
 from audiomentations import Compose, AddGaussianNoise, TimeStretch, PitchShift, Shift
 import streamlit as st
 import tempfile
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import io
 import torch
 import zipfile
 import gc
 
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
-# Define o favicon (eu.ico) e o layout da página
-st.set_page_config(
-    page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
-    page_icon="eu.ico",  # Caminho relativo para o favicon
-    layout="wide"
-)
+def main():
+    # Definir o caminho do ícone (favicon)
+    favicon_path = "eu.ico"  # Verifique se o arquivo eu.ico está no diretório correto
 
-# ==================== LOGO E IMAGEM DE CAPA ====================
-# Carrega e exibe o logo.png na barra lateral
-def exibir_logo():
-    try:
-        logo = Image.open("logo.png")
-        st.sidebar.image(logo, use_column_width=True)
-    except FileNotFoundError:
-        st.sidebar.error("Arquivo 'logo.png' não encontrado. Por favor, coloque-o na mesma pasta do script.")
+    # Verificar se o arquivo de ícone existe antes de configurá-lo
+    if os.path.exists(favicon_path):
+        try:
+            st.set_page_config(
+                page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
+                page_icon=favicon_path,
+                layout="wide"
+            )
+            # logging.info(f"Ícone {favicon_path} carregado com sucesso.")  # Remova ou configure o logging se necessário
+        except Exception as e:
+            st.set_page_config(
+                page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
+                layout="wide"
+            )
+            # logging.warning(f"Erro ao carregar o ícone {favicon_path}: {e}")  # Remova ou configure o logging se necessário
+    else:
+        # Se o ícone não for encontrado, carrega sem favicon
+        st.set_page_config(
+            page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
+            layout="wide"
+        )
+        st.sidebar.warning(f"Ícone '{favicon_path}' não encontrado, carregando sem favicon.")
+        # logging.warning(f"Ícone {favicon_path} não encontrado, carregando sem favicon.")  # Remova ou configure o logging se necessário
 
-# Carrega e exibe a capa.png na página principal
-def exibir_capa():
-    try:
-        capa = Image.open("capa (2).png")
-        st.image(capa, use_column_width=True)
-    except FileNotFoundError:
-        st.error("Arquivo 'capa.png' não encontrado. Por favor, coloque-o na mesma pasta do script.")
+    # ==================== LOGO E IMAGEM DE CAPA ====================
+    # Carrega e exibe a capa.png na página principal
+    if os.path.exists('capa.png'):
+        try:
+            st.image(
+                'capa.png', 
+                caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', 
+                use_container_width=True
+            )
+        except UnidentifiedImageError:
+            st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
+    else:
+        st.warning("Imagem 'capa.png' não encontrada.")
 
-# Exibe o logo na barra lateral
-exibir_logo()
+    # Carregar o logotipo na barra lateral
+    if os.path.exists("logo.png"):
+        try:
+            st.sidebar.image("logo.png", width=200, use_container_width=False)
+        except UnidentifiedImageError:
+            st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
+    else:
+        st.sidebar.text("Imagem do logotipo não encontrada.")
 
-# Exibe a imagem de capa na página principal
-exibir_capa()
+    st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
+    st.write("""
+    Bem-vindo à nossa aplicação! Aqui, você pode **classificar sons de água vibrando em copos de vidro**. Você tem duas opções:
+    - **Classificar Áudio:** Use um modelo já treinado para identificar o som.
+    - **Treinar Modelo:** Treine seu próprio modelo com seus dados de áudio.
+    """)
 
-# ==================== CONTROLE DE REPRODUTIBILIDADE ====================
-SEED = 42
-os.environ['PYTHONHASHSEED'] = str(SEED)
-random.seed(SEED)
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
+    # Barra Lateral de Navegação
+    st.sidebar.title("Navegação")
+    app_mode = st.sidebar.selectbox("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
+
+    if app_mode == "Classificar Áudio":
+        classificar_audio()
+    elif app_mode == "Treinar Modelo":
+        treinar_modelo()
 
 # ==================== FUNÇÕES DE PROCESSAMENTO ====================
 
@@ -242,7 +270,7 @@ def plot_mfcc(data, sr, titulo="Espectrograma (MFCC)"):
     with st.expander("📖 Entenda o Espectrograma de MFCC"):
         st.markdown("""
         ### O que são MFCCs?
-        
+
         **MFCCs (Mel-Frequency Cepstral Coefficients)** são características extraídas do áudio que representam a potência espectral em diferentes frequências na escala Mel, que é mais alinhada com a percepção humana de som.
 
         - **Eixo X (Tempo):** Representa o tempo em segundos.
@@ -341,23 +369,6 @@ def processar_novo_audio(caminho_audio, modelo, labelencoder):
 
 # ==================== CONFIGURAÇÃO DA APLICAÇÃO STREAMLIT ====================
 
-def main():
-    st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
-    st.write("""
-    Bem-vindo à nossa aplicação! Aqui, você pode **classificar sons de água vibrando em copos de vidro**. Você tem duas opções:
-    - **Classificar Áudio:** Use um modelo já treinado para identificar o som.
-    - **Treinar Modelo:** Treine seu próprio modelo com seus dados de áudio.
-    """)
-
-    # Barra Lateral de Navegação
-    st.sidebar.title("Navegação")
-    app_mode = st.sidebar.selectbox("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
-
-    if app_mode == "Classificar Áudio":
-        classificar_audio()
-    elif app_mode == "Treinar Modelo":
-        treinar_modelo()
-
 def classificar_audio():
     st.header("Classificação de Novo Áudio")
 
@@ -454,9 +465,6 @@ def classificar_audio():
             # Assegura a remoção do arquivo temporário do modelo em caso de erro
             if 'caminho_modelo' in locals() and os.path.exists(caminho_modelo):
                 os.remove(caminho_modelo)
-
-    # **Passo 4: Não Existe na Seção de Classificação**
-    # O arquivo classes.txt é baixado na seção "Treinar Modelo"
 
 def treinar_modelo():
     st.header("Treinamento do Modelo CNN")
@@ -792,6 +800,7 @@ def treinar_modelo():
                       - **40:** Número de características por amostra.
                       - **Explicação:** Unimos as amostras originais com as aumentadas para formar um conjunto de treino mais robusto.
                     """)
+
             else:
                 X_train_combined = X_train
                 y_train_combined = y_train
