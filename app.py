@@ -552,6 +552,9 @@ def treinar_modelo():
 
             # Extração de Features
             st.write("### Extraindo Features (MFCCs)...")
+            st.write("""
+            **MFCCs (Mel-Frequency Cepstral Coefficients)** são características extraídas do áudio que representam a potência espectral em diferentes frequências. Eles são amplamente utilizados em processamento de áudio e reconhecimento de padrões, pois capturam informações relevantes para identificar sons distintos.
+            """)
             X = []
             y_valid = []
 
@@ -583,6 +586,9 @@ def treinar_modelo():
             # Data Augmentation no Treino
             if enable_augmentation:
                 st.write("### Aplicando Data Augmentation no Conjunto de Treino...")
+                st.write("""
+                **Data Augmentation** é uma técnica utilizada para aumentar a quantidade e diversidade dos dados de treinamento aplicando transformações nos dados originais. Isso ajuda o modelo a generalizar melhor e reduzir o overfitting.
+                """)
                 X_train_augmented = []
                 y_train_augmented = []
 
@@ -642,6 +648,9 @@ def treinar_modelo():
 
             # Cálculo de Class Weights
             st.write("### Calculando Class Weights para Balanceamento das Classes...")
+            st.write("""
+            **Class Weights** são utilizados para lidar com desequilíbrios nas classes do conjunto de dados. Quando algumas classes têm muito mais amostras do que outras, o modelo pode se tornar tendencioso em favor das classes mais frequentes. Aplicar pesos balanceados ajuda o modelo a prestar mais atenção às classes menos representadas.
+            """)
             from sklearn.utils.class_weight import compute_class_weight
             if balance_classes == "Balanced":
                 class_weights = compute_class_weight(
@@ -657,6 +666,10 @@ def treinar_modelo():
 
             # Definição da Arquitetura da CNN
             st.write("### Definindo a Arquitetura da Rede Neural Convolucional (CNN)...")
+            st.write("""
+            A **Rede Neural Convolucional (CNN)** é uma arquitetura de rede neural eficaz para processamento de dados com estrutura de grade, como imagens e sinais de áudio. Nesta aplicação, utilizamos camadas convolucionais para extrair características relevantes dos dados de áudio.
+            """)
+
             from tensorflow.keras.models import Sequential
             from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
 
@@ -679,6 +692,13 @@ def treinar_modelo():
 
             # **Exibição do Resumo do Modelo como Tabela**
             st.write("### Resumo do Modelo:")
+            st.write("""
+            A tabela abaixo apresenta as camadas da rede neural, a forma de saída de cada camada e o número de parâmetros (pesos) que cada camada possui. 
+            - **Camada (Tipo):** Nome e tipo da camada.
+            - **Forma de Saída:** Dimensões da saída da camada.
+            - **Parâmetros:** Número de parâmetros treináveis na camada.
+            """)
+
             resumo_modelo = []
             for layer in modelo.layers:
                 nome_layer = layer.name
@@ -712,6 +732,12 @@ def treinar_modelo():
 
             # Definição dos Callbacks
             st.write("### Configurando Callbacks para o Treinamento...")
+            st.write("""
+            **Callbacks** são funções que são chamadas durante o treinamento da rede neural. Elas podem ser usadas para monitorar o desempenho do modelo e ajustar o treinamento de acordo com certos critérios. Nesta aplicação, utilizamos dois callbacks:
+            - **ModelCheckpoint:** Salva o modelo automaticamente em intervalos especificados ou quando uma métrica melhora.
+            - **EarlyStopping:** Interrompe o treinamento automaticamente se o modelo não estiver melhorando, evitando overfitting.
+            """)
+
             from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
             diretorio_salvamento = 'modelos_salvos'
             if not os.path.exists(diretorio_salvamento):
@@ -735,7 +761,7 @@ def treinar_modelo():
                 "Monitorar:",
                 options=["val_loss", "val_accuracy"],
                 index=0,
-                help="Métrica a ser monitorada para EarlyStopping."
+                help="Métrica a ser monitorada para EarlyStopping. 'val_loss' monitora a perda na validação, enquanto 'val_accuracy' monitora a acurácia na validação."
             )
             es_patience = st.sidebar.slider(
                 "Paciência (Épocas):",
@@ -743,13 +769,13 @@ def treinar_modelo():
                 max_value=20,
                 value=5,
                 step=1,
-                help="Número de épocas sem melhoria antes de interromper o treinamento."
+                help="Número de épocas sem melhoria antes de interromper o treinamento. Por exemplo, se 'patience' for 5, o treinamento será interrompido após 5 épocas sem melhoria na métrica monitorada."
             )
             es_mode = st.sidebar.selectbox(
                 "Modo:",
                 options=["min", "max"],
                 index=0,
-                help="Define se a métrica monitorada deve ser minimizada ou maximizada."
+                help="Define se a métrica monitorada deve ser minimizada ('min') ou maximizada ('max'). 'val_loss' deve ser minimizada, enquanto 'val_accuracy' deve ser maximizada."
             )
 
             earlystop = EarlyStopping(
@@ -761,6 +787,9 @@ def treinar_modelo():
 
             # Treinamento do Modelo
             st.write("### Iniciando o Treinamento do Modelo...")
+            st.write("""
+            O treinamento pode demorar algum tempo, dependendo do tamanho do seu conjunto de dados e dos parâmetros selecionados. Durante o treinamento, as métricas de perda e acurácia serão exibidas para acompanhamento.
+            """)
             with st.spinner('Treinando o modelo...'):
                 historico = modelo.fit(
                     X_train_final, to_categorical(y_train_final),
@@ -775,6 +804,10 @@ def treinar_modelo():
 
             # Salvamento do Modelo e Classes
             st.write("### Download do Modelo Treinado e Arquivo de Classes")
+            st.write("""
+            Após o treinamento, você pode baixar o modelo treinado e o arquivo de classes para utilização futura ou para compartilhar com outros.
+            """)
+
             # Salvar o modelo em um arquivo temporário com extensão .keras
             with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
                 modelo.save(tmp_model.name)
@@ -807,6 +840,9 @@ def treinar_modelo():
 
             # Avaliação do Modelo
             st.write("### Avaliação do Modelo nos Conjuntos de Treino, Validação e Teste")
+            st.write("""
+            A seguir, apresentamos a **Acurácia** do modelo nos conjuntos de treino, validação e teste. A acurácia representa a porcentagem de previsões corretas realizadas pelo modelo.
+            """)
             score_train = modelo.evaluate(X_train_final, to_categorical(y_train_final), verbose=0)
             score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
             score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
@@ -821,6 +857,10 @@ def treinar_modelo():
             y_true = y_test  # y_test já está em formato inteiro
 
             # Matriz de Confusão com Seaborn
+            st.write("""
+            ### Matriz de Confusão
+            A **Matriz de Confusão** mostra como as previsões do modelo se comparam com os rótulos reais. Cada célula representa o número de previsões para cada combinação de classe real e prevista.
+            """)
             cm = confusion_matrix(y_true, y_pred_classes, labels=range(len(classes)))
             cm_df = pd.DataFrame(cm, index=classes, columns=classes)
             fig_cm, ax_cm = plt.subplots(figsize=(12,8))
@@ -832,14 +872,20 @@ def treinar_modelo():
             plt.close(fig_cm)
 
             # Relatório de Classificação com Seaborn
+            st.write("""
+            ### Relatório de Classificação
+            O **Relatório de Classificação** fornece métricas detalhadas sobre o desempenho do modelo em cada classe, incluindo precisão, recall e F1-score.
+            """)
             report = classification_report(y_true, y_pred_classes, labels=range(len(classes)),
                                            target_names=classes, zero_division=0, output_dict=True)
             report_df = pd.DataFrame(report).transpose()
-            st.write("### Relatório de Classificação:")
             st.dataframe(report_df)
 
             # Visualizações das Métricas de Treinamento com Seaborn
-            st.write("### Visualizações das Métricas de Treinamento")
+            st.write("""
+            ### Visualizações das Métricas de Treinamento
+            As seguintes figuras mostram como a **Perda (Loss)** e a **Acurácia** evoluíram durante o treinamento e validação. Isso ajuda a entender como o modelo está aprendendo ao longo das épocas.
+            """)
             historico_df = pd.DataFrame(historico.history)
             fig_loss, ax_loss = plt.subplots()
             sns.lineplot(data=historico_df[['loss', 'val_loss']], ax=ax_loss)
