@@ -87,7 +87,7 @@ def main():
         classificar_audio()
     elif app_mode == "Treinar Modelo":
         treinar_modelo()
-    
+    st.sidebar.image("eu.ico", width=80)    
     st.sidebar.write("""
     Produzido pelo:
 
