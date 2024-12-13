@@ -41,7 +41,7 @@ augment_default = Compose([
     AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
     TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
     PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
-    Shift(min_shift=-0.5, max_shift=0.5, p=0.5),  # Correção aqui
+    Shift(min_shift=-0.5, max_shift=0.5, p=0.5),
 ])
 
 def load_audio(file_path, sr=None):
@@ -590,7 +590,7 @@ def treinar_modelo():
                             if pitch_shift:
                                 transformations.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
                             if shift:
-                                transformations.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))  # Correção aqui
+                                transformations.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))
 
                             if transformations:
                                 augmentations = Compose(transformations)
@@ -710,8 +710,9 @@ def treinar_modelo():
             else:
                 st.write(f"Diretório '{save_dir}' já existe.")
 
+            # **Ajuste do `filepath` para garantir que a string está corretamente fechada**
             checkpointer = ModelCheckpoint(
-                filepath=os.path.join(save_dir, 'model_agua_augmented.h5'),
+                filepath=os.path.join(save_dir, 'model_agua_augmented.h5'),  # Certifique-se de que as aspas estão fechadas
                 monitor='val_loss',
                 verbose=1,
                 save_best_only=True
@@ -765,7 +766,7 @@ def treinar_modelo():
             st.write("### Download do Modelo Treinado e Arquivo de Classes")
             # Salvar o modelo
             buffer = io.BytesIO()
-            model.save(buffer, save_format='h5')
+            model.save(buffer, save_format='h5')  # ou 'keras' se você mudou a extensão
             buffer.seek(0)
             st.download_button(
                 label="Download do Modelo Treinado (.h5)",
