@@ -673,7 +673,10 @@ def treinar_modelo():
             for layer in model.layers:
                 layer_name = layer.name
                 layer_type = layer.__class__.__name__
-                output_shape = layer.output_shape
+                try:
+                    output_shape = layer.output_shape
+                except AttributeError:
+                    output_shape = 'N/A'
                 params = layer.count_params()
                 model_summary.append({
                     'Layer (type)': f"{layer_name} ({layer_type})",
