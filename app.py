@@ -293,19 +293,19 @@ def classificar_audio():
         try:
             st.write(f"**Modelo Carregado:** {model_file.name}")
             # Salva o modelo temporariamente
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(model_file.name)[1]) as tmp:
-                tmp.write(model_file.read())
-                tmp_path = tmp.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(model_file.name)[1]) as tmp_model:
+                tmp_model.write(model_file.read())
+                model_path = tmp_model.name
 
             # Carrega o modelo
-            if tmp_path.endswith('.pth'):
+            if model_path.endswith('.pth'):
                 # Para modelos PyTorch, carregue de forma apropriada
-                model = torch.load(tmp_path, map_location=torch.device('cpu'))
+                model = torch.load(model_path, map_location=torch.device('cpu'))
                 model.eval()
                 st.write("**Tipo de Modelo:** PyTorch")
-            elif tmp_path.endswith(('.h5', '.keras')):
+            elif model_path.endswith(('.h5', '.keras')):
                 # Para modelos Keras (.h5 e .keras)
-                model = load_model(tmp_path, compile=False)
+                model = load_model(model_path, compile=False)
                 st.write("**Tipo de Modelo:** Keras")
             else:
                 st.error("Formato de modelo não suportado. Utilize .keras, .h5 ou .pth.")
@@ -313,7 +313,8 @@ def classificar_audio():
             st.success("Modelo carregado com sucesso!")
 
             # Carrega as classes
-            st.write("### Passo 1.1: Carregar o Arquivo de Classes")
+            st.write("### Passo 2: Carregar o Arquivo de Classes")
+            st.write("**Formato Aceito:** `.txt`")
             classes_file = st.file_uploader(
                 "Faça upload do arquivo com as classes (classes.txt)", 
                 type=["txt"], 
@@ -326,7 +327,7 @@ def classificar_audio():
                 st.success("Classes carregadas com sucesso!")
                 st.write(f"**Classes:** {', '.join(classes)}")
 
-                st.write("### Passo 2: Upload do Arquivo de Áudio para Classificação")
+                st.write("### Passo 3: Upload do Arquivo de Áudio para Classificação")
                 uploaded_audio = st.file_uploader(
                     "Faça upload de um arquivo de áudio (.wav, .mp3, .flac, .ogg ou .m4a)", 
                     type=["wav", "mp3", "flac", "ogg", "m4a"], 
@@ -366,34 +367,16 @@ def classificar_audio():
 
                     # Remove os arquivos temporários
                     os.remove(audio_path)
-                    os.remove(tmp_path)
-                    if 'tmp_audio' in locals():
-                        os.remove(tmp_audio.name)
+            # Remove o arquivo temporário do modelo
+            os.remove(model_path)
         except Exception as e:
             st.error(f"Erro ao carregar o modelo: {e}")
-        finally:
-            # Garante que o arquivo temporário do modelo seja removido
-            if 'tmp_path' in locals() and os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            # Assegura a remoção do arquivo temporário do modelo em caso de erro
+            if 'model_path' in locals() and os.path.exists(model_path):
+                os.remove(model_path)
 
-    # **Opção para Baixar o Modelo Treinado**
-    st.write("### Passo 3: Baixar o Modelo Treinado")
-    model_directory = 'saved_models'
-    model_filename = 'model_agua_augmented.keras'  # Atualizado para .keras
-
-    model_path = os.path.join(model_directory, model_filename)
-
-    if os.path.exists(model_path):
-        with open(model_path, 'rb') as f:
-            model_bytes = f.read()
-        st.download_button(
-            label="Baixar Modelo Treinado (.keras)",
-            data=model_bytes,
-            file_name=model_filename,
-            mime="application/octet-stream"
-        )
-    else:
-        st.warning(f"O modelo '{model_filename}' não foi encontrado no diretório '{model_directory}'.")
+    # **Passo 4: Não Existe na Seção de Classificação**
+    # O arquivo classes.txt é baixado na seção "Treinar Modelo"
 
 def treinar_modelo():
     st.header("Treinamento do Modelo CNN")
@@ -423,6 +406,7 @@ def treinar_modelo():
 
     if uploaded_zip is not None:
         try:
+            st.write("#### Extraindo o Dataset...")
             # Salva o arquivo ZIP temporariamente
             with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_zip:
                 tmp_zip.write(uploaded_zip.read())
@@ -442,7 +426,7 @@ def treinar_modelo():
                 return
 
             st.success("Dataset extraído com sucesso!")
-            st.write(f"Classes encontradas: {categories}")
+            st.write(f"**Classes encontradas:** {', '.join(categories)}")
 
             # Coleta os caminhos dos arquivos e labels
             file_paths = []
@@ -450,7 +434,7 @@ def treinar_modelo():
             for cat in categories:
                 cat_path = os.path.join(base_path, cat)
                 files_in_cat = [f for f in os.listdir(cat_path) if f.lower().endswith(('.wav', '.mp3', '.flac', '.ogg', '.m4a'))]
-                st.write(f"Classe '{cat}': {len(files_in_cat)} arquivos encontrados.")
+                st.write(f"**Classe '{cat}':** {len(files_in_cat)} arquivos encontrados.")
                 if len(files_in_cat) == 0:
                     st.warning(f"Nenhum arquivo encontrado na classe '{cat}'.")
                 for file_name in files_in_cat:
@@ -470,14 +454,14 @@ def treinar_modelo():
             labelencoder = LabelEncoder()
             y = labelencoder.fit_transform(df['class'])
             classes = labelencoder.classes_
-            st.write(f"Classes codificadas: {list(classes)}")
+            st.write(f"**Classes codificadas:** {', '.join(classes)}")
 
             # **Exibir Número de Classes e Distribuição**
             st.write(f"### Número de Classes: {len(classes)}")
             class_counts = df['class'].value_counts()
             st.write("### Distribuição das Classes:")
             fig_dist, ax_dist = plt.subplots(figsize=(10, 6))
-            sns.barplot(x=class_counts.index, y=class_counts.values, hue=class_counts.index, palette='viridis', ax=ax_dist, legend=False)
+            sns.barplot(x=class_counts.index, y=class_counts.values, palette='viridis', ax=ax_dist)
             ax_dist.set_xlabel("Classes")
             ax_dist.set_ylabel("Número de Amostras")
             ax_dist.set_title("Distribuição das Classes no Dataset")
@@ -587,14 +571,14 @@ def treinar_modelo():
             X = np.array(X)
             y_valid = np.array(y_valid)
 
-            st.write(f"Features extraídas: {X.shape}")
+            st.write(f"**Features extraídas:** {X.shape}")
 
             # Divisão dos Dados
             st.write("### Dividindo os Dados em Treino e Teste...")
             from sklearn.model_selection import train_test_split
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y_valid, test_size=0.2, random_state=SEED, stratify=y_valid)
-            st.write(f"Treino: {X_train.shape}, Teste: {X_test.shape}")
+            st.write(f"**Treino:** {X_train.shape}, **Teste:** {X_test.shape}")
 
             # Data Augmentation no Treino
             if enable_augmentation:
@@ -633,12 +617,12 @@ def treinar_modelo():
 
                 X_train_augmented = np.array(X_train_augmented)
                 y_train_augmented = np.array(y_train_augmented)
-                st.write(f"Dados aumentados: {X_train_augmented.shape}")
+                st.write(f"**Dados aumentados:** {X_train_augmented.shape}")
 
                 # Combinação dos Dados
                 X_train_combined = np.concatenate((X_train, X_train_augmented), axis=0)
                 y_train_combined = np.concatenate((y_train, y_train_augmented), axis=0)
-                st.write(f"Treino combinado: {X_train_combined.shape}")
+                st.write(f"**Treino combinado:** {X_train_combined.shape}")
             else:
                 X_train_combined = X_train
                 y_train_combined = y_train
@@ -647,14 +631,14 @@ def treinar_modelo():
             st.write("### Dividindo o Treino Combinado em Treino Final e Validação...")
             X_train_final, X_val, y_train_final, y_val = train_test_split(
                 X_train_combined, y_train_combined, test_size=0.1, random_state=SEED, stratify=y_train_combined)
-            st.write(f"Treino Final: {X_train_final.shape}, Validação: {X_val.shape}")
+            st.write(f"**Treino Final:** {X_train_final.shape}, **Validação:** {X_val.shape}")
 
             # Ajuste da Forma dos Dados para a CNN (Conv1D)
             st.write("### Ajustando a Forma dos Dados para a CNN (Conv1D)...")
             X_train_final = X_train_final.reshape((X_train_final.shape[0], X_train_final.shape[1], 1))
             X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
             X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
-            st.write(f"Shapes - Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+            st.write(f"**Shapes:** Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
 
             # Cálculo de Class Weights
             st.write("### Calculando Class Weights para Balanceamento das Classes...")
@@ -666,10 +650,10 @@ def treinar_modelo():
                     y=y_train_final
                 )
                 class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
-                st.write(f"Class weights: {class_weight_dict}")
+                st.write(f"**Class weights:** {class_weight_dict}")
             else:
                 class_weight_dict = None
-                st.write("Balanceamento de classes não aplicado.")
+                st.write("**Balanceamento de classes não aplicado.**")
 
             # Definição da Arquitetura da CNN
             st.write("### Definindo a Arquitetura da Rede Neural Convolucional (CNN)...")
@@ -692,7 +676,7 @@ def treinar_modelo():
 
             # Compilação do Modelo
             model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-            
+
             # **Exibição do Resumo do Modelo como Tabela**
             st.write("### Resumo do Modelo:")
             model_summary = []
@@ -732,9 +716,9 @@ def treinar_modelo():
             save_dir = 'saved_models'
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
-                st.write(f"Diretório '{save_dir}' criado para salvamento do modelo.")
+                st.write(f"**Diretório '{save_dir}' criado para salvamento do modelo.**")
             else:
-                st.write(f"Diretório '{save_dir}' já existe.")
+                st.write(f"**Diretório '{save_dir}' já existe.**")
 
             # **Ajuste do `filepath` para garantir que a string está corretamente fechada e sem `save_format`**
             checkpointer = ModelCheckpoint(
@@ -890,11 +874,9 @@ def treinar_modelo():
 
         except Exception as e:
             st.error(f"Erro durante o processamento do dataset: {e}")
-        finally:
-            # Garante que o arquivo temporário do ZIP seja removido
+            # Assegura a remoção dos arquivos temporários em caso de erro
             if 'zip_path' in locals() and os.path.exists(zip_path):
                 os.remove(zip_path)
-            # Garante que o diretório extraído seja removido
             if 'base_path' in locals() and os.path.exists(base_path):
                 for cat in categories:
                     cat_path = os.path.join(base_path, cat)
