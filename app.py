@@ -23,7 +23,7 @@ import gc
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
 def main():
     # Definir o caminho do ícone (favicon)
-    favicon_path = "eu.ico"  # Verifique se o arquivo eu.ico está no diretório correto
+    favicon_path = "logo.png"  # Verifique se o arquivo eu.ico está no diretório correto
 
     # Verificar se o arquivo de ícone existe antes de configurá-lo
     if os.path.exists(favicon_path):
@@ -51,7 +51,7 @@ def main():
 
     # ==================== LOGO E IMAGEM DE CAPA ====================
     # Carrega e exibe a capa.png na página principal
-    if os.path.exists('capa.png'):
+    if os.path.exists('capa (2).png'):
         try:
             st.image(
                 'capa (2).png', 
