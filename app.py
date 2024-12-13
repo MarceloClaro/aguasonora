@@ -87,6 +87,23 @@ def main():
         classificar_audio()
     elif app_mode == "Treinar Modelo":
         treinar_modelo()
+    
+    st.sidebar.write("""
+    Produzido pelo:
+
+    Projeto Geomaker + IA 
+
+    https://doi.org/10.5281/zenodo.13910277
+
+    - Professor: Marcelo Claro.
+
+    Contatos: marceloclaro@gmail.com
+
+    Whatsapp: (88)981587145
+
+    Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
+
+    """)
 
 # ==================== FUNÇÕES DE PROCESSAMENTO ====================
 
