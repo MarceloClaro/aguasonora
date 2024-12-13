@@ -9,14 +9,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from PIL import Image, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, random_split
-from torchvision import transforms, datasets
+from torch.utils.data import DataLoader, random_split, Dataset
+from torchvision import transforms
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
-from torchvision.models.segmentation import fcn_resnet50, FCN_ResNet50_Weights
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import (adjusted_rand_score, normalized_mutual_info_score,
                              confusion_matrix, classification_report,
@@ -34,6 +33,7 @@ import cv2
 import io
 import warnings
 from datetime import datetime  # Importação para data e hora
+import torchaudio  # Biblioteca para processamento de áudio
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -64,70 +64,50 @@ set_seed(42)  # Definir a seed para reprodutibilidade
 
 # Transformações para aumento de dados (aplicando transformações aleatórias)
 train_transforms = transforms.Compose([
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomRotation(degrees=45),
-    transforms.RandomApply([
-        transforms.RandomRotation(degrees=(0, 360)),
-        transforms.RandomAffine(degrees=0, shear=10),
-        transforms.RandomPerspective(distortion_scale=0.5, p=0.5),
-        transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
-    ], p=0.5),
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
+    torchaudio.transforms.Resample(orig_freq=44100, new_freq=22050),  # Resample para reduzir a frequência
+    torchaudio.transforms.MelSpectrogram(sample_rate=22050, n_mels=128),
+    torchaudio.transforms.FrequencyMasking(freq_mask_param=30),
+    torchaudio.transforms.TimeMasking(time_mask_param=100),
+    transforms.Normalize(mean=[0.5], std=[0.5]),
 ])
 
 # Transformações para validação e teste
 test_transforms = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
+    torchaudio.transforms.Resample(orig_freq=44100, new_freq=22050),
+    torchaudio.transforms.MelSpectrogram(sample_rate=22050, n_mels=128),
+    transforms.Normalize(mean=[0.5], std=[0.5]),
 ])
 
 # ==================== DATASET PERSONALIZADO ====================
 
-# Dataset personalizado para classificação
-class CustomDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, transform=None):
-        self.dataset = dataset
+class AudioDataset(Dataset):
+    def __init__(self, file_paths, labels, transform=None):
+        """
+        Dataset personalizado para classificação de áudio.
+        
+        Args:
+            file_paths (list): Lista de caminhos para os arquivos de áudio.
+            labels (list): Lista de rótulos correspondentes.
+            transform (callable, optional): Transformações a serem aplicadas nas amostras.
+        """
+        self.file_paths = file_paths
+        self.labels = labels
         self.transform = transform
 
     def __len__(self):
-        return len(self.dataset)
+        return len(self.file_paths)
 
     def __getitem__(self, idx):
-        image, label = self.dataset[idx]
+        # Carregar o arquivo de áudio
+        waveform, sample_rate = torchaudio.load(self.file_paths[idx])
+        # Converter para mono se estiver em estéreo
+        if waveform.shape[0] > 1:
+            waveform = torch.mean(waveform, dim=0, keepdim=True)
+        # Aplicar transformações se houver
         if self.transform:
-            image = self.transform(image)
-        return image, label
-
-# Dataset personalizado para segmentação
-class SegmentationDataset(torch.utils.data.Dataset):
-    def __init__(self, images_dir, masks_dir, transform=None, target_transform=None):
-        self.images_dir = images_dir
-        self.masks_dir = masks_dir
-        self.transform = transform
-        self.target_transform = target_transform
-        self.images = sorted(os.listdir(images_dir))
-        self.masks = sorted(os.listdir(masks_dir))
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.images_dir, self.images[idx])
-        mask_path = os.path.join(self.masks_dir, self.masks[idx])
-
-        image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path)
-
-        if self.transform:
-            image = self.transform(image)
-
-        if self.target_transform:
-            mask = self.target_transform(mask)
-
-        return image, mask
+            waveform = self.transform(waveform)
+        # Retornar o espectrograma e o rótulo
+        return waveform, self.labels[idx]
 
 # ==================== FUNÇÕES DE UTILITÁRIO ====================
 
@@ -141,15 +121,15 @@ def seed_worker(worker_id):
 
 def visualize_data(dataset, classes):
     """
-    Exibe algumas imagens do conjunto de dados com suas classes.
+    Exibe algumas amostras do conjunto de dados com suas classes.
     """
-    st.write("Visualização de algumas imagens do conjunto de dados:")
-    fig, axes = plt.subplots(1, 10, figsize=(20, 4))
-    for i in range(10):
+    st.write("Visualização de algumas amostras do conjunto de dados:")
+    fig, axes = plt.subplots(1, 5, figsize=(15, 3))
+    for i in range(5):
         idx = np.random.randint(len(dataset))
-        image, label = dataset[idx]
-        image = np.array(image)  # Converter a imagem PIL em array NumPy
-        axes[i].imshow(image)
+        spectrogram, label = dataset[idx]
+        spectrogram = spectrogram.squeeze().numpy()
+        axes[i].imshow(spectrogram, aspect='auto', origin='lower', cmap='viridis')
         axes[i].set_title(classes[label])
         axes[i].axis('off')
     st.pyplot(fig)
@@ -159,7 +139,7 @@ def plot_class_distribution(dataset, classes):
     """
     Exibe a distribuição das classes no conjunto de dados e mostra os valores quantitativos.
     """
-    # Extrair os rótulos das classes para todas as imagens no dataset
+    # Extrair os rótulos das classes para todas as amostras no dataset
     labels = [label for _, label in dataset]
 
     # Criar um DataFrame para facilitar o plot com Seaborn
@@ -181,16 +161,24 @@ def plot_class_distribution(dataset, classes):
     for i, count in enumerate(class_counts):
         ax.text(i, count, str(count), ha='center', va='bottom', fontweight='bold')
 
-    ax.set_title("Distribuição das Classes (Quantidade de Imagens)")
+    ax.set_title("Distribuição das Classes (Quantidade de Amostras)")
     ax.set_xlabel("Classes")
-    ax.set_ylabel("Número de Imagens")
+    ax.set_ylabel("Número de Amostras")
 
     st.pyplot(fig)
     plt.close(fig)  # Fechar a figura para liberar memória
 
-def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
+def get_model(model_name, num_classes, fine_tune=False):
     """
-    Retorna o modelo pré-treinado selecionado para classificação.
+    Retorna o modelo pré-treinado selecionado para classificação de áudio.
+    
+    Args:
+        model_name (str): Nome do modelo ('ResNet18', 'ResNet50', 'DenseNet121').
+        num_classes (int): Número de classes para a camada final.
+        fine_tune (bool): Se True, permite o ajuste fino de todas as camadas.
+    
+    Returns:
+        model (torch.nn.Module): Modelo ajustado para classificação de áudio.
     """
     if model_name == 'ResNet18':
         weights = ResNet18_Weights.DEFAULT
@@ -212,13 +200,13 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
     if model_name.startswith('ResNet'):
         num_ftrs = model.fc.in_features
         model.fc = nn.Sequential(
-            nn.Dropout(p=dropout_p),
+            nn.Dropout(p=0.5),
             nn.Linear(num_ftrs, num_classes)
         )
     elif model_name.startswith('DenseNet'):
         num_ftrs = model.classifier.in_features
         model.classifier = nn.Sequential(
-            nn.Dropout(p=dropout_p),
+            nn.Dropout(p=0.5),
             nn.Linear(num_ftrs, num_classes)
         )
     else:
@@ -228,32 +216,20 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
     model = model.to(device)
     return model
 
-def get_segmentation_model(num_classes, fine_tune=False):
-    """
-    Retorna o modelo pré-treinado para segmentação.
-    """
-    weights = FCN_ResNet50_Weights.DEFAULT
-    model = fcn_resnet50(weights=weights)
-    if not fine_tune:
-        for param in model.parameters():
-            param.requires_grad = False
-
-    # Ajustar a última camada para o número de classes do usuário
-    model.classifier[4] = nn.Conv2d(512, num_classes, kernel_size=1)
-    model.aux_classifier[4] = nn.Conv2d(256, num_classes, kernel_size=1)
-    model = model.to(device)
-    return model
-
 def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16):
     """
-    Aplica as transformações às imagens, extrai os embeddings e retorna um DataFrame.
+    Aplica as transformações às amostras, extrai os embeddings e retorna um DataFrame.
+    
+    Args:
+        dataset (Dataset): Conjunto de dados.
+        model (torch.nn.Module): Modelo para extração de embeddings.
+        transform (callable): Transformações a serem aplicadas.
+        batch_size (int): Tamanho do lote.
+    
+    Returns:
+        df (pd.DataFrame): DataFrame contendo embeddings e informações das amostras.
     """
-    # Definir função de coleta personalizada
-    def pil_collate_fn(batch):
-        images, labels = zip(*batch)
-        return list(images), torch.tensor(labels)
-
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=pil_collate_fn)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker)
     embeddings_list = []
     labels_list = []
     file_paths_list = []
@@ -268,20 +244,19 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
     index_pointer = 0  # Ponteiro para acompanhar os índices
 
     with torch.no_grad():
-        for images, labels in data_loader:
-            images_augmented = [transform(img) for img in images]
-            images_augmented = torch.stack(images_augmented).to(device)
-            embeddings = model_embedding(images_augmented)
+        for spectrograms, labels in data_loader:
+            spectrograms = spectrograms.to(device)
+            embeddings = model_embedding(spectrograms)
             embeddings = embeddings.view(embeddings.size(0), -1).cpu().numpy()
             embeddings_list.extend(embeddings)
             labels_list.extend(labels.numpy())
-            augmented_images_list.extend([img.permute(1, 2, 0).numpy() for img in images_augmented.cpu()])
-            # Atualizar o file_paths_list para corresponder às imagens atuais
-            if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'samples'):
-                batch_indices = indices[index_pointer:index_pointer + len(images)]
-                file_paths = [dataset.dataset.samples[i][0] for i in batch_indices]
+            augmented_images_list.extend([spec.squeeze().cpu().numpy() for spec in spectrograms])
+            # Atualizar o file_paths_list para corresponder às amostras atuais
+            if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'file_paths'):
+                batch_indices = indices[index_pointer:index_pointer + len(spectrograms)]
+                file_paths = [dataset.dataset.file_paths[i] for i in batch_indices]
                 file_paths_list.extend(file_paths)
-                index_pointer += len(images)
+                index_pointer += len(spectrograms)
             else:
                 file_paths_list.extend(['N/A'] * len(labels))
 
@@ -290,38 +265,44 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
         'file_path': file_paths_list,
         'label': labels_list,
         'embedding': embeddings_list,
-        'augmented_image': augmented_images_list
+        'augmented_spectrogram': augmented_images_list
     })
 
     return df
 
-def display_all_augmented_images(df, class_names, max_images=None):
+def display_all_augmented_spectrograms(df, class_names, max_spectrograms=10):
     """
-    Exibe todas as imagens augmentadas do DataFrame de forma organizada.
-    """
-    if max_images is not None:
-        df = df.head(max_images)
-        st.write(f"**Visualização das Primeiras {max_images} Imagens após Data Augmentation:**")
-    else:
-        st.write("**Visualização de Todas as Imagens após Data Augmentation:**")
+    Exibe algumas espectrogramas augmentadas do DataFrame de forma organizada.
     
-    num_images = len(df)
-    if num_images == 0:
-        st.write("Nenhuma imagem para exibir.")
+    Args:
+        df (pd.DataFrame): DataFrame contendo as espectrogramas.
+        class_names (list): Lista com os nomes das classes.
+        max_spectrograms (int): Número máximo de espectrogramas para exibir.
+    """
+    st.write(f"**Visualização de até {max_spectrograms} Espectrogramas após Data Augmentation:**")
+    
+    num_spectrograms = min(len(df), max_spectrograms)
+    if num_spectrograms == 0:
+        st.write("Nenhuma espectrograma para exibir.")
         return
     
     cols_per_row = 5  # Número de colunas por linha
-    rows = (num_images + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
+    rows = (num_spectrograms + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
     
     for row in range(rows):
         cols = st.columns(cols_per_row)
         for col in range(cols_per_row):
             idx = row * cols_per_row + col
-            if idx < num_images:
-                image = df.iloc[idx]['augmented_image']
+            if idx < num_spectrograms:
+                spectrogram = df.iloc[idx]['augmented_spectrogram']
                 label = df.iloc[idx]['label']
                 with cols[col]:
-                    st.image(image, caption=class_names[label], use_column_width=True)
+                    plt.figure(figsize=(2, 2))
+                    plt.imshow(spectrogram, aspect='auto', origin='lower', cmap='viridis')
+                    plt.title(class_names[label], fontsize=8)
+                    plt.axis('off')
+                    st.pyplot(plt)
+                    plt.close()
 
 def visualize_embeddings(df, class_names):
     """
@@ -361,21 +342,51 @@ def visualize_embeddings(df, class_names):
 
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
     """
-    Função principal para treinamento do modelo de classificação.
+    Função principal para treinamento do modelo de classificação de áudio.
+    
+    Args:
+        data_dir (str): Diretório contendo os dados de áudio organizados em subpastas por classe.
+        num_classes (int): Número de classes.
+        model_name (str): Nome do modelo pré-treinado.
+        fine_tune (bool): Se True, permite ajuste fino de todas as camadas.
+        epochs (int): Número de épocas.
+        learning_rate (float): Taxa de aprendizado.
+        batch_size (int): Tamanho do lote.
+        train_split (float): Proporção de dados para treinamento.
+        valid_split (float): Proporção de dados para validação.
+        use_weighted_loss (bool): Se True, utiliza perda ponderada.
+        l2_lambda (float): Coeficiente de regularização L2.
+        patience (int): Paciência para Early Stopping.
+    
+    Returns:
+        model (torch.nn.Module): Modelo treinado.
+        classes (list): Lista de nomes das classes.
     """
     set_seed(42)
 
-    # Carregar o dataset original com transformações básicas
-    full_dataset = datasets.ImageFolder(root=data_dir)
-
+    # Obter caminhos dos arquivos e rótulos
+    classes = sorted(os.listdir(data_dir))
+    file_paths = []
+    labels = []
+    for label, class_name in enumerate(classes):
+        class_dir = os.path.join(data_dir, class_name)
+        if os.path.isdir(class_dir):
+            for file in os.listdir(class_dir):
+                if file.lower().endswith(('.wav', '.mp3', '.flac', '.ogg', '.m4a')):
+                    file_paths.append(os.path.join(class_dir, file))
+                    labels.append(label)
+    
+    # Criar o dataset
+    full_dataset = AudioDataset(file_paths, labels, transform=None)
+    
     # Verificar se há classes suficientes
-    if len(full_dataset.classes) < num_classes:
-        st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
+    if len(classes) < num_classes:
+        st.error(f"O número de classes encontradas ({len(classes)}) é menor do que o número especificado ({num_classes}).")
         return None
 
     # Exibir dados
-    visualize_data(full_dataset, full_dataset.classes)
-    plot_class_distribution(full_dataset, full_dataset.classes)
+    visualize_data(full_dataset, classes)
+    plot_class_distribution(full_dataset, classes)
 
     # Divisão dos dados
     dataset_size = len(full_dataset)
@@ -400,7 +411,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
 
     # Criar dataframes para os conjuntos de treinamento, validação e teste com data augmentation e embeddings
-    model_for_embeddings = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+    model_for_embeddings = get_model(model_name, num_classes, fine_tune=False)
     if model_for_embeddings is None:
         return None
 
@@ -412,30 +423,27 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     test_df = apply_transforms_and_get_embeddings(test_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
 
     # Mapear rótulos para nomes de classes
-    class_to_idx = full_dataset.class_to_idx
-    idx_to_class = {v: k for k, v in class_to_idx.items()}
+    train_df['class_name'] = train_df['label'].map(lambda x: classes[x])
+    valid_df['class_name'] = valid_df['label'].map(lambda x: classes[x])
+    test_df['class_name'] = test_df['label'].map(lambda x: classes[x])
 
-    train_df['class_name'] = train_df['label'].map(idx_to_class)
-    valid_df['class_name'] = valid_df['label'].map(idx_to_class)
-    test_df['class_name'] = test_df['label'].map(idx_to_class)
-
-    # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
+    # Exibir dataframes no Streamlit sem a coluna 'augmented_spectrogram'
     st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
-    st.dataframe(train_df.drop(columns=['augmented_image']))
+    st.dataframe(train_df.drop(columns=['augmented_spectrogram']))
 
     st.write("**Dataframe do Conjunto de Validação:**")
-    st.dataframe(valid_df.drop(columns=['augmented_image']))
+    st.dataframe(valid_df.drop(columns=['augmented_spectrogram']))
 
     st.write("**Dataframe do Conjunto de Teste:**")
-    st.dataframe(test_df.drop(columns=['augmented_image']))
+    st.dataframe(test_df.drop(columns=['augmented_spectrogram']))
 
-    # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
-    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
+    # Exibir todas as espectrogramas augmentadas (ou limitar conforme necessário)
+    display_all_augmented_spectrograms(train_df, classes, max_spectrograms=10)  # Ajuste 'max_spectrograms' conforme necessário
 
     # Visualizar os embeddings
-    visualize_embeddings(train_df, full_dataset.classes)
+    visualize_embeddings(train_df, classes)
 
-    # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
+    # Exibir contagem de amostras por classe nos conjuntos de treinamento e teste
     st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
     train_class_counts = train_df['class_name'].value_counts()
     st.bar_chart(train_class_counts)
@@ -445,16 +453,22 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     st.bar_chart(test_class_counts)
 
     # Atualizar os datasets com as transformações para serem usados nos DataLoaders
-    train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
-    valid_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, valid_indices), transform=test_transforms)
-    test_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, test_indices), transform=test_transforms)
+    train_dataset = AudioDataset([full_dataset.file_paths[i] for i in train_indices],
+                                 [full_dataset.labels[i] for i in train_indices],
+                                 transform=train_transforms)
+    valid_dataset = AudioDataset([full_dataset.file_paths[i] for i in valid_indices],
+                                 [full_dataset.labels[i] for i in valid_indices],
+                                 transform=test_transforms)
+    test_dataset = AudioDataset([full_dataset.file_paths[i] for i in test_indices],
+                                [full_dataset.labels[i] for i in test_indices],
+                                transform=test_transforms)
 
     # Dataloaders
     g = torch.Generator()
     g.manual_seed(42)
 
     if use_weighted_loss:
-        targets = [full_dataset.targets[i] for i in train_indices]
+        targets = [full_dataset.labels[i] for i in train_indices]
         class_counts = np.bincount(targets)
         class_counts = class_counts + 1e-6  # Para evitar divisão por zero
         class_weights = 1.0 / class_counts
@@ -468,7 +482,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
     # Carregar o modelo
-    model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
+    model = get_model(model_name, num_classes, fine_tune=fine_tune)
     if model is None:
         return None
 
@@ -635,15 +649,15 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
-    compute_metrics(model, test_loader, full_dataset.classes)
+    compute_metrics(model, test_loader, classes)
 
     # Análise de Erros
     st.write("**Análise de Erros**")
-    error_analysis(model, test_loader, full_dataset.classes)
+    error_analysis(model, test_loader, classes)
 
     # **Clusterização e Análise Comparativa**
     st.write("**Análise de Clusterização**")
-    perform_clustering(model, test_loader, full_dataset.classes)
+    perform_clustering(model, test_loader, classes)
 
     # Liberar memória
     del train_loader, valid_loader
@@ -651,10 +665,10 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
 
     # Armazenar o modelo e as classes no st.session_state
     st.session_state['model'] = model
-    st.session_state['classes'] = full_dataset.classes
+    st.session_state['classes'] = classes
     st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
 
-    return model, full_dataset.classes
+    return model, classes
 
 def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies):
     """
@@ -714,7 +728,7 @@ def compute_metrics(model, dataloader, classes):
 
     # Matriz de Confusão Normalizada
     cm = confusion_matrix(all_labels, all_preds, normalize='true')
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt='.2f', cmap='Blues', xticklabels=classes, yticklabels=classes, ax=ax)
     ax.set_xlabel('Predito')
     ax.set_ylabel('Verdadeiro')
@@ -743,10 +757,10 @@ def compute_metrics(model, dataloader, classes):
 
 def error_analysis(model, dataloader, classes):
     """
-    Realiza análise de erros mostrando algumas imagens mal classificadas.
+    Realiza análise de erros mostrando algumas amostras mal classificadas.
     """
     model.eval()
-    misclassified_images = []
+    misclassified_spectrograms = []
     misclassified_labels = []
     misclassified_preds = []
 
@@ -759,25 +773,25 @@ def error_analysis(model, dataloader, classes):
 
             incorrect = preds != labels
             if incorrect.any():
-                misclassified_images.extend(inputs[incorrect].cpu())
+                misclassified_spectrograms.extend(inputs[incorrect].cpu())
                 misclassified_labels.extend(labels[incorrect].cpu())
                 misclassified_preds.extend(preds[incorrect].cpu())
-                if len(misclassified_images) >= 5:
+                if len(misclassified_spectrograms) >= 5:
                     break
 
-    if misclassified_images:
-        st.write("Algumas imagens mal classificadas:")
-        fig, axes = plt.subplots(1, min(5, len(misclassified_images)), figsize=(15, 3))
-        for i in range(min(5, len(misclassified_images))):
-            image = misclassified_images[i]
-            image = image.permute(1, 2, 0).numpy()
-            axes[i].imshow(image)
-            axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
+    if misclassified_spectrograms:
+        st.write("Algumas amostras mal classificadas:")
+        fig, axes = plt.subplots(1, min(5, len(misclassified_spectrograms)), figsize=(15, 3))
+        for i in range(min(5, len(misclassified_spectrograms))):
+            spectrogram = misclassified_spectrograms[i]
+            spectrogram = spectrogram.squeeze().numpy()
+            axes[i].imshow(spectrogram, aspect='auto', origin='lower', cmap='viridis')
+            axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}", fontsize=8)
             axes[i].axis('off')
         st.pyplot(fig)
         plt.close(fig)  # Fechar a figura para liberar memória
     else:
-        st.write("Nenhuma imagem mal classificada encontrada.")
+        st.write("Nenhuma amostra mal classificada encontrada.")
 
 def perform_clustering(model, dataloader, classes):
     """
@@ -788,10 +802,7 @@ def perform_clustering(model, dataloader, classes):
     labels = []
 
     # Remover a última camada (classificador)
-    if isinstance(model, nn.Sequential):
-        model_feat = model
-    else:
-        model_feat = nn.Sequential(*list(model.children())[:-1])
+    model_feat = nn.Sequential(*list(model.children())[:-1])
     model_feat.eval()
     model_feat.to(device)
 
@@ -845,47 +856,44 @@ def perform_clustering(model, dataloader, classes):
     st.write(f"**KMeans** - ARI: {ari_kmeans:.4f}, NMI: {nmi_kmeans:.4f}")
     st.write(f"**Agglomerative Clustering** - ARI: {ari_agglo:.4f}, NMI: {nmi_agglo:.4f}")
 
-def evaluate_image(model, image, classes):
+def evaluate_audio(model, audio_path, classes, transform):
     """
-    Avalia uma única imagem e retorna a classe predita e a confiança.
+    Avalia uma única amostra de áudio e retorna a classe predita e a confiança.
+    
+    Args:
+        model (torch.nn.Module): Modelo treinado.
+        audio_path (str): Caminho para o arquivo de áudio.
+        classes (list): Lista de nomes das classes.
+        transform (callable): Transformação a ser aplicada no áudio.
+    
+    Returns:
+        class_name (str): Nome da classe predita.
+        confidence (float): Confiança da predição.
     """
     model.eval()
-    image_tensor = test_transforms(image).unsqueeze(0).to(device)
+    waveform, sample_rate = torchaudio.load(audio_path)
+    if waveform.shape[0] > 1:
+        waveform = torch.mean(waveform, dim=0, keepdim=True)
+    if transform:
+        waveform = transform(waveform)
+    waveform = waveform.to(device)
     with torch.no_grad():
-        output = model(image_tensor)
+        output = model(waveform)
         probabilities = torch.nn.functional.softmax(output, dim=1)
-        confidence, predicted = torch.max(probabilities, 1)
-        class_idx = predicted.item()
+        confidence, pred = torch.max(probabilities, 1)
+        class_idx = pred.item()
         class_name = classes[class_idx]
         return class_name, confidence.item()
 
-def label_to_color_image(label):
+def visualize_activations(model, audio_path, class_names, model_name, segmentation_model=None, segmentation=False):
     """
-    Mapeia uma máscara de segmentação para uma imagem colorida.
-    """
-    colormap = create_pascal_label_colormap()
-    return colormap[label]
-
-def create_pascal_label_colormap():
-    """
-    Cria um mapa de cores para o conjunto de dados PASCAL VOC.
-    """
-    colormap = np.zeros((256, 3), dtype=int)
-    ind = np.arange(256, dtype=int)
-
-    for shift in reversed(range(8)):
-        for channel in range(3):
-            colormap[:, channel] |= ((ind >> channel) & 1) << shift
-        ind >>= 3
-
-    return colormap
-
-def visualize_activations(model, image, class_names, model_name, segmentation_model=None, segmentation=False):
-    """
-    Visualiza as ativações na imagem usando Grad-CAM e adiciona a segmentação de objetos.
+    Visualiza as ativações na espectrograma usando Grad-CAM.
     """
     model.eval()  # Coloca o modelo em modo de avaliação
-    input_tensor = test_transforms(image).unsqueeze(0).to(device)
+    waveform, sample_rate = torchaudio.load(audio_path)
+    if waveform.shape[0] > 1:
+        waveform = torch.mean(waveform, dim=0, keepdim=True)
+    input_tensor = train_transforms(waveform).unsqueeze(0).to(device)
 
     # Verificar se o modelo é suportado
     if model_name.startswith('ResNet'):
@@ -911,141 +919,36 @@ def visualize_activations(model, image, class_names, model_name, segmentation_mo
 
     # Converter o mapa de ativação para PIL Image
     activation_map = activation_map[0]
-    result = overlay_mask(to_pil_image(input_tensor.squeeze().cpu()), to_pil_image(activation_map.squeeze(), mode='F'), alpha=0.5)
+    # Converter a espectrograma para PIL Image para overlay
+    spectrogram = input_tensor.squeeze().cpu().numpy()
+    spectrogram_img = plt.cm.viridis(spectrogram)
+    spectrogram_pil = Image.fromarray((spectrogram_img * 255).astype(np.uint8))
+    result = overlay_mask(spectrogram_pil, to_pil_image(activation_map.squeeze(), mode='F'), alpha=0.5)
 
     # Converter a imagem para array NumPy
-    image_np = np.array(image)
+    spectrogram_np = np.array(spectrogram_pil)
 
-    if segmentation and segmentation_model is not None:
-        # Aplicar o modelo de segmentação
-        segmentation_model.eval()
-        with torch.no_grad():
-            segmentation_output = segmentation_model(input_tensor)['out']
-            segmentation_mask = torch.argmax(segmentation_output.squeeze(), dim=0).cpu().numpy()
+    # Exibir as imagens: Espectrograma Original e Grad-CAM
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
 
-        # Mapear o índice da classe para uma cor
-        segmentation_colored = label_to_color_image(segmentation_mask).astype(np.uint8)
-        segmentation_colored = cv2.resize(segmentation_colored, (image.size[0], image.size[1]))
+    # Espectrograma original
+    ax[0].imshow(spectrogram_np, aspect='auto', origin='lower', cmap='viridis')
+    ax[0].set_title('Espectrograma Original')
+    ax[0].axis('off')
 
-        # Exibir as imagens: Imagem Original, Grad-CAM e Segmentação
-        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    # Espectrograma com Grad-CAM
+    ax[1].imshow(result)
+    ax[1].set_title('Grad-CAM')
+    ax[1].axis('off')
 
-        # Imagem original
-        ax[0].imshow(image_np)
-        ax[0].set_title('Imagem Original')
-        ax[0].axis('off')
-
-        # Imagem com Grad-CAM
-        ax[1].imshow(result)
-        ax[1].set_title('Grad-CAM')
-        ax[1].axis('off')
-
-        # Imagem com Segmentação
-        ax[2].imshow(image_np)
-        ax[2].imshow(segmentation_colored, alpha=0.6)
-        ax[2].set_title('Segmentação')
-        ax[2].axis('off')
-
-        # Exibir as imagens com o Streamlit
-        st.pyplot(fig)
-        plt.close(fig)  # Fechar a figura para liberar memória
-    else:
-        # Exibir as imagens: Imagem Original e Grad-CAM
-        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-
-        # Imagem original
-        ax[0].imshow(image_np)
-        ax[0].set_title('Imagem Original')
-        ax[0].axis('off')
-
-        # Imagem com Grad-CAM
-        ax[1].imshow(result)
-        ax[1].set_title('Grad-CAM')
-        ax[1].axis('off')
-
-        # Exibir as imagens com o Streamlit
-        st.pyplot(fig)
-        plt.close(fig)  # Fechar a figura para liberar memória
+    # Exibir as imagens com o Streamlit
+    st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 # ==================== FUNÇÕES DE TREINAMENTO DE SEGMENTAÇÃO ====================
 
-def train_segmentation_model(images_dir, masks_dir, num_classes):
-    """
-    Treina o modelo de segmentação com o conjunto de dados fornecido pelo usuário.
-    """
-    set_seed(42)
-    batch_size = 4
-    num_epochs = 25
-    learning_rate = 0.001
-
-    # Transformações
-    input_transforms = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-    ])
-    target_transforms = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-    ])
-
-    # Dataset
-    dataset = SegmentationDataset(images_dir, masks_dir, transform=input_transforms, target_transform=target_transforms)
-
-    # Dividir em treino e validação
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    if train_size == 0 or val_size == 0:
-        st.error("Conjunto de dados de segmentação muito pequeno para dividir em treino e validação.")
-        return None
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-
-    # Dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker)
-
-    # Modelo
-    model = get_segmentation_model(num_classes=num_classes, fine_tune=True)
-
-    # Otimizador e função de perda
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Treinamento
-    for epoch in range(num_epochs):
-        model.train()
-        running_loss = 0.0
-
-        for inputs, masks in train_loader:
-            inputs = inputs.to(device)
-            masks = masks.to(device).long().squeeze(1)  # Ajustar dimensões
-
-            optimizer.zero_grad()
-            outputs = model(inputs)['out']
-            loss = criterion(outputs, masks)
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item() * inputs.size(0)
-
-        epoch_loss = running_loss / len(train_loader.dataset)
-        st.write(f'Época [{epoch+1}/{num_epochs}], Perda de Treino: {epoch_loss:.4f}')
-
-        # Validação
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for inputs, masks in val_loader:
-                inputs = inputs.to(device)
-                masks = masks.to(device).long().squeeze(1)
-
-                outputs = model(inputs)['out']
-                loss = criterion(outputs, masks)
-                val_loss += loss.item() * inputs.size(0)
-
-        val_loss = val_loss / len(val_loader.dataset)
-        st.write(f'Época [{epoch+1}/{num_epochs}], Perda de Validação: {val_loss:.4f}')
-
-    return model
+# Removido: Segmentação de áudio não é comum em classificação de sons.
+# Caso necessário, implemente funções específicas para segmentação de áudio.
 
 # ==================== FUNÇÃO PRINCIPAL STREAMLIT ====================
 
@@ -1085,47 +988,7 @@ def main():
         st.sidebar.text("Imagem do logotipo não encontrada.")
 
     st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Data Augmentation e CNN")
-    st.write("Este aplicativo permite treinar um modelo de classificação de sons, aplicar algoritmos de clustering para análise comparativa e realizar segmentação de objetos.")
-
-    # Inicializar segmentation_model
-    segmentation_model = None
-
-    # Opções para o modelo de segmentação
-    st.subheader("Opções para o Modelo de Segmentação")
-    segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"], key="segmentation_option")
-    if segmentation_option == "Utilizar modelo pré-treinado":
-        num_classes_segmentation = st.number_input("Número de Classes para Segmentação (Modelo Pré-treinado):", min_value=1, step=1, value=21, key="num_classes_segmentation")
-        segmentation_model = get_segmentation_model(num_classes=num_classes_segmentation)
-        st.write("Modelo de segmentação pré-treinado carregado.")
-    elif segmentation_option == "Treinar novo modelo de segmentação":
-        st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
-        num_classes_segmentation = st.number_input("Número de Classes para Segmentação:", min_value=1, step=1, key="num_classes_segmentation_custom")
-        # Upload do conjunto de dados de segmentação
-        segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"], key="segmentation_zip")
-        if segmentation_zip is not None:
-            temp_seg_dir = tempfile.mkdtemp()
-            zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
-            with open(zip_path, "wb") as f:
-                f.write(segmentation_zip.read())
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_seg_dir)
-
-            # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
-            images_dir = os.path.join(temp_seg_dir, 'images')
-            masks_dir = os.path.join(temp_seg_dir, 'masks')
-
-            if os.path.exists(images_dir) and os.path.exists(masks_dir):
-                # Treinar o modelo de segmentação
-                st.write("Iniciando o treinamento do modelo de segmentação...")
-                segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_segmentation)
-                if segmentation_model is not None:
-                    st.success("Treinamento do modelo de segmentação concluído!")
-            else:
-                st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
-        else:
-            st.warning("Aguardando o upload do conjunto de dados de segmentação.")
-    else:
-        segmentation_model = None
+    st.write("Este aplicativo permite treinar um modelo de classificação de sons, aplicar algoritmos de clustering para análise comparativa.")
 
     # Barra Lateral de Configurações
     st.sidebar.title("Configurações do Treinamento")
@@ -1181,7 +1044,7 @@ def main():
         model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
         if model_file is not None and num_classes > 0:
             # Carregar o modelo
-            model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+            model = get_model(model_name, num_classes, fine_tune=False)
             if model is None:
                 st.error("Erro ao carregar o modelo.")
                 return
@@ -1211,7 +1074,7 @@ def main():
 
     elif model_option == "Treinar um novo modelo":
         # Upload do arquivo ZIP
-        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
+        zip_file = st.file_uploader("Upload do arquivo ZIP com os arquivos de áudio organizados em pastas por classe", type=["zip"], key="zip_file_uploader")
         if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
             temp_dir = tempfile.mkdtemp()
             zip_path = os.path.join(temp_dir, "uploaded.zip")
@@ -1262,9 +1125,9 @@ def main():
         else:
             st.warning("Por favor, forneça os dados e as configurações corretas.")
 
-    # Avaliação de uma imagem individual
-    st.header("Avaliação de Imagem")
-    evaluate = st.radio("Deseja avaliar uma imagem?", ("Sim", "Não"), key="evaluate_option")
+    # Avaliação de uma amostra individual
+    st.header("Avaliação de Amostra de Áudio")
+    evaluate = st.radio("Deseja avaliar uma amostra de áudio?", ("Sim", "Não"), key="evaluate_option")
     if evaluate == "Sim":
         # Verificar se o modelo já foi carregado ou treinado
         if 'model' not in st.session_state or 'classes' not in st.session_state:
@@ -1274,7 +1137,7 @@ def main():
             if model_file_eval is not None:
                 num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
                 model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
-                model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
+                model_eval = get_model(model_name_eval, num_classes_eval, fine_tune=False)
                 if model_eval is None:
                     st.error("Erro ao carregar o modelo.")
                     return
@@ -1303,30 +1166,27 @@ def main():
             classes_eval = st.session_state['classes']
             model_name_eval = st.session_state.get('trained_model_name', model_name)  # Usa o nome do modelo armazenado
 
-        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
-        if eval_image_file is not None:
-            eval_image_file.seek(0)
-            try:
-                eval_image = Image.open(eval_image_file).convert("RGB")
-            except Exception as e:
-                st.error(f"Erro ao abrir a imagem: {e}")
-                return
+        eval_audio_file = st.file_uploader("Faça upload da amostra de áudio para avaliação", type=["wav", "mp3", "flac", "ogg", "m4a"], key="eval_audio_file")
+        if eval_audio_file is not None:
+            # Salvar o arquivo temporariamente
+            temp_audio_path = tempfile.mktemp(suffix=".wav")
+            with open(temp_audio_path, "wb") as f:
+                f.write(eval_audio_file.read())
 
-            st.image(eval_image, caption='Imagem para avaliação', use_container_width=True)
+            st.audio(eval_audio_file, format='audio/wav')
+            st.write("**Amostra de Áudio para Avaliação:**")
 
             if 'model' in st.session_state and 'classes' in st.session_state:
-                class_name, confidence = evaluate_image(st.session_state['model'], eval_image, st.session_state['classes'])
+                class_name, confidence = evaluate_audio(st.session_state['model'], temp_audio_path, st.session_state['classes'], test_transforms)
                 st.write(f"**Classe Predita:** {class_name}")
                 st.write(f"**Confiança:** {confidence:.4f}")
 
-                # Opção para visualizar segmentação
-                segmentation = False
-                if segmentation_model is not None:
-                    segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
+                # Visualizar ativações
+                visualize_activations(st.session_state['model'], temp_audio_path, st.session_state['classes'], 
+                                      st.session_state.get('trained_model_name', model_name))
 
-                # Visualizar ativações e segmentação
-                model_name_for_visualization = st.session_state.get('trained_model_name', 'ResNet18')
-                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, segmentation_model=segmentation_model, segmentation=segmentation)
+                # Remover o arquivo temporário
+                os.remove(temp_audio_path)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
 
