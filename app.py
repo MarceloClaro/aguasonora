@@ -40,7 +40,7 @@ def exibir_logo():
 # Carrega e exibe a capa.png na página principal
 def exibir_capa():
     try:
-        capa = Image.open("capa.png")
+        capa = Image.open("capa(2).png")
         st.image(capa, use_column_width=True)
     except FileNotFoundError:
         st.error("Arquivo 'capa.png' não encontrado. Por favor, coloque-o na mesma pasta do script.")
