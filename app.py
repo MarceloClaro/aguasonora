@@ -20,6 +20,9 @@ import torch
 import zipfile
 import gc
 
+# Desativa CUDA para PyTorch se não necessário
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 # Configurações para visualizações
 sns.set(style='whitegrid', context='notebook')
 
@@ -302,7 +305,7 @@ def classificar_audio():
                 model = torch.load(tmp_path, map_location=torch.device('cpu'))
                 model.eval()
             else:
-                # Para modelos Keras
+                # Para modelos Keras (.h5 e .keras)
                 model = load_model(tmp_path, compile=False)
             st.success("Modelo carregado com sucesso!")
 
@@ -517,10 +520,11 @@ def treinar_modelo():
             # Definição da Arquitetura da CNN
             st.write("### Definindo a Arquitetura da Rede Neural Convolucional (CNN)...")
             from tensorflow.keras.models import Sequential
-            from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout
+            from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
 
             model = Sequential([
-                Conv1D(64, kernel_size=10, activation='relu', input_shape=(X_train_final.shape[1], 1)),
+                Input(shape=(X_train_final.shape[1], 1)),
+                Conv1D(64, kernel_size=10, activation='relu'),
                 Dropout(0.4),
                 MaxPooling1D(pool_size=4),
                 Conv1D(128, kernel_size=10, activation='relu', padding='same'),
