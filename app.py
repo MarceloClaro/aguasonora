@@ -20,11 +20,36 @@ import torch
 import zipfile
 import gc
 
-# Desativa CUDA para PyTorch se não necessário
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# ==================== CONFIGURAÇÃO DA PÁGINA ====================
+# Define o favicon (eu.ico) e o layout da página
+st.set_page_config(
+    page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
+    page_icon="eu.ico",  # Caminho relativo para o favicon
+    layout="wide"
+)
 
-# Configurações para visualizações
-sns.set(style='whitegrid', context='notebook')
+# ==================== LOGO E IMAGEM DE CAPA ====================
+# Carrega e exibe o logo.png na barra lateral
+def exibir_logo():
+    try:
+        logo = Image.open("logo.png")
+        st.sidebar.image(logo, use_column_width=True)
+    except FileNotFoundError:
+        st.sidebar.error("Arquivo 'logo.png' não encontrado. Por favor, coloque-o na mesma pasta do script.")
+
+# Carrega e exibe a capa.png na página principal
+def exibir_capa():
+    try:
+        capa = Image.open("capa.png")
+        st.image(capa, use_column_width=True)
+    except FileNotFoundError:
+        st.error("Arquivo 'capa.png' não encontrado. Por favor, coloque-o na mesma pasta do script.")
+
+# Exibe o logo na barra lateral
+exibir_logo()
+
+# Exibe a imagem de capa na página principal
+exibir_capa()
 
 # ==================== CONTROLE DE REPRODUTIBILIDADE ====================
 SEED = 42
@@ -317,8 +342,6 @@ def processar_novo_audio(caminho_audio, modelo, labelencoder):
 # ==================== CONFIGURAÇÃO DA APLICAÇÃO STREAMLIT ====================
 
 def main():
-    st.set_page_config(page_title="Classificação de Sons de Água Vibrando em Copo de Vidro", layout="wide")
-
     st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
     st.write("""
     Bem-vindo à nossa aplicação! Aqui, você pode **classificar sons de água vibrando em copos de vidro**. Você tem duas opções:
