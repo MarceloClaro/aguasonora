@@ -111,10 +111,11 @@ def plot_forma_onda(data, sr, titulo="Forma de Onda"):
     - titulo (str): Título do gráfico.
     """
     fig, ax = plt.subplots(figsize=(14, 4))
-    ax.set_title(titulo)
+    ax.set_title(titulo, fontsize=16)
     ld.waveshow(data, sr=sr, ax=ax)
-    ax.set_xlabel("Tempo (s)")
-    ax.set_ylabel("Amplitude")
+    ax.set_xlabel("Tempo (segundos)", fontsize=14)
+    ax.set_ylabel("Amplitude", fontsize=14)
+    ax.tick_params(axis='both', which='major', labelsize=12)
     st.pyplot(fig)
     plt.close(fig)
 
@@ -132,11 +133,12 @@ def plot_espectro_frequencias(data, sr, titulo="Espectro de Frequências"):
     fft = np.abs(fft[:N//2])  # Apenas a metade positiva do espectro
     freqs = np.fft.fftfreq(N, 1/sr)[:N//2]
     fig, ax = plt.subplots(figsize=(14, 4))
-    ax.set_title(titulo)
-    ax.plot(freqs, fft)
-    ax.set_xlabel("Frequência (Hz)")
-    ax.set_ylabel("Amplitude")
+    ax.set_title(titulo, fontsize=16)
+    ax.plot(freqs, fft, color='blue')
+    ax.set_xlabel("Frequência (Hz)", fontsize=14)
+    ax.set_ylabel("Amplitude", fontsize=14)
     ax.grid(True)
+    ax.tick_params(axis='both', which='major', labelsize=12)
     st.pyplot(fig)
     plt.close(fig)
 
@@ -152,11 +154,13 @@ def plot_espectrograma(data, sr, titulo="Espectrograma (STFT)"):
     D = np.abs(librosa.stft(data))
     DB = librosa.amplitude_to_db(D, ref=np.max)
     fig, ax = plt.subplots(figsize=(14, 4))
-    ax.set_title(titulo)
-    mappable = ld.specshow(DB, sr=sr, x_axis='time', y_axis='hz', cmap='magma', ax=ax)
-    plt.colorbar(mappable=mappable, ax=ax, format='%+2.0f dB')
-    ax.set_xlabel("Tempo (s)")
-    ax.set_ylabel("Frequência (Hz)")
+    ax.set_title(titulo, fontsize=16)
+    mappable = ld.specshow(DB, sr=sr, x_axis='tempo', y_axis='frequência', cmap='magma', ax=ax)
+    cbar = plt.colorbar(mappable=mappable, ax=ax, format='%+2.0f dB')
+    cbar.ax.set_ylabel("Intensidade (dB)", fontsize=14)
+    ax.set_xlabel("Tempo (segundos)", fontsize=14)
+    ax.set_ylabel("Frequência (Hz)", fontsize=14)
+    ax.tick_params(axis='both', which='major', labelsize=12)
     st.pyplot(fig)
     plt.close(fig)
 
@@ -172,11 +176,13 @@ def plot_mfcc(data, sr, titulo="Espectrograma (MFCC)"):
     mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
     mfccs_db = librosa.amplitude_to_db(np.abs(mfccs))
     fig, ax = plt.subplots(figsize=(14, 4))
-    ax.set_title(titulo)
-    mappable = ld.specshow(mfccs_db, x_axis='time', y_axis='mel', cmap='Spectral', sr=sr, ax=ax)
-    plt.colorbar(mappable=mappable, ax=ax, format='%+2.f dB')
-    ax.set_xlabel("Tempo (s)")
-    ax.set_ylabel("Frequência (Mel)")
+    ax.set_title(titulo, fontsize=16)
+    mappable = ld.specshow(mfccs_db, x_axis='tempo', y_axis='mel', cmap='Spectral', sr=sr, ax=ax)
+    cbar = plt.colorbar(mappable=mappable, ax=ax, format='%+2.f dB')
+    cbar.ax.set_ylabel("Intensidade (dB)", fontsize=14)
+    ax.set_xlabel("Tempo (segundos)", fontsize=14)
+    ax.set_ylabel("Frequência (Mel)", fontsize=14)
+    ax.tick_params(axis='both', which='major', labelsize=12)
     st.pyplot(fig)
     plt.close(fig)
 
@@ -193,12 +199,16 @@ def plot_probabilidades_classes(class_probs, titulo="Probabilidades das Classes"
 
     fig, ax = plt.subplots(figsize=(12, 6))
     sns.barplot(x=classes, y=probs, hue=classes, palette='viridis', ax=ax, legend=False)
-    ax.set_title(titulo)
-    ax.set_xlabel("Classes")
-    ax.set_ylabel("Probabilidade")
+    ax.set_title(titulo, fontsize=16)
+    ax.set_xlabel("Classes", fontsize=14)
+    ax.set_ylabel("Probabilidade", fontsize=14)
     ax.set_ylim(0, 1)  # Probabilidades entre 0 e 1
+    ax.tick_params(axis='both', which='major', labelsize=12)
+    
+    # Adiciona rótulos de porcentagem acima das barras
     for i, v in enumerate(probs):
-        ax.text(i, v + 0.01, f"{v*100:.2f}%", ha='center', va='bottom')
+        ax.text(i, v + 0.01, f"{v*100:.2f}%", ha='center', va='bottom', fontsize=12)
+    
     st.pyplot(fig)
     plt.close(fig)
 
@@ -266,7 +276,9 @@ def main():
 
     st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
     st.write("""
-    Esta aplicação permite classificar sons de água vibrando em copos de vidro. Você pode treinar um modelo CNN com seu próprio conjunto de dados ou utilizar um modelo pré-treinado para realizar previsões em novos arquivos de áudio.
+    Bem-vindo à nossa aplicação! Aqui, você pode **classificar sons de água vibrando em copos de vidro**. Você tem duas opções:
+    - **Classificar Áudio:** Use um modelo já treinado para identificar o som.
+    - **Treinar Modelo:** Treine seu próprio modelo com seus dados de áudio.
     """)
 
     # Barra Lateral de Navegação
@@ -383,7 +395,7 @@ def treinar_modelo():
 
     st.write("""
     ### Passo 1: Upload do Dataset
-    O dataset deve estar organizado em um arquivo ZIP com pastas para cada classe. Por exemplo:
+    O **dataset** deve estar organizado em um arquivo ZIP com pastas para cada classe. Por exemplo:
     ```
     dataset.zip/
     ├── agua_gelada/
@@ -397,7 +409,7 @@ def treinar_modelo():
     └── ...
     ```
     """)
-
+    
     zip_upload = st.file_uploader(
         "Faça upload do arquivo ZIP contendo as pastas das classes", 
         type=["zip"], 
@@ -462,9 +474,10 @@ def treinar_modelo():
             st.write("### Distribuição das Classes:")
             fig_dist, ax_dist = plt.subplots(figsize=(10, 6))
             sns.barplot(x=contagem_classes.index, y=contagem_classes.values, palette='viridis', ax=ax_dist)
-            ax_dist.set_xlabel("Classes")
-            ax_dist.set_ylabel("Número de Amostras")
-            ax_dist.set_title("Distribuição das Classes no Dataset")
+            ax_dist.set_xlabel("Classes", fontsize=14)
+            ax_dist.set_ylabel("Número de Amostras", fontsize=14)
+            ax_dist.set_title("Distribuição das Classes no Dataset", fontsize=16)
+            ax_dist.tick_params(axis='both', which='major', labelsize=12)
             st.pyplot(fig_dist)
             plt.close(fig_dist)
 
@@ -527,12 +540,12 @@ def treinar_modelo():
                 estiramento_tempo = st.sidebar.checkbox(
                     "Estiramento de Tempo",
                     value=True,
-                    help="Altera a velocidade do áudio sem alterar seu pitch."
+                    help="Altera a velocidade do áudio sem alterar seu tom."
                 )
                 alteracao_pitch = st.sidebar.checkbox(
                     "Alteração de Pitch",
                     value=True,
-                    help="Altera o pitch do áudio sem alterar sua velocidade."
+                    help="Altera o tom do áudio sem alterar sua velocidade."
                 )
                 deslocamento = st.sidebar.checkbox(
                     "Deslocamento",
@@ -734,8 +747,8 @@ def treinar_modelo():
             st.write("### Configurando Callbacks para o Treinamento...")
             st.write("""
             **Callbacks** são funções que são chamadas durante o treinamento da rede neural. Elas podem ser usadas para monitorar o desempenho do modelo e ajustar o treinamento de acordo com certos critérios. Nesta aplicação, utilizamos dois callbacks:
-            - **ModelCheckpoint:** Salva o modelo automaticamente em intervalos especificados ou quando uma métrica melhora.
-            - **EarlyStopping:** Interrompe o treinamento automaticamente se o modelo não estiver melhorando, evitando overfitting.
+            - **ModelCheckpoint:** Salva o modelo automaticamente quando a métrica de validação melhora.
+            - **EarlyStopping:** Interrompe o treinamento automaticamente se a métrica de validação não melhorar após um número especificado de épocas, evitando overfitting.
             """)
 
             from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -746,13 +759,12 @@ def treinar_modelo():
             else:
                 st.write(f"**Diretório '{diretorio_salvamento}' já existe.**")
 
-            # **Ajuste do `filepath` para garantir que a string está corretamente fechada e sem `save_format`**
+            # Configuração do ModelCheckpoint
             checkpointer = ModelCheckpoint(
                 filepath=os.path.join(diretorio_salvamento, 'modelo_agua_aumentado.keras'),  # Pode usar .h5 se preferir
                 monitor='val_loss',
                 verbose=1,
                 save_best_only=True
-                # Removido 'save_format'
             )
 
             # Parâmetros de EarlyStopping
@@ -865,9 +877,10 @@ def treinar_modelo():
             cm_df = pd.DataFrame(cm, index=classes, columns=classes)
             fig_cm, ax_cm = plt.subplots(figsize=(12,8))
             sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-            ax_cm.set_title("Matriz de Confusão")
-            ax_cm.set_xlabel("Classe Prevista")
-            ax_cm.set_ylabel("Classe Real")
+            ax_cm.set_title("Matriz de Confusão", fontsize=16)
+            ax_cm.set_xlabel("Classe Prevista", fontsize=14)
+            ax_cm.set_ylabel("Classe Real", fontsize=14)
+            ax_cm.tick_params(axis='both', which='major', labelsize=12)
             st.pyplot(fig_cm)
             plt.close(fig_cm)
 
@@ -887,19 +900,21 @@ def treinar_modelo():
             As seguintes figuras mostram como a **Perda (Loss)** e a **Acurácia** evoluíram durante o treinamento e validação. Isso ajuda a entender como o modelo está aprendendo ao longo das épocas.
             """)
             historico_df = pd.DataFrame(historico.history)
-            fig_loss, ax_loss = plt.subplots()
+            fig_loss, ax_loss = plt.subplots(figsize=(10,6))
             sns.lineplot(data=historico_df[['loss', 'val_loss']], ax=ax_loss)
-            ax_loss.set_title("Perda (Loss) durante o Treinamento")
-            ax_loss.set_xlabel("Época")
-            ax_loss.set_ylabel("Loss")
+            ax_loss.set_title("Perda (Loss) durante o Treinamento", fontsize=16)
+            ax_loss.set_xlabel("Época", fontsize=14)
+            ax_loss.set_ylabel("Loss", fontsize=14)
+            ax_loss.tick_params(axis='both', which='major', labelsize=12)
             st.pyplot(fig_loss)
             plt.close(fig_loss)
 
-            fig_acc, ax_acc = plt.subplots()
+            fig_acc, ax_acc = plt.subplots(figsize=(10,6))
             sns.lineplot(data=historico_df[['accuracy', 'val_accuracy']], ax=ax_acc)
-            ax_acc.set_title("Acurácia durante o Treinamento")
-            ax_acc.set_xlabel("Época")
-            ax_acc.set_ylabel("Acurácia")
+            ax_acc.set_title("Acurácia durante o Treinamento", fontsize=16)
+            ax_acc.set_xlabel("Época", fontsize=14)
+            ax_acc.set_ylabel("Acurácia", fontsize=14)
+            ax_acc.tick_params(axis='both', which='major', labelsize=12)
             st.pyplot(fig_acc)
             plt.close(fig_acc)
 
