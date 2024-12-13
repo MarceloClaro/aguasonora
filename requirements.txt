@@ -8,3 +8,9 @@ tensorflow
 scikit-learn
 audiomentations
 soundfile
+torch
+torchvision
+torchcam
+Pillow
+scikit-learn
+opencv-python
