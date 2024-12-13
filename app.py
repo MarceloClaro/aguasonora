@@ -37,22 +37,11 @@ torch.cuda.manual_seed_all(SEED)
 
 # ==================== FUNÇÕES DE PROCESSAMENTO ====================
 
-def get_shift_transform():
-    """
-    Retorna a transformação Shift adequada conforme a versão do audiomentations.
-    """
-    try:
-        # Tenta usar min_fraction e max_fraction
-        return Shift(min_fraction=-0.5, max_fraction=0.5, p=0.5)
-    except TypeError:
-        # Caso contrário, usa min_shift e max_shift
-        return Shift(min_shift=-0.5, max_shift=0.5, p=0.5)
-
 augment_default = Compose([
     AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
     TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
     PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
-    get_shift_transform(),
+    Shift(min_shift=-0.5, max_shift=0.5, p=0.5),  # Correção aqui
 ])
 
 def load_audio(file_path, sr=None):
@@ -567,7 +556,7 @@ def treinar_modelo():
                             if pitch_shift:
                                 transformations.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
                             if shift:
-                                transformations.append(Shift(min_fraction=-0.5, max_fraction=0.5, p=1.0))
+                                transformations.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))  # Correção aqui
 
                             if transformations:
                                 augmentations = Compose(transformations)
