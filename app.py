@@ -357,7 +357,7 @@ def classificar_audio():
     # **Opção para Baixar o Modelo Treinado**
     st.write("### Passo 3: Baixar o Modelo Treinado")
     model_directory = 'saved_models'
-    model_filename = 'model_agua_augmented.keras'  # Alterado para .keras
+    model_filename = 'model_agua_augmented.keras'  # Atualizado para .keras
 
     model_path = os.path.join(model_directory, model_filename)
 
@@ -710,12 +710,13 @@ def treinar_modelo():
             else:
                 st.write(f"Diretório '{save_dir}' já existe.")
 
-            # **Ajuste do `filepath` para garantir que a string está corretamente fechada**
+            # **Ajuste do `filepath` para garantir que a string está corretamente fechada e sem `save_format`**
             checkpointer = ModelCheckpoint(
-                filepath=os.path.join(save_dir, 'model_agua_augmented.keras'),  # Alterado para .keras
+                filepath=os.path.join(save_dir, 'model_agua_augmented.keras'),  # Pode usar .h5 se preferir
                 monitor='val_loss',
                 verbose=1,
                 save_best_only=True
+                # Removido 'save_format'
             )
 
             # Parâmetros de EarlyStopping
@@ -766,7 +767,7 @@ def treinar_modelo():
             st.write("### Download do Modelo Treinado e Arquivo de Classes")
             # Salvar o modelo
             buffer = io.BytesIO()
-            model.save(buffer, save_format='h5')  # Continua usando 'h5' para download
+            model.save(buffer, 'keras')  # Especifique o formato com base na extensão
             buffer.seek(0)
             st.download_button(
                 label="Download do Modelo Treinado (.keras)",
