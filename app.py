@@ -192,7 +192,7 @@ def plot_class_probabilities(class_probs, title="Probabilidades das Classes"):
     probs = list(class_probs.values())
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    sns.barplot(x=classes, y=probs, palette='viridis', ax=ax)
+    sns.barplot(x=classes, y=probs, hue=classes, palette='viridis', ax=ax, legend=False)  # Ajuste aqui
     ax.set_title(title)
     ax.set_xlabel("Classes")
     ax.set_ylabel("Probabilidade")
@@ -296,9 +296,12 @@ def classificar_audio():
                 # Para modelos PyTorch, carregue de forma apropriada
                 model = torch.load(tmp_path, map_location=torch.device('cpu'))
                 model.eval()
-            else:
+            elif tmp_path.endswith(('.h5', '.keras')):
                 # Para modelos Keras (.h5 e .keras)
                 model = load_model(tmp_path, compile=False)
+            else:
+                st.error("Formato de modelo não suportado. Utilize .keras, .h5 ou .pth.")
+                return
             st.success("Modelo carregado com sucesso!")
 
             # Carrega as classes
@@ -448,7 +451,7 @@ def treinar_modelo():
             class_counts = df['class'].value_counts()
             st.write("### Distribuição das Classes:")
             fig_dist, ax_dist = plt.subplots(figsize=(10, 6))
-            sns.barplot(x=class_counts.index, y=class_counts.values, palette='viridis', ax=ax_dist)
+            sns.barplot(x=class_counts.index, y=class_counts.values, hue=class_counts.index, palette='viridis', ax=ax_dist, legend=False)  # Ajuste aqui
             ax_dist.set_xlabel("Classes")
             ax_dist.set_ylabel("Número de Amostras")
             ax_dist.set_title("Distribuição das Classes no Dataset")
@@ -472,7 +475,7 @@ def treinar_modelo():
             batch_size = st.sidebar.selectbox(
                 "Tamanho do Batch:",
                 options=[8, 16, 32, 64, 128],
-                index=0,
+                index=0,  # Seleciona 8 como padrão
                 help="Número de amostras processadas antes de atualizar os pesos do modelo. Mínimo de 8."
             )
 
@@ -663,11 +666,36 @@ def treinar_modelo():
 
             # Compilação do Modelo
             model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+            
+            # **Exibição do Resumo do Modelo como Tabela**
             st.write("### Resumo do Modelo:")
-            buffer = io.StringIO()
-            model.summary(print_fn=lambda x: buffer.write(x + '\n'))
-            summary_str = buffer.getvalue()
-            st.text(summary_str)
+            model_summary = []
+            for layer in model.layers:
+                layer_name = layer.name
+                layer_type = layer.__class__.__name__
+                output_shape = layer.output_shape
+                params = layer.count_params()
+                model_summary.append({
+                    'Layer (type)': f"{layer_name} ({layer_type})",
+                    'Output Shape': output_shape,
+                    'Param #': f"{params:,}"
+                })
+
+            # Criação do DataFrame
+            summary_df = pd.DataFrame(model_summary)
+
+            # Adicionar total de parâmetros
+            total_params = model.count_params()
+            trainable_params = np.sum([layer.count_params() for layer in model.layers if layer.trainable])
+            non_trainable_params = total_params - trainable_params
+
+            # Exibição da tabela
+            st.dataframe(summary_df)
+
+            # Exibição dos totais
+            st.write(f"**Total params:** {total_params:,} ({total_params / 1e3:.2f} KB)")
+            st.write(f"**Trainable params:** {trainable_params:,} ({trainable_params / 1e3:.2f} KB)")
+            st.write(f"**Non-trainable params:** {non_trainable_params:,} ({non_trainable_params / 1e3:.2f} KB)")
 
             # Definição dos Callbacks
             st.write("### Configurando Callbacks para o Treinamento...")
@@ -758,9 +786,9 @@ def treinar_modelo():
             score_val = model.evaluate(X_val, to_categorical(y_val), verbose=0)
             score_test = model.evaluate(X_test, to_categorical(y_test), verbose=0)
 
-            st.write(f"Acurácia Treino: {score_train[1]*100:.2f}%")
-            st.write(f"Acurácia Validação: {score_val[1]*100:.2f}%")
-            st.write(f"Acurácia Teste: {score_test[1]*100:.2f}%")
+            st.write(f"**Acurácia Treino:** {score_train[1]*100:.2f}%")
+            st.write(f"**Acurácia Validação:** {score_val[1]*100:.2f}%")
+            st.write(f"**Acurácia Teste:** {score_test[1]*100:.2f}%")
 
             # Predições no Conjunto de Teste
             y_pred = model.predict(X_test)
