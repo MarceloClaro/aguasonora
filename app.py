@@ -765,16 +765,26 @@ def treinar_modelo():
 
             # Salvamento do Modelo e Classes
             st.write("### Download do Modelo Treinado e Arquivo de Classes")
-            # Salvar o modelo
-            buffer = io.BytesIO()
-            model.save(buffer, 'keras')  # Especifique o formato com base na extensão
-            buffer.seek(0)
+            # Salvar o modelo em um arquivo temporário com extensão .keras
+            with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
+                model.save(tmp_model.name)
+                tmp_model_path = tmp_model.name
+
+            # Ler o modelo salvo e preparar para download
+            with open(tmp_model_path, 'rb') as f:
+                model_bytes = f.read()
+
+            buffer = io.BytesIO(model_bytes)
+
             st.download_button(
                 label="Download do Modelo Treinado (.keras)",
                 data=buffer,
                 file_name="model_agua_augmented.keras",
                 mime="application/octet-stream"
             )
+
+            # Remove o arquivo temporário após o download
+            os.remove(tmp_model_path)
 
             # Salvar as classes
             classes_str = "\n".join(classes)
