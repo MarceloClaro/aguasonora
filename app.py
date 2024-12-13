@@ -192,7 +192,7 @@ def plot_class_probabilities(class_probs, title="Probabilidades das Classes"):
     probs = list(class_probs.values())
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    sns.barplot(x=classes, y=probs, hue=classes, palette='viridis', ax=ax, legend=False)  # Ajuste aqui
+    sns.barplot(x=classes, y=probs, hue=classes, palette='viridis', ax=ax, legend=False)
     ax.set_title(title)
     ax.set_xlabel("Classes")
     ax.set_ylabel("Probabilidade")
@@ -357,7 +357,7 @@ def classificar_audio():
     # **Opção para Baixar o Modelo Treinado**
     st.write("### Passo 3: Baixar o Modelo Treinado")
     model_directory = 'saved_models'
-    model_filename = 'model_agua_augmented.h5'  # Ajuste conforme o nome do seu modelo
+    model_filename = 'model_agua_augmented.keras'  # Alterado para .keras
 
     model_path = os.path.join(model_directory, model_filename)
 
@@ -365,7 +365,7 @@ def classificar_audio():
         with open(model_path, 'rb') as f:
             model_bytes = f.read()
         st.download_button(
-            label="Baixar Modelo Treinado (.h5)",
+            label="Baixar Modelo Treinado (.keras)",
             data=model_bytes,
             file_name=model_filename,
             mime="application/octet-stream"
@@ -451,7 +451,7 @@ def treinar_modelo():
             class_counts = df['class'].value_counts()
             st.write("### Distribuição das Classes:")
             fig_dist, ax_dist = plt.subplots(figsize=(10, 6))
-            sns.barplot(x=class_counts.index, y=class_counts.values, hue=class_counts.index, palette='viridis', ax=ax_dist, legend=False)  # Ajuste aqui
+            sns.barplot(x=class_counts.index, y=class_counts.values, hue=class_counts.index, palette='viridis', ax=ax_dist, legend=False)
             ax_dist.set_xlabel("Classes")
             ax_dist.set_ylabel("Número de Amostras")
             ax_dist.set_title("Distribuição das Classes no Dataset")
@@ -712,7 +712,7 @@ def treinar_modelo():
 
             # **Ajuste do `filepath` para garantir que a string está corretamente fechada**
             checkpointer = ModelCheckpoint(
-                filepath=os.path.join(save_dir, 'model_agua_augmented.h5'),  # Certifique-se de que as aspas estão fechadas
+                filepath=os.path.join(save_dir, 'model_agua_augmented.keras'),  # Alterado para .keras
                 monitor='val_loss',
                 verbose=1,
                 save_best_only=True
@@ -766,12 +766,12 @@ def treinar_modelo():
             st.write("### Download do Modelo Treinado e Arquivo de Classes")
             # Salvar o modelo
             buffer = io.BytesIO()
-            model.save(buffer, save_format='h5')  # ou 'keras' se você mudou a extensão
+            model.save(buffer, save_format='h5')  # Continua usando 'h5' para download
             buffer.seek(0)
             st.download_button(
-                label="Download do Modelo Treinado (.h5)",
+                label="Download do Modelo Treinado (.keras)",
                 data=buffer,
-                file_name="model_agua_augmented.h5",
+                file_name="model_agua_augmented.keras",
                 mime="application/octet-stream"
             )
 
