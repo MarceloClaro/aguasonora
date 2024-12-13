@@ -182,7 +182,7 @@ def plot_espectrograma(data, sr, titulo="Espectrograma (STFT)"):
         - **Cores:** Indicam a intensidade (ou amplitude) das frequências. Cores mais claras representam frequências mais intensas.
         
         **Exemplo Visual:**
-        ![Espectrograma](https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/White_noise.svg/320px-White_noise.svg.png)
+        ![Espectrograma](https://commons.wikimedia.org/wiki/File:Spectrogram-19thC.png#/media/File:Spectrogram-19thC.png)
         """)
 
 def plot_mfcc(data, sr, titulo="Espectrograma (MFCC)"):
