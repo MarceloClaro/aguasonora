@@ -54,7 +54,7 @@ def main():
     if os.path.exists('capa.png'):
         try:
             st.image(
-                'capa.png', 
+                'capa (2).png', 
                 caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', 
                 use_container_width=True
             )
