@@ -351,6 +351,25 @@ def classificar_audio():
         except Exception as e:
             st.error(f"Erro ao carregar o modelo: {e}")
 
+    # **Opção para Baixar o Modelo Treinado**
+    st.write("### Passo 3: Baixar o Modelo Treinado")
+    model_directory = 'saved_models'
+    model_filename = 'model_agua_augmented.h5'  # Ajuste conforme o nome do seu modelo
+
+    model_path = os.path.join(model_directory, model_filename)
+
+    if os.path.exists(model_path):
+        with open(model_path, 'rb') as f:
+            model_bytes = f.read()
+        st.download_button(
+            label="Baixar Modelo Treinado (.h5)",
+            data=model_bytes,
+            file_name=model_filename,
+            mime="application/octet-stream"
+        )
+    else:
+        st.warning(f"O modelo '{model_filename}' não foi encontrado no diretório '{model_directory}'.")
+
 def treinar_modelo():
     st.header("Treinamento do Modelo CNN")
 
@@ -424,6 +443,18 @@ def treinar_modelo():
             classes = labelencoder.classes_
             st.write(f"Classes codificadas: {list(classes)}")
 
+            # **Exibir Número de Classes e Distribuição**
+            st.write(f"### Número de Classes: {len(classes)}")
+            class_counts = df['class'].value_counts()
+            st.write("### Distribuição das Classes:")
+            fig_dist, ax_dist = plt.subplots(figsize=(10, 6))
+            sns.barplot(x=class_counts.index, y=class_counts.values, palette='viridis', ax=ax_dist)
+            ax_dist.set_xlabel("Classes")
+            ax_dist.set_ylabel("Número de Amostras")
+            ax_dist.set_title("Distribuição das Classes no Dataset")
+            st.pyplot(fig_dist)
+            plt.close(fig_dist)
+
             # ==================== COLUNA DE CONFIGURAÇÃO ====================
             st.sidebar.header("Configurações de Treinamento")
 
@@ -441,7 +472,7 @@ def treinar_modelo():
             batch_size = st.sidebar.selectbox(
                 "Tamanho do Batch:",
                 options=[8, 16, 32, 64, 128],
-                index=1,
+                index=0,
                 help="Número de amostras processadas antes de atualizar os pesos do modelo. Mínimo de 8."
             )
 
@@ -736,29 +767,42 @@ def treinar_modelo():
             y_pred_classes = y_pred.argmax(axis=1)
             y_true = y_test  # y_test já está em formato inteiro
 
-            # Matriz de Confusão
+            # Matriz de Confusão com Seaborn
             cm = confusion_matrix(y_true, y_pred_classes, labels=range(len(classes)))
             cm_df = pd.DataFrame(cm, index=classes, columns=classes)
-            fig, ax = plt.subplots(figsize=(12,8))
-            sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax)
-            ax.set_title("Matriz de Confusão")
-            ax.set_xlabel("Classe Prevista")
-            ax.set_ylabel("Classe Real")
-            st.pyplot(fig)
-            plt.close(fig)
+            fig_cm, ax_cm = plt.subplots(figsize=(12,8))
+            sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
+            ax_cm.set_title("Matriz de Confusão")
+            ax_cm.set_xlabel("Classe Prevista")
+            ax_cm.set_ylabel("Classe Real")
+            st.pyplot(fig_cm)
+            plt.close(fig_cm)
 
-            # Relatório de Classificação
+            # Relatório de Classificação com Seaborn
             report = classification_report(y_true, y_pred_classes, labels=range(len(classes)),
                                            target_names=classes, zero_division=0, output_dict=True)
             report_df = pd.DataFrame(report).transpose()
             st.write("### Relatório de Classificação:")
             st.dataframe(report_df)
 
-            # Visualizações das Métricas de Treinamento
+            # Visualizações das Métricas de Treinamento com Seaborn
             st.write("### Visualizações das Métricas de Treinamento")
             history_df = pd.DataFrame(history.history)
-            st.line_chart(history_df[['loss', 'val_loss']])
-            st.line_chart(history_df[['accuracy', 'val_accuracy']])
+            fig_loss, ax_loss = plt.subplots()
+            sns.lineplot(data=history_df[['loss', 'val_loss']], ax=ax_loss)
+            ax_loss.set_title("Perda (Loss) durante o Treinamento")
+            ax_loss.set_xlabel("Época")
+            ax_loss.set_ylabel("Loss")
+            st.pyplot(fig_loss)
+            plt.close(fig_loss)
+
+            fig_acc, ax_acc = plt.subplots()
+            sns.lineplot(data=history_df[['accuracy', 'val_accuracy']], ax=ax_acc)
+            ax_acc.set_title("Acurácia durante o Treinamento")
+            ax_acc.set_xlabel("Época")
+            ax_acc.set_ylabel("Acurácia")
+            st.pyplot(fig_acc)
+            plt.close(fig_acc)
 
             # Limpeza de Memória
             del model, history, history_df
