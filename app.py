@@ -31,26 +31,13 @@ seed_selection = 42  # Valor padrão
 # Para evitar o erro, todas as chamadas do Streamlit devem ser após set_page_config().
 # Portanto, vamos mover a configuração do SEED para depois de set_page_config().
 
-# Definir o caminho do ícone (favicon)
-favicon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
-
-# Definir o ícone da página (page_icon) condicionalmente
-if os.path.exists(favicon_path):
-    page_icon = favicon_path
-else:
-    page_icon = "🛠️"  # Ícone padrão caso logo.png não exista
-
-# Chamar st.set_page_config() **antes** de qualquer outro comando do Streamlit
-st.set_page_config(
-    page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
-    page_icon=page_icon,
-    layout="wide"
-)
-
-# Agora que st.set_page_config() já foi chamado, podemos adicionar comandos do Streamlit
+# ==================== CONFIGURAÇÕES GERAIS NO SIDEBAR ====================
 
 # Barra Lateral de Configurações Gerais
 st.sidebar.header("Configurações Gerais")
+
+# Definição do SEED
+seed_options = [0, 42, 100]
 seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
     options=seed_options,
@@ -58,6 +45,60 @@ seed_selection = st.sidebar.selectbox(
     help="Define a semente para reprodutibilidade dos resultados."
 )
 SEED = seed_selection  # Definindo a variável SEED
+
+# Adicionar o expander com a explicação do SEED
+with st.sidebar.expander("📖 Valor de SEED - Semente"):
+    st.markdown("""
+    ## **O Que é o SEED?**
+    
+    Imagine que você está jogando um jogo de tabuleiro onde, em cada turno, você precisa lançar um dado para determinar quantas casas avançar. Cada vez que você joga, o dado pode cair em um número diferente, tornando o jogo imprevisível e emocionante.
+    
+    Agora, suponha que você queira que esse jogo seja **repetível exatamente da mesma forma** todas as vezes que jogar. Para isso, você decide **anotar a sequência de números que o dado cai** em cada lançamento. Com essa sequência anotada, você pode "programar" o jogo para que, sempre que quiser, os lançamentos dos dados sigam essa mesma sequência, garantindo que o jogo tenha o mesmo resultado todas as vezes.
+    
+    Nesse exemplo:
+    
+    - **O "dado" representa o processo aleatório** no seu programa (como embaralhar cartas, escolher amostras aleatórias de dados, etc.).
+    - **A "sequência anotada" é o SEED**.
+    
+    ## **Por Que Usar o SEED?**
+    
+    1. **Reprodutibilidade (Repetir o Mesmo Resultado):**
+       - **Sem SEED:** Cada vez que você executa o programa, os resultados podem variar porque o computador está fazendo escolhas aleatórias diferentes.
+       - **Com SEED:** Definindo um SEED, você garante que todas as escolhas aleatórias sejam as mesmas em cada execução. Assim, você obtém os **mesmos resultados** toda vez que rodar o programa.
+    
+    2. **Facilitar a Depuração:**
+       - Quando algo não está funcionando como esperado, ter resultados consistentes (graças ao SEED) facilita identificar e corrigir problemas no código.
+    
+    3. **Comparar Modelos ou Experimentos:**
+       - Se você está testando diferentes versões de um modelo ou realizando vários experimentos, usar o mesmo SEED garante que as condições iniciais sejam iguais, permitindo uma comparação justa entre eles.
+    
+    ## **Como Funciona na Prática?**
+    
+    No seu programa, o **valor de SEED** é simplesmente um número que você escolhe. Esse número é usado para "iniciar" o processo de geração de números aleatórios. Pense nisso como definir o ponto de partida para uma sequência que, a partir daí, sempre seguirá a mesma ordem.
+    
+    **Exemplo Simples:**
+    
+    - **SEED = 42**
+      - Toda vez que você define o SEED como 42, as "escolhas aleatórias" do seu programa (como números gerados, posições embaralhadas, etc.) seguirão uma sequência específica que começa com 42.
+      
+    - **SEED = 100**
+      - Com o SEED definido como 100, a sequência de escolhas aleatórias será diferente da sequência iniciada com 42, mas **sempre a mesma** quando SEED é 100.
+    
+    ## **Analogia do SEED**
+    
+    Pense no SEED como uma **chave para uma receita de bolo**:
+    
+    - **Sem a chave (SEED):** Cada vez que você faz o bolo, pode ter pequenas diferenças – talvez um pouco mais de farinha, outro pouco menos de açúcar.
+    - **Com a chave (SEED):** Você pode refazer o bolo exatamente igual todas as vezes, garantindo que cada detalhe da receita seja seguido à risca.
+    
+    ## **Resumo Rápido**
+    
+    - **SEED** é um número que você define para tornar as escolhas aleatórias do seu programa **repetíveis e previsíveis**.
+    - Usar SEED ajuda a **reproduzir resultados**, **facilitar a depuração** e **comparar experimentos** de maneira justa.
+    - É como ter uma **receita precisa** ou uma **sequência de lançamentos de dados** que você pode repetir sempre que quiser.
+    
+    Espero que essa explicação ajude a esclarecer o que é o SEED e por que ele é útil no desenvolvimento de programas, especialmente em tarefas que envolvem processos aleatórios como aprendizado de máquina e análise de dados!
+    """)
 
 # ==================== LOGO E IMAGEM DE CAPA ====================
 
