@@ -17,6 +17,8 @@ import tempfile
 from PIL import Image
 import io
 import torch
+import zipfile
+import gc
 
 # Configurações para visualizações
 sns.set(style='whitegrid', context='notebook')
@@ -27,6 +29,8 @@ os.environ['PYTHONHASHSEED'] = str(SEED)
 random.seed(SEED)
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
 
 # ==================== FUNÇÕES DE PROCESSAMENTO ====================
 
@@ -209,7 +213,7 @@ def process_new_audio(audio_file_path, model, labelencoder):
 
     Parameters:
     - audio_file_path (str): Caminho para o arquivo de áudio.
-    - model (tf.keras.Model): Modelo treinado para classificação.
+    - model (tf.keras.Model ou torch.nn.Module): Modelo treinado para classificação.
     - labelencoder (LabelEncoder): Codificador de labels para decodificar classes.
 
     Returns:
@@ -235,7 +239,16 @@ def process_new_audio(audio_file_path, model, labelencoder):
     mfccs = mfccs.reshape(1, -1, 1)  # Forma: (1, n_features, 1)
 
     # Realiza a predição usando o modelo treinado
-    prediction = model.predict(mfccs)
+    if isinstance(model, tf.keras.Model):
+        prediction = model.predict(mfccs)
+    elif isinstance(model, torch.nn.Module):
+        model.eval()
+        with torch.no_grad():
+            mfccs_tensor = torch.tensor(mfccs, dtype=torch.float32)
+            prediction = model(mfccs_tensor).numpy()
+    else:
+        st.error("Modelo não suportado.")
+        return None, None, None
 
     # Obtém a classe com a maior probabilidade
     pred_class = np.argmax(prediction, axis=1)
@@ -538,7 +551,7 @@ def treinar_modelo():
                 st.write(f"Diretório '{save_dir}' já existe.")
 
             checkpointer = ModelCheckpoint(
-                filepath=os.path.join(save_dir, 'model_agua_augmented.keras'),
+                filepath=os.path.join(save_dir, 'model_agua_augmented.h5'),
                 monitor='val_loss',
                 verbose=1,
                 save_best_only=True
@@ -631,7 +644,6 @@ def treinar_modelo():
 
             # Limpeza de Memória
             del model, history, history_df
-            import gc
             gc.collect()
 
             st.success("Processo de Treinamento e Avaliação concluído!")
