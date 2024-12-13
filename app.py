@@ -41,7 +41,7 @@ def main():
             )
             # logging.warning(f"Erro ao carregar o ícone {favicon_path}: {e}")  # Remova ou configure o logging se necessário
     else:
-        # Se o ícone não for encontrado, carrega sem favicon
+        # Se o ícone não for encontrado, carrega sem favicon e exibe aviso
         st.set_page_config(
             page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
             layout="wide"
@@ -458,8 +458,6 @@ def classificar_audio():
 
                     # Remove os arquivos temporários
                     os.remove(caminho_audio)
-            # Remove o arquivo temporário do modelo
-            os.remove(caminho_modelo)
         except Exception as e:
             st.error(f"Erro ao carregar o modelo: {e}")
             # Assegura a remoção do arquivo temporário do modelo em caso de erro
