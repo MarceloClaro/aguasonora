@@ -22,8 +22,22 @@ import gc
 
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
 def main():
+    # ==================== DEFINIÇÃO DO SEED ====================
+    st.sidebar.header("Configurações Gerais")
+    
+    # Adicionando a seleção de SEED na barra lateral
+    seed_options = [0, 42, 100]
+    seed_selection = st.sidebar.selectbox(
+        "Escolha o valor do SEED:",
+        options=seed_options,
+        index=1,  # 42 como valor padrão
+        help="Define a semente para reprodutibilidade dos resultados."
+    )
+    
+    SEED = seed_selection  # Definindo a variável SEED
+
     # Definir o caminho do ícone (favicon)
-    favicon_path = "logo.png"  # Verifique se o arquivo eu.ico está no diretório correto
+    favicon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
 
     # Verificar se o arquivo de ícone existe antes de configurá-lo
     if os.path.exists(favicon_path):
@@ -39,7 +53,7 @@ def main():
                 page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
                 layout="wide"
             )
-            # logging.warning(f"Erro ao carregar o ícone {favicon_path}: {e}")  # Remova ou configure o logging se necessário
+            st.sidebar.warning(f"Erro ao carregar o ícone {favicon_path}: {e}")
     else:
         # Se o ícone não for encontrado, carrega sem favicon e exibe aviso
         st.set_page_config(
@@ -47,7 +61,6 @@ def main():
             layout="wide"
         )
         st.sidebar.warning(f"Ícone '{favicon_path}' não encontrado, carregando sem favicon.")
-        # logging.warning(f"Ícone {favicon_path} não encontrado, carregando sem favicon.")  # Remova ou configure o logging se necessário
 
     # ==================== LOGO E IMAGEM DE CAPA ====================
     # Carrega e exibe a capa.png na página principal
@@ -59,9 +72,9 @@ def main():
                 use_container_width=True
             )
         except UnidentifiedImageError:
-            st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
+            st.warning("Imagem 'capa (2).png' não pôde ser carregada ou está corrompida.")
     else:
-        st.warning("Imagem 'capa.png' não encontrada.")
+        st.warning("Imagem 'capa (2).png' não encontrada.")
 
     # Carregar o logotipo na barra lateral
     if os.path.exists("logo.png"):
@@ -84,10 +97,19 @@ def main():
     app_mode = st.sidebar.selectbox("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
 
     if app_mode == "Classificar Áudio":
-        classificar_audio()
+        classificar_audio(SEED)
     elif app_mode == "Treinar Modelo":
-        treinar_modelo()
-    st.sidebar.image("eu.ico", width=80)    
+        treinar_modelo(SEED)
+    
+    # Adicionando o ícone na barra lateral
+    if os.path.exists("eu.ico"):
+        try:
+            st.sidebar.image("eu.ico", width=80, use_container_width=False)
+        except UnidentifiedImageError:
+            st.sidebar.text("Imagem do ícone 'eu.ico' não pôde ser carregada ou está corrompida.")
+    else:
+        st.sidebar.text("Imagem do ícone 'eu.ico' não encontrada.")
+    
     st.sidebar.write("""
     Produzido pelo:
 
@@ -102,7 +124,6 @@ def main():
     Whatsapp: (88)981587145
 
     Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
-
     """)
 
 # ==================== FUNÇÕES DE PROCESSAMENTO ====================
@@ -313,7 +334,7 @@ def plot_probabilidades_classes(class_probs, titulo="Probabilidades das Classes"
     probs = list(class_probs.values())
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    sns.barplot(x=classes, y=probs, hue=classes, palette='viridis', ax=ax, legend=False)
+    sns.barplot(x=classes, y=probs, palette='viridis', ax=ax)
     ax.set_title(titulo, fontsize=16)
     ax.set_xlabel("Classes", fontsize=14)
     ax.set_ylabel("Probabilidade", fontsize=14)
@@ -323,6 +344,10 @@ def plot_probabilidades_classes(class_probs, titulo="Probabilidades das Classes"
     # Adiciona rótulos de porcentagem acima das barras
     for i, v in enumerate(probs):
         ax.text(i, v + 0.01, f"{v*100:.2f}%", ha='center', va='bottom', fontsize=12)
+    
+    # Correção do aviso de depreciação do Seaborn
+    # Adicionando 'hue' e removendo a legenda
+    sns.barplot(x=classes, y=probs, hue=classes, palette='viridis', ax=ax, legend=False)
     
     st.pyplot(fig)
     plt.close(fig)
@@ -386,7 +411,7 @@ def processar_novo_audio(caminho_audio, modelo, labelencoder):
 
 # ==================== CONFIGURAÇÃO DA APLICAÇÃO STREAMLIT ====================
 
-def classificar_audio():
+def classificar_audio(SEED):
     st.header("Classificação de Novo Áudio")
 
     st.write("### Passo 1: Carregar o Modelo Treinado")
@@ -481,7 +506,7 @@ def classificar_audio():
             if 'caminho_modelo' in locals() and os.path.exists(caminho_modelo):
                 os.remove(caminho_modelo)
 
-def treinar_modelo():
+def treinar_modelo(SEED):
     st.header("Treinamento do Modelo CNN")
 
     st.write("""
@@ -597,7 +622,8 @@ def treinar_modelo():
             contagem_classes = df['classe'].value_counts()
             st.write("### Distribuição das Classes:")
             fig_dist, ax_dist = plt.subplots(figsize=(10, 6))
-            sns.barplot(x=contagem_classes.index, y=contagem_classes.values, palette='viridis', ax=ax_dist)
+            # Correção do aviso do Seaborn adicionando 'hue' e removendo a legenda
+            sns.barplot(x=contagem_classes.index, y=contagem_classes.values, hue=contagem_classes.index, palette='viridis', ax=ax_dist, legend=False)
             ax_dist.set_xlabel("Classes", fontsize=14)
             ax_dist.set_ylabel("Número de Amostras", fontsize=14)
             ax_dist.set_title("Distribuição das Classes no Dataset", fontsize=16)
