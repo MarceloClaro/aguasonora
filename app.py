@@ -16,6 +16,7 @@ import streamlit as st
 import tempfile
 from PIL import Image
 import io
+import torch
 
 # Configurações para visualizações
 sns.set(style='whitegrid', context='notebook')
@@ -278,12 +279,18 @@ def classificar_audio():
     if model_file is not None:
         try:
             # Salva o modelo temporariamente
-            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(model_file.name)[1]) as tmp:
                 tmp.write(model_file.read())
                 tmp_path = tmp.name
 
             # Carrega o modelo
-            model = load_model(tmp_path, compile=False)
+            if tmp_path.endswith('.pth'):
+                # Para modelos PyTorch, carregue de forma apropriada
+                model = torch.load(tmp_path, map_location=torch.device('cpu'))
+                model.eval()
+            else:
+                # Para modelos Keras
+                model = load_model(tmp_path, compile=False)
             st.success("Modelo carregado com sucesso!")
 
             # Carrega as classes
@@ -366,9 +373,10 @@ def treinar_modelo():
                 zip_path = tmp_zip.name
 
             # Extrai o ZIP
+            extract_dir = tempfile.mkdtemp()
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(tempfile.gettempdir())
-            base_path = tempfile.gettempdir()
+                zip_ref.extractall(extract_dir)
+            base_path = extract_dir
 
             # Verifica se há subpastas (classes)
             categories = [d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d))]
@@ -514,7 +522,10 @@ def treinar_modelo():
             # Compilação do Modelo
             model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
             st.write("### Resumo do Modelo:")
-            st.text(model.summary())
+            buffer = io.StringIO()
+            model.summary(print_fn=lambda x: buffer.write(x + '\n'))
+            summary_str = buffer.getvalue()
+            st.text(summary_str)
 
             # Definição dos Callbacks
             st.write("### Configurando Callbacks para o Treinamento...")
@@ -545,15 +556,16 @@ def treinar_modelo():
 
             # Treinamento do Modelo
             st.write("### Iniciando o Treinamento do Modelo...")
-            history = model.fit(
-                X_train_final, to_categorical(y_train_final),
-                epochs=num_epochs,
-                batch_size=batch_size,
-                validation_data=(X_val, to_categorical(y_val)),
-                callbacks=[checkpointer, earlystop],
-                class_weight=class_weight_dict,
-                verbose=1
-            )
+            with st.spinner('Treinando o modelo...'):
+                history = model.fit(
+                    X_train_final, to_categorical(y_train_final),
+                    epochs=num_epochs,
+                    batch_size=batch_size,
+                    validation_data=(X_val, to_categorical(y_val)),
+                    callbacks=[checkpointer, earlystop],
+                    class_weight=class_weight_dict,
+                    verbose=1
+                )
             st.success("Treinamento concluído com sucesso!")
 
             # Salvamento do Modelo e Classes
@@ -619,6 +631,7 @@ def treinar_modelo():
 
             # Limpeza de Memória
             del model, history, history_df
+            import gc
             gc.collect()
 
             st.success("Processo de Treinamento e Avaliação concluído!")
