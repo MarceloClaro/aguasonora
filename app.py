@@ -27,6 +27,29 @@ seed_options = [0, 42, 100]
 seed_selection = 42  # Valor padrão
 
 # Adicionando a seleção de SEED na barra lateral
+# **Nota:** Este comando do Streamlit está abaixo de set_page_config(). 
+# Para evitar o erro, todas as chamadas do Streamlit devem ser após set_page_config().
+# Portanto, vamos mover a configuração do SEED para depois de set_page_config().
+
+# Definir o caminho do ícone (favicon)
+favicon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
+
+# Definir o ícone da página (page_icon) condicionalmente
+if os.path.exists(favicon_path):
+    page_icon = favicon_path
+else:
+    page_icon = "🛠️"  # Ícone padrão caso logo.png não exista
+
+# Chamar st.set_page_config() **antes** de qualquer outro comando do Streamlit
+st.set_page_config(
+    page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
+    page_icon=page_icon,
+    layout="wide"
+)
+
+# Agora que st.set_page_config() já foi chamado, podemos adicionar comandos do Streamlit
+
+# Barra Lateral de Configurações Gerais
 st.sidebar.header("Configurações Gerais")
 seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
@@ -35,22 +58,6 @@ seed_selection = st.sidebar.selectbox(
     help="Define a semente para reprodutibilidade dos resultados."
 )
 SEED = seed_selection  # Definindo a variável SEED
-
-# Definir o caminho do ícone (favicon)
-favicon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
-
-# Verificar se o arquivo de ícone existe antes de configurá-lo
-if os.path.exists(favicon_path):
-    page_icon = favicon_path
-else:
-    page_icon = None  # Ou defina um ícone padrão, por exemplo: "🛠️"
-
-# Chamar st.set_page_config() **antes** de qualquer outro comando do Streamlit
-st.set_page_config(
-    page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
-    page_icon=page_icon,
-    layout="wide"
-)
 
 # ==================== LOGO E IMAGEM DE CAPA ====================
 
@@ -88,11 +95,6 @@ Bem-vindo à nossa aplicação! Aqui, você pode **classificar sons de água vib
 # Barra Lateral de Navegação
 st.sidebar.title("Navegação")
 app_mode = st.sidebar.selectbox("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
-
-if app_mode == "Classificar Áudio":
-    classificar_audio(SEED)
-elif app_mode == "Treinar Modelo":
-    treinar_modelo(SEED)
 
 # Adicionando o ícone na barra lateral
 eu_icon_path = "eu.ico"
@@ -782,15 +784,14 @@ def treinar_modelo(SEED):
                         for _ in range(augment_factor):
                             # Aplicar apenas as transformações selecionadas
                             transformacoes = []
-                            if enable_augmentation:
-                                if adicionar_ruido:
-                                    transformacoes.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
-                                if estiramento_tempo:
-                                    transformacoes.append(TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0))
-                                if alteracao_pitch:
-                                    transformacoes.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
-                                if deslocamento:
-                                    transformacoes.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))
+                            if adicionar_ruido:
+                                transformacoes.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
+                            if estiramento_tempo:
+                                transformacoes.append(TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0))
+                            if alteracao_pitch:
+                                transformacoes.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
+                            if deslocamento:
+                                transformacoes.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))
 
                             if transformacoes:
                                 augmentations = Compose(transformacoes)
@@ -1317,4 +1318,8 @@ def treinar_modelo(SEED):
                 os.rmdir(caminho_base)
 
 if __name__ == "__main__":
-    main()
+    # Chamada da função principal
+    if app_mode == "Classificar Áudio":
+        classificar_audio(SEED)
+    elif app_mode == "Treinar Modelo":
+        treinar_modelo(SEED)
