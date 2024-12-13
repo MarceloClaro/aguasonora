@@ -155,14 +155,35 @@ def plot_espectrograma(data, sr, titulo="Espectrograma (STFT)"):
     DB = librosa.amplitude_to_db(D, ref=np.max)
     fig, ax = plt.subplots(figsize=(14, 4))
     ax.set_title(titulo, fontsize=16)
-    mappable = ld.specshow(DB, sr=sr, x_axis='tempo', y_axis='frequência', cmap='magma', ax=ax)
+    
+    # Usar 'time' e 'hz' para evitar erros
+    mappable = ld.specshow(DB, sr=sr, x_axis='time', y_axis='hz', cmap='magma', ax=ax)
+    
     cbar = plt.colorbar(mappable=mappable, ax=ax, format='%+2.0f dB')
     cbar.ax.set_ylabel("Intensidade (dB)", fontsize=14)
+    
+    # Personalizar rótulos dos eixos
     ax.set_xlabel("Tempo (segundos)", fontsize=14)
     ax.set_ylabel("Frequência (Hz)", fontsize=14)
+    
     ax.tick_params(axis='both', which='major', labelsize=12)
     st.pyplot(fig)
     plt.close(fig)
+    
+    # Adicionar explicação para o usuário
+    with st.expander("📖 Entenda o Espectrograma (STFT)"):
+        st.markdown("""
+        ### O que é um Espectrograma (STFT)?
+        
+        Um **Espectrograma** é uma representação visual do espectro de frequências de um sinal ao longo do tempo. Ele mostra como as frequências presentes no áudio mudam à medida que o tempo passa.
+
+        - **Eixo X (Tempo):** Representa o tempo em segundos.
+        - **Eixo Y (Frequência):** Representa a frequência em Hertz (Hz).
+        - **Cores:** Indicam a intensidade (ou amplitude) das frequências. Cores mais claras representam frequências mais intensas.
+        
+        **Exemplo Visual:**
+        ![Espectrograma](https://upload.wikimedia.org/wikipedia/commons/1/1c/Spectrogram_of_white_noise.svg)
+        """)
 
 def plot_mfcc(data, sr, titulo="Espectrograma (MFCC)"):
     """
@@ -177,14 +198,38 @@ def plot_mfcc(data, sr, titulo="Espectrograma (MFCC)"):
     mfccs_db = librosa.amplitude_to_db(np.abs(mfccs))
     fig, ax = plt.subplots(figsize=(14, 4))
     ax.set_title(titulo, fontsize=16)
-    mappable = ld.specshow(mfccs_db, x_axis='tempo', y_axis='mel', cmap='Spectral', sr=sr, ax=ax)
+    
+    # Usar 'time' e 'mel' para evitar erros
+    mappable = ld.specshow(mfccs_db, x_axis='time', y_axis='mel', cmap='Spectral', sr=sr, ax=ax)
+    
     cbar = plt.colorbar(mappable=mappable, ax=ax, format='%+2.f dB')
     cbar.ax.set_ylabel("Intensidade (dB)", fontsize=14)
+    
+    # Personalizar rótulos dos eixos
     ax.set_xlabel("Tempo (segundos)", fontsize=14)
     ax.set_ylabel("Frequência (Mel)", fontsize=14)
+    
     ax.tick_params(axis='both', which='major', labelsize=12)
     st.pyplot(fig)
     plt.close(fig)
+    
+    # Adicionar explicação para o usuário
+    with st.expander("📖 Entenda o Espectrograma de MFCC"):
+        st.markdown("""
+        ### O que são MFCCs?
+        
+        **MFCCs (Mel-Frequency Cepstral Coefficients)** são características extraídas do áudio que representam a potência espectral em diferentes frequências na escala Mel, que é mais alinhada com a percepção humana de som.
+
+        - **Eixo X (Tempo):** Representa o tempo em segundos.
+        - **Eixo Y (Frequência Mel):** Representa a frequência na escala Mel.
+        - **Cores:** Indicam a intensidade das frequências. Cores mais claras representam frequências mais intensas.
+        
+        **Por que usar MFCCs?**
+        MFCCs são amplamente utilizados em reconhecimento de fala e classificação de áudio porque capturam as características essenciais do som de forma compacta e eficaz.
+        
+        **Exemplo Visual:**
+        ![Espectrograma de MFCC](https://upload.wikimedia.org/wikipedia/commons/1/1c/Spectrogram_of_white_noise.svg)
+        """)
 
 def plot_probabilidades_classes(class_probs, titulo="Probabilidades das Classes"):
     """
@@ -499,37 +544,6 @@ def treinar_modelo():
                 - **80:** Número de amostras adicionais geradas através de técnicas de aumento de dados.
                 - **40:** Número de características por amostra.
                 - **Explicação:** Para melhorar a performance do modelo, criamos 80 novas amostras a partir das originais, aplicando transformações como adicionar ruído ou alterar o pitch.
-
-                **3. Combinação e Validação:**
-                - **Treino Combinado: (88, 40)**
-                  - **88:** Soma das amostras de treino original (8) e aumentadas (80).
-                  - **40:** Número de características por amostra.
-                  - **Explicação:** Unimos as amostras originais com as aumentadas para formar um conjunto de treino mais robusto.
-
-                - **Treino Final: (79, 40)**
-                  - **79:** Número de amostras após uma divisão adicional para validação.
-                  - **40:** Número de características por amostra.
-                  - **Explicação:** Das 88 amostras combinadas, 79 são usadas para treinar o modelo definitivamente.
-
-                - **Validação: (9, 40)**
-                  - **9:** Número de amostras usadas para validar o modelo durante o treinamento.
-                  - **40:** Número de características por amostra.
-                  - **Explicação:** As 9 amostras restantes são usadas para monitorar se o modelo está aprendendo de forma adequada.
-
-                **4. Ajuste das Shapes para a CNN:**
-                Após a preparação dos dados, é necessário ajustar a shape (dimensões) dos dados para que sejam compatíveis com a Rede Neural Convolucional (CNN).
-
-                - **Treino Final: (79, 40, 1)**
-                - **Validação: (9, 40, 1)**
-                - **Teste: (2, 40, 1)**
-                
-                - **Interpretação:**
-                  - **79, 9, 2:** Número de amostras nos conjuntos de treino final, validação e teste, respectivamente.
-                  - **40:** Número de características (features) por amostra.
-                  - **1:** Número de canais. Neste caso, temos um único canal, pois estamos lidando com dados unidimensionais (áudio).
-
-                - **Explicação Simples:**
-                  Cada amostra de áudio agora tem uma dimensão extra (1) para indicar que há apenas um canal de informação, o que é necessário para processar os dados na CNN.
                 """)
 
             # **Exibir Número de Classes e Distribuição**
@@ -544,9 +558,6 @@ def treinar_modelo():
             ax_dist.tick_params(axis='both', which='major', labelsize=12)
             st.pyplot(fig_dist)
             plt.close(fig_dist)
-
-            # **Explicação dos Dados (Detalhada)**
-            # (Já incluído acima no expander)
 
             # ==================== COLUNA DE CONFIGURAÇÃO ====================
             st.sidebar.header("Configurações de Treinamento")
@@ -659,8 +670,6 @@ def treinar_modelo():
             # **Explicação das Features Extraídas**
             with st.expander("📖 Explicação das Features Extraídas"):
                 st.markdown("""
-                ### Explicação dos Dados
-
                 **1. Features Extraídas: (10, 40)**
                 - **O que são Features?**
                   Features são características ou informações específicas extraídas dos dados brutos (neste caso, arquivos de áudio) que são usadas para treinar o modelo.
@@ -760,7 +769,6 @@ def treinar_modelo():
                       - **40:** Número de características por amostra.
                       - **Explicação:** Unimos as amostras originais com as aumentadas para formar um conjunto de treino mais robusto.
                     """)
-
             else:
                 X_train_combined = X_train
                 y_train_combined = y_train
@@ -805,7 +813,7 @@ def treinar_modelo():
                 - **Treino Final: (79, 40, 1)**
                 - **Validação: (9, 40, 1)**
                 - **Teste: (2, 40, 1)**
-
+                
                 - **Interpretação:**
                   - **79, 9, 2:** Número de amostras nos conjuntos de treino final, validação e teste, respectivamente.
                   - **40:** Número de características (features) por amostra.
