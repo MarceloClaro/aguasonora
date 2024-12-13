@@ -48,7 +48,7 @@ def get_shift_transform():
         # Caso contrário, usa min_shift e max_shift
         return Shift(min_shift=-0.5, max_shift=0.5, p=0.5)
 
-augment = Compose([
+augment_default = Compose([
     AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
     TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
     PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
@@ -93,19 +93,20 @@ def extract_features(data, sr):
         st.error(f"Erro ao extrair MFCC: {e}")
         return None
 
-def augment_audio(data, sr):
+def augment_audio(data, sr, augmentations):
     """
-    Aplica Data Augmentation ao sinal de áudio.
+    Aplica Data Augmentation ao sinal de áudio com as transformações selecionadas.
 
     Parameters:
     - data (np.ndarray): Sinal de áudio.
     - sr (int): Taxa de amostragem.
+    - augmentations (Compose): Composição de transformações de aumento.
 
     Returns:
     - augmented_data (np.ndarray): Sinal de áudio aumentado.
     """
     try:
-        augmented_data = augment(samples=data, sample_rate=sr)
+        augmented_data = augmentations(samples=data, sample_rate=sr)
         return augmented_data
     except Exception as e:
         st.error(f"Erro ao aplicar Data Augmentation: {e}")
@@ -185,6 +186,8 @@ def plot_mfcc(data, sr, title="Spectrograma (MFCC)"):
     ax.set_title(title)
     mappable = ld.specshow(mfccs_db, x_axis='time', y_axis='mel', cmap='Spectral', sr=sr, ax=ax)
     plt.colorbar(mappable=mappable, ax=ax, format='%+2.f dB')
+    ax.set_xlabel("Tempo (s)")
+    ax.set_ylabel("Frequência (Mel)")
     st.pyplot(fig)
     plt.close(fig)
 
@@ -432,6 +435,79 @@ def treinar_modelo():
             classes = labelencoder.classes_
             st.write(f"Classes codificadas: {list(classes)}")
 
+            # ==================== COLUNA DE CONFIGURAÇÃO ====================
+            st.sidebar.header("Configurações de Treinamento")
+
+            # Número de Épocas
+            num_epochs = st.sidebar.slider(
+                "Número de Épocas:",
+                min_value=10,
+                max_value=500,
+                value=200,
+                step=10,
+                help="Define quantas vezes o modelo percorrerá todo o conjunto de dados durante o treinamento."
+            )
+
+            # Tamanho do Batch
+            batch_size = st.sidebar.selectbox(
+                "Tamanho do Batch:",
+                options=[16, 32, 64, 128],
+                index=1,
+                help="Número de amostras processadas antes de atualizar os pesos do modelo."
+            )
+
+            # Fator de Aumento de Dados
+            augment_factor = st.sidebar.slider(
+                "Fator de Aumento de Dados:",
+                min_value=1,
+                max_value=20,
+                value=10,
+                step=1,
+                help="Define quantas amostras aumentadas serão geradas a partir de cada amostra original."
+            )
+
+            # Taxa de Dropout
+            dropout_rate = st.sidebar.slider(
+                "Taxa de Dropout:",
+                min_value=0.0,
+                max_value=0.9,
+                value=0.4,
+                step=0.05,
+                help="Proporção de neurônios a serem desligados durante o treinamento para evitar overfitting."
+            )
+
+            # Ativar/Desativar Data Augmentation
+            enable_augmentation = st.sidebar.checkbox(
+                "Ativar Data Augmentation",
+                value=True,
+                help="Permite ao usuário escolher se deseja ou não aplicar técnicas de aumento de dados."
+            )
+
+            # Seleção de Tipos de Data Augmentation
+            if enable_augmentation:
+                st.sidebar.subheader("Tipos de Data Augmentation")
+                add_noise = st.sidebar.checkbox(
+                    "Adicionar Ruído Gaussiano",
+                    value=True,
+                    help="Adiciona ruído gaussiano ao áudio para simular variações de som."
+                )
+                time_stretch = st.sidebar.checkbox(
+                    "Estiramento de Tempo",
+                    value=True,
+                    help="Altera a velocidade do áudio sem alterar seu pitch."
+                )
+                pitch_shift = st.sidebar.checkbox(
+                    "Alteração de Pitch",
+                    value=True,
+                    help="Altera o pitch do áudio sem alterar sua velocidade."
+                )
+                shift = st.sidebar.checkbox(
+                    "Deslocamento",
+                    value=True,
+                    help="Desloca o áudio no tempo, adicionando silêncio no início ou no final."
+                )
+            # ==================== FIM DA COLUNA DE CONFIGURAÇÃO ====================
+
             # Extração de Features
             st.write("### Extraindo Features (MFCCs)...")
             X = []
@@ -463,35 +539,52 @@ def treinar_modelo():
             st.write(f"Treino: {X_train.shape}, Teste: {X_test.shape}")
 
             # Data Augmentation no Treino
-            st.write("### Aplicando Data Augmentation no Conjunto de Treino...")
-            X_train_augmented = []
-            y_train_augmented = []
-            augment_factor = 10  # Fator de aumento
+            if enable_augmentation:
+                st.write("### Aplicando Data Augmentation no Conjunto de Treino...")
+                X_train_augmented = []
+                y_train_augmented = []
 
-            for i in range(len(X_train)):
-                file = df['file_path'].iloc[i]
-                data, sr = load_audio(file, sr=None)
-                if data is not None:
-                    for _ in range(augment_factor):
-                        augmented_data = augment_audio(data, sr)
-                        if augmented_data is not None:
+                for i in range(len(X_train)):
+                    file = df['file_path'].iloc[i]
+                    data, sr = load_audio(file, sr=None)
+                    if data is not None:
+                        for _ in range(augment_factor):
+                            # Aplicar apenas as transformações selecionadas
+                            augmented_data = data.copy()
+                            transformations = []
+                            if add_noise:
+                                transformations.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
+                            if time_stretch:
+                                transformations.append(TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0))
+                            if pitch_shift:
+                                transformations.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
+                            if shift:
+                                transformations.append(Shift(min_fraction=-0.5, max_fraction=0.5, p=1.0))
+                            
+                            if transformations:
+                                augmentations = Compose(transformations)
+                                augmented_data = augment_audio(data, sr, augmentations)
+                            
                             features = extract_features(augmented_data, sr)
                             if features is not None:
                                 X_train_augmented.append(features)
                                 y_train_augmented.append(y_train[i])
                             else:
                                 st.warning(f"Erro na extração de features de uma amostra aumentada do arquivo '{file}'.")
-                else:
-                    st.warning(f"Erro no carregamento do arquivo '{file}' para Data Augmentation.")
+                    else:
+                        st.warning(f"Erro no carregamento do arquivo '{file}' para Data Augmentation.")
 
-            X_train_augmented = np.array(X_train_augmented)
-            y_train_augmented = np.array(y_train_augmented)
-            st.write(f"Dados aumentados: {X_train_augmented.shape}")
+                X_train_augmented = np.array(X_train_augmented)
+                y_train_augmented = np.array(y_train_augmented)
+                st.write(f"Dados aumentados: {X_train_augmented.shape}")
 
-            # Combinação dos Dados
-            X_train_combined = np.concatenate((X_train, X_train_augmented), axis=0)
-            y_train_combined = np.concatenate((y_train, y_train_augmented), axis=0)
-            st.write(f"Treino combinado: {X_train_combined.shape}")
+                # Combinação dos Dados
+                X_train_combined = np.concatenate((X_train, X_train_augmented), axis=0)
+                y_train_combined = np.concatenate((y_train, y_train_augmented), axis=0)
+                st.write(f"Treino combinado: {X_train_combined.shape}")
+            else:
+                X_train_combined = X_train
+                y_train_combined = y_train
 
             # Divisão em Treino Final e Validação
             st.write("### Dividindo o Treino Combinado em Treino Final e Validação...")
@@ -525,14 +618,14 @@ def treinar_modelo():
             model = Sequential([
                 Input(shape=(X_train_final.shape[1], 1)),
                 Conv1D(64, kernel_size=10, activation='relu'),
-                Dropout(0.4),
+                Dropout(dropout_rate),
                 MaxPooling1D(pool_size=4),
                 Conv1D(128, kernel_size=10, activation='relu', padding='same'),
-                Dropout(0.4),
+                Dropout(dropout_rate),
                 MaxPooling1D(pool_size=4),
                 Flatten(),
                 Dense(64, activation='relu'),
-                Dropout(0.4),
+                Dropout(dropout_rate),
                 Dense(len(classes), activation='softmax')
             ])
 
@@ -566,10 +659,6 @@ def treinar_modelo():
                 patience=5,
                 restore_best_weights=True
             )
-
-            # Definição dos Parâmetros de Treinamento
-            num_epochs = st.slider("Número de Épocas:", min_value=10, max_value=500, value=200, step=10)
-            batch_size = st.selectbox("Tamanho do Batch:", options=[16, 32, 64, 128], index=1)
 
             # Treinamento do Modelo
             st.write("### Iniciando o Treinamento do Modelo...")
