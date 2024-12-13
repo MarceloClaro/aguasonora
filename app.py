@@ -409,7 +409,7 @@ def treinar_modelo():
     └── ...
     ```
     """)
-    
+
     zip_upload = st.file_uploader(
         "Faça upload do arquivo ZIP contendo as pastas das classes", 
         type=["zip"], 
@@ -468,6 +468,70 @@ def treinar_modelo():
             classes = labelencoder.classes_
             st.write(f"**Classes codificadas:** {', '.join(classes)}")
 
+            # **Explicação dos Dados**
+            with st.expander("📖 Explicação dos Dados"):
+                st.markdown("""
+                ### Explicação dos Dados
+
+                **1. Features Extraídas: (10, 40)**
+                - **O que são Features?**
+                  Features são características ou informações específicas extraídas dos dados brutos (neste caso, arquivos de áudio) que são usadas para treinar o modelo.
+                - **Interpretação de (10, 40):**
+                  - **10:** Número de amostras ou exemplos no conjunto de dados.
+                  - **40:** Número de características extraídas de cada amostra.
+                - **Explicação Simples:**
+                  Imagine que você tem 10 arquivos de áudio diferentes. Para cada um deles, extraímos 40 características que ajudam o modelo a entender e diferenciar os sons.
+
+                **2. Divisão dos Dados:**
+                Após extrair as features, os dados são divididos em diferentes conjuntos para treinar e avaliar o modelo.
+
+                - **Treino: (8, 40)**
+                  - **8:** Número de amostras usadas para treinar o modelo.
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** Das 10 amostras iniciais, 8 são usadas para ensinar o modelo a reconhecer os padrões.
+
+                - **Teste: (2, 40)**
+                  - **2:** Número de amostras usadas para testar a performance do modelo.
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** As 2 amostras restantes são usadas para verificar se o modelo aprendeu corretamente.
+
+                **Dados Aumentados: (80, 40)**
+                - **80:** Número de amostras adicionais geradas através de técnicas de aumento de dados.
+                - **40:** Número de características por amostra.
+                - **Explicação:** Para melhorar a performance do modelo, criamos 80 novas amostras a partir das originais, aplicando transformações como adicionar ruído ou alterar o pitch.
+
+                **3. Combinação e Validação:**
+                - **Treino Combinado: (88, 40)**
+                  - **88:** Soma das amostras de treino original (8) e aumentadas (80).
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** Unimos as amostras originais com as aumentadas para formar um conjunto de treino mais robusto.
+
+                - **Treino Final: (79, 40)**
+                  - **79:** Número de amostras após uma divisão adicional para validação.
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** Das 88 amostras combinadas, 79 são usadas para treinar o modelo definitivamente.
+
+                - **Validação: (9, 40)**
+                  - **9:** Número de amostras usadas para validar o modelo durante o treinamento.
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** As 9 amostras restantes são usadas para monitorar se o modelo está aprendendo de forma adequada.
+
+                **4. Ajuste das Shapes para a CNN:**
+                Após a preparação dos dados, é necessário ajustar a shape (dimensões) dos dados para que sejam compatíveis com a Rede Neural Convolucional (CNN).
+
+                - **Treino Final: (79, 40, 1)**
+                - **Validação: (9, 40, 1)**
+                - **Teste: (2, 40, 1)**
+                
+                - **Interpretação:**
+                  - **79, 9, 2:** Número de amostras nos conjuntos de treino final, validação e teste, respectivamente.
+                  - **40:** Número de características (features) por amostra.
+                  - **1:** Número de canais. Neste caso, temos um único canal, pois estamos lidando com dados unidimensionais (áudio).
+
+                - **Explicação Simples:**
+                  Cada amostra de áudio agora tem uma dimensão extra (1) para indicar que há apenas um canal de informação, o que é necessário para processar os dados na CNN.
+                """)
+
             # **Exibir Número de Classes e Distribuição**
             st.write(f"### Número de Classes: {len(classes)}")
             contagem_classes = df['classe'].value_counts()
@@ -480,6 +544,9 @@ def treinar_modelo():
             ax_dist.tick_params(axis='both', which='major', labelsize=12)
             st.pyplot(fig_dist)
             plt.close(fig_dist)
+
+            # **Explicação dos Dados (Detalhada)**
+            # (Já incluído acima no expander)
 
             # ==================== COLUNA DE CONFIGURAÇÃO ====================
             st.sidebar.header("Configurações de Treinamento")
@@ -589,12 +656,44 @@ def treinar_modelo():
 
             st.write(f"**Features extraídas:** {X.shape}")
 
+            # **Explicação das Features Extraídas**
+            with st.expander("📖 Explicação das Features Extraídas"):
+                st.markdown("""
+                ### Explicação dos Dados
+
+                **1. Features Extraídas: (10, 40)**
+                - **O que são Features?**
+                  Features são características ou informações específicas extraídas dos dados brutos (neste caso, arquivos de áudio) que são usadas para treinar o modelo.
+                - **Interpretação de (10, 40):**
+                  - **10:** Número de amostras ou exemplos no conjunto de dados.
+                  - **40:** Número de características extraídas de cada amostra.
+                - **Explicação Simples:**
+                  Imagine que você tem 10 arquivos de áudio diferentes. Para cada um deles, extraímos 40 características que ajudam o modelo a entender e diferenciar os sons.
+                """)
+
             # Divisão dos Dados
             st.write("### Dividindo os Dados em Treino e Teste...")
             from sklearn.model_selection import train_test_split
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y_valid, test_size=0.2, random_state=SEED, stratify=y_valid)
             st.write(f"**Treino:** {X_train.shape}, **Teste:** {X_test.shape}")
+
+            # **Explicação da Divisão dos Dados**
+            with st.expander("📖 Explicação da Divisão dos Dados"):
+                st.markdown("""
+                **2. Divisão dos Dados:**
+                Após extrair as features, os dados são divididos em diferentes conjuntos para treinar e avaliar o modelo.
+
+                - **Treino: (8, 40)**
+                  - **8:** Número de amostras usadas para treinar o modelo.
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** Das 10 amostras iniciais, 8 são usadas para ensinar o modelo a reconhecer os padrões.
+
+                - **Teste: (2, 40)**
+                  - **2:** Número de amostras usadas para testar a performance do modelo.
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** As 2 amostras restantes são usadas para verificar se o modelo aprendeu corretamente.
+                """)
 
             # Data Augmentation no Treino
             if enable_augmentation:
@@ -638,10 +737,30 @@ def treinar_modelo():
                 y_train_augmented = np.array(y_train_augmented)
                 st.write(f"**Dados aumentados:** {X_train_augmented.shape}")
 
+                # **Explicação dos Dados Aumentados**
+                with st.expander("📖 Explicação dos Dados Aumentados"):
+                    st.markdown("""
+                    **Dados Aumentados: (80, 40)**
+                    - **80:** Número de amostras adicionais geradas através de técnicas de aumento de dados.
+                    - **40:** Número de características por amostra.
+                    - **Explicação:** Para melhorar a performance do modelo, criamos 80 novas amostras a partir das originais, aplicando transformações como adicionar ruído ou alterar o pitch.
+                    """)
+
                 # Combinação dos Dados
                 X_train_combined = np.concatenate((X_train, X_train_augmented), axis=0)
                 y_train_combined = np.concatenate((y_train, y_train_augmented), axis=0)
                 st.write(f"**Treino combinado:** {X_train_combined.shape}")
+
+                # **Explicação da Combinação dos Dados**
+                with st.expander("📖 Explicação da Combinação dos Dados"):
+                    st.markdown("""
+                    **3. Combinação e Validação:**
+                    - **Treino Combinado: (88, 40)**
+                      - **88:** Soma das amostras de treino original (8) e aumentadas (80).
+                      - **40:** Número de características por amostra.
+                      - **Explicação:** Unimos as amostras originais com as aumentadas para formar um conjunto de treino mais robusto.
+                    """)
+
             else:
                 X_train_combined = X_train
                 y_train_combined = y_train
@@ -652,12 +771,49 @@ def treinar_modelo():
                 X_train_combined, y_train_combined, test_size=0.1, random_state=SEED, stratify=y_train_combined)
             st.write(f"**Treino Final:** {X_train_final.shape}, **Validação:** {X_val.shape}")
 
+            # **Explicação da Divisão Final**
+            with st.expander("📖 Explicação da Combinação e Validação"):
+                st.markdown("""
+                **3. Combinação e Validação:**
+                - **Treino Combinado: (88, 40)**
+                  - **88:** Soma das amostras de treino original (8) e aumentadas (80).
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** Unimos as amostras originais com as aumentadas para formar um conjunto de treino mais robusto.
+                - **Treino Final: (79, 40)**
+                  - **79:** Número de amostras após uma divisão adicional para validação.
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** Das 88 amostras combinadas, 79 são usadas para treinar o modelo definitivamente.
+                - **Validação: (9, 40)**
+                  - **9:** Número de amostras usadas para validar o modelo durante o treinamento.
+                  - **40:** Número de características por amostra.
+                  - **Explicação:** As 9 amostras restantes são usadas para monitorar se o modelo está aprendendo de forma adequada.
+                """)
+
             # Ajuste da Forma dos Dados para a CNN (Conv1D)
             st.write("### Ajustando a Forma dos Dados para a CNN (Conv1D)...")
             X_train_final = X_train_final.reshape((X_train_final.shape[0], X_train_final.shape[1], 1))
             X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
             X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
             st.write(f"**Shapes:** Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+
+            # **Explicação do Ajuste das Shapes**
+            with st.expander("📖 Explicação do Ajuste das Shapes"):
+                st.markdown("""
+                **4. Ajuste das Shapes para a CNN:**
+                Após a preparação dos dados, é necessário ajustar a shape (dimensões) dos dados para que sejam compatíveis com a Rede Neural Convolucional (CNN).
+
+                - **Treino Final: (79, 40, 1)**
+                - **Validação: (9, 40, 1)**
+                - **Teste: (2, 40, 1)**
+
+                - **Interpretação:**
+                  - **79, 9, 2:** Número de amostras nos conjuntos de treino final, validação e teste, respectivamente.
+                  - **40:** Número de características (features) por amostra.
+                  - **1:** Número de canais. Neste caso, temos um único canal, pois estamos lidando com dados unidimensionais (áudio).
+
+                - **Explicação Simples:**
+                  Cada amostra de áudio agora tem uma dimensão extra (1) para indicar que há apenas um canal de informação, o que é necessário para processar os dados na CNN.
+                """)
 
             # Cálculo de Class Weights
             st.write("### Calculando Class Weights para Balanceamento das Classes...")
@@ -742,6 +898,130 @@ def treinar_modelo():
             st.write(f"**Total de parâmetros:** {total_parametros:,} ({total_parametros / 1e3:.2f} KB)")
             st.write(f"**Parâmetros treináveis:** {parametros_trainable:,} ({parametros_trainable / 1e3:.2f} KB)")
             st.write(f"**Parâmetros não treináveis:** {parametros_nao_trainable:,} ({parametros_nao_trainable / 1e3:.2f} KB)")
+
+            # **Explicação das Camadas do Modelo**
+            with st.expander("📖 Explicação das Camadas do Modelo"):
+                st.markdown("""
+                ### Explicação das Camadas do Modelo
+
+                As camadas de uma Rede Neural Convolucional (CNN) são responsáveis por processar e aprender padrões nos dados. Vamos explicar cada uma das camadas presentes no seu modelo de forma simples:
+
+                **1. Conv1D (Conv1D)**
+                - **O que é?**
+                  Conv1D é uma camada convolucional unidimensional usada para processar dados sequenciais, como áudio ou séries temporais.
+                - **Função:**
+                  **Extrair Padrões Locais:** Ela passa uma janela (filtro) sobre os dados para detectar padrões específicos, como certas frequências ou ritmos no áudio.
+                - **Exemplo no Modelo:**
+                  ```python
+                  Conv1D(64, kernel_size=10, activation='relu')
+                  ```
+                  - **64:** Número de filtros (detetores de padrões) usados.
+                  - **kernel_size=10:** Tamanho da janela que percorre os dados.
+                  - **activation='relu':** Função de ativação que introduz não-linearidade.
+
+                **2. Dropout (Dropout)**
+                - **O que é?**
+                  Dropout é uma técnica de regularização que ajuda a prevenir o overfitting.
+                - **Função:**
+                  **Desligar Neurônios Aleatoriamente:** Durante o treinamento, desliga aleatoriamente uma porcentagem dos neurônios, forçando o modelo a não depender excessivamente de nenhum neurônio específico.
+                - **Exemplo no Modelo:**
+                  ```python
+                  Dropout(0.4)
+                  ```
+                  - **0.4:** 40% dos neurônios serão desligados durante o treinamento.
+
+                **3. MaxPooling1D (MaxPooling1D)**
+                - **O que é?**
+                  MaxPooling1D é uma camada de pooling que reduz a dimensionalidade dos dados.
+                - **Função:**
+                  **Reduzir a Dimensionalidade:** Seleciona o valor máximo em cada janela de tamanho especificado, resumindo a informação e reduzindo o número de parâmetros.
+                - **Exemplo no Modelo:**
+                  ```python
+                  MaxPooling1D(pool_size=4)
+                  ```
+                  - **pool_size=4:** Seleciona o maior valor em janelas de 4 unidades.
+
+                **4. Conv1D_1 (Conv1D)**
+                - **O que é?**
+                  Outra camada convolucional para extrair padrões mais complexos dos dados.
+                - **Função:**
+                  Similar à primeira camada Conv1D, mas com mais filtros para capturar padrões mais elaborados.
+                - **Exemplo no Modelo:**
+                  ```python
+                  Conv1D(128, kernel_size=10, activation='relu', padding='same')
+                  ```
+                  - **128:** Número de filtros.
+                  - **kernel_size=10:** Tamanho da janela.
+                  - **padding='same':** Mantém as dimensões dos dados.
+
+                **5. Dropout_1 (Dropout)**
+                - **O que é?**
+                  Segunda camada de dropout para reforçar a regularização.
+                - **Função:**
+                  Similar à primeira camada Dropout.
+                - **Exemplo no Modelo:**
+                  ```python
+                  Dropout(0.4)
+                  ```
+                  - **0.4:** 40% dos neurônios serão desligados.
+
+                **6. MaxPooling1D_1 (MaxPooling1D)**
+                - **O que é?**
+                  Segunda camada de max pooling para continuar a reduzir a dimensionalidade.
+                - **Função:**
+                  Similar à primeira camada MaxPooling1D.
+                - **Exemplo no Modelo:**
+                  ```python
+                  MaxPooling1D(pool_size=4)
+                  ```
+                  - **pool_size=4:** Seleciona o maior valor em janelas de 4 unidades.
+
+                **7. Flatten (Flatten)**
+                - **O que é?**
+                  Flatten é uma camada que transforma os dados multidimensionais em um vetor unidimensional.
+                - **Função:**
+                  **Preparar para Camadas Densas:** Converte a saída das camadas convolucionais em uma forma adequada para as camadas densas (totalmente conectadas).
+                - **Exemplo no Modelo:**
+                  ```python
+                  Flatten()
+                  ```
+                  - Sem parâmetros, apenas altera a forma dos dados.
+
+                **8. Dense (Dense)**
+                - **O que é?**
+                  Dense é uma camada totalmente conectada onde cada neurônio está conectado a todos os neurônios da camada anterior.
+                - **Função:**
+                  **Tomar Decisões Finais:** Combina todas as características extraídas pelas camadas anteriores para fazer a classificação final.
+                - **Exemplo no Modelo:**
+                  ```python
+                  Dense(64, activation='relu')
+                  ```
+                  - **64:** Número de neurônios na camada.
+                  - **activation='relu':** Função de ativação que introduz não-linearidade.
+
+                **9. Dropout_2 (Dropout)**
+                - **O que é?**
+                  Terceira camada de dropout para prevenir overfitting.
+                - **Função:**
+                  Similar às camadas Dropout anteriores.
+                - **Exemplo no Modelo:**
+                  ```python
+                  Dropout(0.4)
+                  ```
+                  - **0.4:** 40% dos neurônios serão desligados.
+
+                **10. Dense_1 (Dense)**
+                - **O que é?**
+                  Camada de saída que gera as probabilidades de cada classe usando a função de ativação softmax.
+                - **Função:**
+                  **Geração das Probabilidades:** Transforma as saídas das camadas densas em probabilidades para cada classe.
+                - **Exemplo no Modelo:**
+                  ```python
+                  Dense(len(classes), activation='softmax')
+                  ```
+                  - **len(classes):** Número de classes a serem classificadas.
+                  - **activation='softmax':** Função de ativação que transforma as saídas em probabilidades.
+                """)
 
             # Definição dos Callbacks
             st.write("### Configurando Callbacks para o Treinamento...")
@@ -862,6 +1142,24 @@ def treinar_modelo():
             st.write(f"**Acurácia no Treino:** {score_train[1]*100:.2f}%")
             st.write(f"**Acurácia na Validação:** {score_val[1]*100:.2f}%")
             st.write(f"**Acurácia no Teste:** {score_test[1]*100:.2f}%")
+
+            # **Explicação da Avaliação**
+            with st.expander("📖 Explicação da Avaliação do Modelo"):
+                st.markdown("""
+                **Conclusão**
+
+                Entender os dados e as camadas do modelo é fundamental para interpretar como o modelo está aprendendo e realizando as classificações. 
+
+                - **Shapes dos Dados:**
+                  - Representam a estrutura dos dados em diferentes etapas do processamento e treinamento.
+                  - Ajustar corretamente as dimensões é crucial para que o modelo possa processar os dados de forma eficiente.
+
+                - **Camadas do Modelo:**
+                  - Cada camada tem uma função específica que contribui para a extração e processamento das informações necessárias para a classificação.
+                  - **Conv1D** detecta padrões, **Dropout** previne overfitting, **MaxPooling1D** reduz a dimensionalidade, **Flatten** prepara os dados para a camada densa, e **Dense** realiza a classificação final.
+
+                Compreender esses conceitos permite ajustar e otimizar o modelo de forma mais eficaz, melhorando sua performance e capacidade de generalização.
+                """)
 
             # Predições no Conjunto de Teste
             y_pred = modelo.predict(X_test)
