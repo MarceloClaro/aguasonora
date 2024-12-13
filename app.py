@@ -21,110 +21,104 @@ import zipfile
 import gc
 
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
-def main():
-    # ==================== DEFINIÇÃO DO SEED ====================
-    st.sidebar.header("Configurações Gerais")
-    
-    # Adicionando a seleção de SEED na barra lateral
-    seed_options = [0, 42, 100]
-    seed_selection = st.sidebar.selectbox(
-        "Escolha o valor do SEED:",
-        options=seed_options,
-        index=1,  # 42 como valor padrão
-        help="Define a semente para reprodutibilidade dos resultados."
-    )
-    
-    SEED = seed_selection  # Definindo a variável SEED
 
-    # Definir o caminho do ícone (favicon)
-    favicon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
+# Definição do SEED
+seed_options = [0, 42, 100]
+seed_selection = 42  # Valor padrão
 
-    # Verificar se o arquivo de ícone existe antes de configurá-lo
-    if os.path.exists(favicon_path):
-        try:
-            st.set_page_config(
-                page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
-                page_icon=favicon_path,
-                layout="wide"
-            )
-            # logging.info(f"Ícone {favicon_path} carregado com sucesso.")  # Remova ou configure o logging se necessário
-        except Exception as e:
-            st.set_page_config(
-                page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
-                layout="wide"
-            )
-            st.sidebar.warning(f"Erro ao carregar o ícone {favicon_path}: {e}")
-    else:
-        # Se o ícone não for encontrado, carrega sem favicon e exibe aviso
-        st.set_page_config(
-            page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
-            layout="wide"
+# Adicionando a seleção de SEED na barra lateral
+st.sidebar.header("Configurações Gerais")
+seed_selection = st.sidebar.selectbox(
+    "Escolha o valor do SEED:",
+    options=seed_options,
+    index=seed_options.index(42),  # 42 como valor padrão
+    help="Define a semente para reprodutibilidade dos resultados."
+)
+SEED = seed_selection  # Definindo a variável SEED
+
+# Definir o caminho do ícone (favicon)
+favicon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
+
+# Verificar se o arquivo de ícone existe antes de configurá-lo
+if os.path.exists(favicon_path):
+    page_icon = favicon_path
+else:
+    page_icon = None  # Ou defina um ícone padrão, por exemplo: "🛠️"
+
+# Chamar st.set_page_config() **antes** de qualquer outro comando do Streamlit
+st.set_page_config(
+    page_title="Classificação de Sons de Água Vibrando em Copo de Vidro",
+    page_icon=page_icon,
+    layout="wide"
+)
+
+# ==================== LOGO E IMAGEM DE CAPA ====================
+
+# Carrega e exibe a capa.png na página principal
+capa_path = 'capa (2).png'
+if os.path.exists(capa_path):
+    try:
+        st.image(
+            capa_path, 
+            caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', 
+            use_container_width=True
         )
-        st.sidebar.warning(f"Ícone '{favicon_path}' não encontrado, carregando sem favicon.")
+    except UnidentifiedImageError:
+        st.warning(f"Imagem '{capa_path}' não pôde ser carregada ou está corrompida.")
+else:
+    st.warning(f"Imagem '{capa_path}' não encontrada.")
 
-    # ==================== LOGO E IMAGEM DE CAPA ====================
-    # Carrega e exibe a capa.png na página principal
-    if os.path.exists('capa (2).png'):
-        try:
-            st.image(
-                'capa (2).png', 
-                caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', 
-                use_container_width=True
-            )
-        except UnidentifiedImageError:
-            st.warning("Imagem 'capa (2).png' não pôde ser carregada ou está corrompida.")
-    else:
-        st.warning("Imagem 'capa (2).png' não encontrada.")
+# Carregar o logotipo na barra lateral
+logo_path = "logo.png"
+if os.path.exists(logo_path):
+    try:
+        st.sidebar.image(logo_path, width=200, use_container_width=False)
+    except UnidentifiedImageError:
+        st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
+else:
+    st.sidebar.text("Imagem do logotipo não encontrada.")
 
-    # Carregar o logotipo na barra lateral
-    if os.path.exists("logo.png"):
-        try:
-            st.sidebar.image("logo.png", width=200, use_container_width=False)
-        except UnidentifiedImageError:
-            st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
-    else:
-        st.sidebar.text("Imagem do logotipo não encontrada.")
+st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
+st.write("""
+Bem-vindo à nossa aplicação! Aqui, você pode **classificar sons de água vibrando em copos de vidro**. Você tem duas opções:
+- **Classificar Áudio:** Use um modelo já treinado para identificar o som.
+- **Treinar Modelo:** Treine seu próprio modelo com seus dados de áudio.
+""")
 
-    st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
-    st.write("""
-    Bem-vindo à nossa aplicação! Aqui, você pode **classificar sons de água vibrando em copos de vidro**. Você tem duas opções:
-    - **Classificar Áudio:** Use um modelo já treinado para identificar o som.
-    - **Treinar Modelo:** Treine seu próprio modelo com seus dados de áudio.
-    """)
+# Barra Lateral de Navegação
+st.sidebar.title("Navegação")
+app_mode = st.sidebar.selectbox("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
 
-    # Barra Lateral de Navegação
-    st.sidebar.title("Navegação")
-    app_mode = st.sidebar.selectbox("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
+if app_mode == "Classificar Áudio":
+    classificar_audio(SEED)
+elif app_mode == "Treinar Modelo":
+    treinar_modelo(SEED)
 
-    if app_mode == "Classificar Áudio":
-        classificar_audio(SEED)
-    elif app_mode == "Treinar Modelo":
-        treinar_modelo(SEED)
-    
-    # Adicionando o ícone na barra lateral
-    if os.path.exists("eu.ico"):
-        try:
-            st.sidebar.image("eu.ico", width=80, use_container_width=False)
-        except UnidentifiedImageError:
-            st.sidebar.text("Imagem do ícone 'eu.ico' não pôde ser carregada ou está corrompida.")
-    else:
-        st.sidebar.text("Imagem do ícone 'eu.ico' não encontrada.")
-    
-    st.sidebar.write("""
-    Produzido pelo:
+# Adicionando o ícone na barra lateral
+eu_icon_path = "eu.ico"
+if os.path.exists(eu_icon_path):
+    try:
+        st.sidebar.image(eu_icon_path, width=80, use_container_width=False)
+    except UnidentifiedImageError:
+        st.sidebar.text("Imagem do ícone 'eu.ico' não pôde ser carregada ou está corrompida.")
+else:
+    st.sidebar.text("Imagem do ícone 'eu.ico' não encontrada.")
 
-    Projeto Geomaker + IA 
+st.sidebar.write("""
+Produzido pelo:
 
-    https://doi.org/10.5281/zenodo.13910277
+Projeto Geomaker + IA 
 
-    - Professor: Marcelo Claro.
+https://doi.org/10.5281/zenodo.13910277
 
-    Contatos: marceloclaro@gmail.com
+- Professor: Marcelo Claro.
 
-    Whatsapp: (88)981587145
+Contatos: marceloclaro@gmail.com
 
-    Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
-    """)
+Whatsapp: (88)981587145
+
+Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
+""")
 
 # ==================== FUNÇÕES DE PROCESSAMENTO ====================
 
@@ -344,10 +338,6 @@ def plot_probabilidades_classes(class_probs, titulo="Probabilidades das Classes"
     # Adiciona rótulos de porcentagem acima das barras
     for i, v in enumerate(probs):
         ax.text(i, v + 0.01, f"{v*100:.2f}%", ha='center', va='bottom', fontsize=12)
-    
-    # Correção do aviso de depreciação do Seaborn
-    # Adicionando 'hue' e removendo a legenda
-    sns.barplot(x=classes, y=probs, hue=classes, palette='viridis', ax=ax, legend=False)
     
     st.pyplot(fig)
     plt.close(fig)
@@ -792,14 +782,15 @@ def treinar_modelo(SEED):
                         for _ in range(augment_factor):
                             # Aplicar apenas as transformações selecionadas
                             transformacoes = []
-                            if adicionar_ruido:
-                                transformacoes.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
-                            if estiramento_tempo:
-                                transformacoes.append(TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0))
-                            if alteracao_pitch:
-                                transformacoes.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
-                            if deslocamento:
-                                transformacoes.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))
+                            if enable_augmentation:
+                                if adicionar_ruido:
+                                    transformacoes.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
+                                if estiramento_tempo:
+                                    transformacoes.append(TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0))
+                                if alteracao_pitch:
+                                    transformacoes.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
+                                if deslocamento:
+                                    transformacoes.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))
 
                             if transformacoes:
                                 augmentations = Compose(transformacoes)
