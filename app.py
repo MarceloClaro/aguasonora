@@ -1694,42 +1694,53 @@ def treinar_modelo(SEED):
                     st.error(f"Erro ao carregar logs: {e}")
                     logging.error(f"Erro ao carregar logs: {e}")
 
-                # ==================== LIMPEZA DE MEMÓRIA E REMOÇÃO DOS ARQUIVOS TEMPORÁRIOS ====================
-                st.write("### Limpeza de Memória e Remoção de Arquivos Temporários")
-                try:
-                    del df, X, y_valid, X_train, X_temp, y_train, y_temp, X_val, X_test, y_val, y_test
-                    if enable_augmentation:
-                        del X_aumentado, y_aumentado, caminhos_arquivos_aumentados, classes_aumentadas
-                    gc.collect()
-                    os.remove(caminho_zip)
-                    for cat in categorias:
-                        caminho_cat = os.path.join(caminho_base, cat)
-                        for arquivo in os.listdir(caminho_cat):
-                            os.remove(os.path.join(caminho_cat, arquivo))
-                        os.rmdir(caminho_cat)
-                    os.rmdir(caminho_base)
-                    logging.info("Arquivos temporários removidos e memória limpa.")
-                    st.success("Processo de Treinamento e Avaliação concluído!")
-                except Exception as e:
-                    st.warning(f"Erro durante a limpeza de memória ou remoção de arquivos temporários: {e}")
-                    logging.warning(f"Erro durante a limpeza de memória ou remoção de arquivos temporários: {e}")
-        except Exception as e:
-            st.error(f"Erro durante o processamento do dataset: {e}")
-            logging.error(f"Erro durante o processamento do dataset: {e}")
-            # Assegura a remoção dos arquivos temporários em caso de erro
-            try:
-                if 'caminho_zip' in locals() and os.path.exists(caminho_zip):
-                    os.remove(caminho_zip)
-                if 'caminho_base' in locals() and os.path.exists(caminho_base):
-                    for cat in categorias:
-                        caminho_cat = os.path.join(caminho_base, cat)
-                        for arquivo in os.listdir(caminho_cat):
-                            os.remove(os.path.join(caminho_cat, arquivo))
-                        os.rmdir(caminho_cat)
-                    os.rmdir(caminho_base)
-                logging.info("Arquivos temporários removidos devido a erro.")
-            except Exception as cleanup_error:
-                logging.warning(f"Erro durante a limpeza de arquivos temporários: {cleanup_error}")
+# ==================== LIMPEZA DE MEMÓRIA E REMOÇÃO DOS ARQUIVOS TEMPORÁRIOS ====================
+st.write("### Limpeza de Memória e Remoção de Arquivos Temporários")
+try:
+    # Removendo variáveis da memória
+    del df, X, y_valid, X_train, X_temp, y_train, y_temp, X_val, X_test, y_val, y_test
+
+    # Se Data Augmentation foi ativado, remova as variáveis associadas
+    if enable_augmentation:
+        del X_aumentado, y_aumentado, caminhos_arquivos_aumentados, classes_aumentadas
+
+    # Limpeza de memória
+    gc.collect()
+
+    # Remoção de arquivos temporários
+    os.remove(caminho_zip)
+    for cat in categorias:
+        caminho_cat = os.path.join(caminho_base, cat)
+        for arquivo in os.listdir(caminho_cat):
+            os.remove(os.path.join(caminho_cat, arquivo))
+        os.rmdir(caminho_cat)
+    os.rmdir(caminho_base)
+
+    logging.info("Arquivos temporários removidos e memória limpa.")
+    st.success("Processo de Treinamento e Avaliação concluído!")
+
+except Exception as e:
+    # Tratamento de erros durante a limpeza de memória e remoção de arquivos temporários
+    st.warning(f"Erro durante a limpeza de memória ou remoção de arquivos temporários: {e}")
+    logging.warning(f"Erro durante a limpeza de memória ou remoção de arquivos temporários: {e}")
+
+    # Tenta limpar os arquivos temporários em caso de erro
+    try:
+        if 'caminho_zip' in locals() and os.path.exists(caminho_zip):
+            os.remove(caminho_zip)
+        if 'caminho_base' in locals() and os.path.exists(caminho_base):
+            for cat in categorias:
+                caminho_cat = os.path.join(caminho_base, cat)
+                for arquivo in os.listdir(caminho_cat):
+                    os.remove(os.path.join(caminho_cat, arquivo))
+                os.rmdir(caminho_cat)
+            os.rmdir(caminho_base)
+        logging.info("Arquivos temporários removidos devido a erro.")
+    except Exception as cleanup_error:
+        # Se houver erro ao limpar os arquivos temporários, registre o erro
+        logging.warning(f"Erro durante a limpeza de arquivos temporários: {cleanup_error}")
+
+# Fim do código
 
 if __name__ == "__main__":
     # Chamada da função principal
