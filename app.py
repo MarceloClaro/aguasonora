@@ -445,33 +445,37 @@ def plot_roc_curve(y_true, y_score, classes):
     from sklearn.metrics import roc_curve, auc
     from itertools import cycle
 
-    y_true_binarized = label_binarize(y_true, classes=range(len(classes)))
-    n_classes = y_true_binarized.shape[1]
+    try:
+        y_true_binarized = label_binarize(y_true, classes=range(len(classes)))
+        n_classes = y_true_binarized.shape[1]
 
-    fpr = dict()
-    tpr = dict()
-    roc_auc = dict()
-    for i in range(n_classes):
-        fpr[i], tpr[i], _ = roc_curve(y_true_binarized[:, i], y_score[:, i])
-        roc_auc[i] = auc(fpr[i], tpr[i])
+        fpr = dict()
+        tpr = dict()
+        roc_auc = dict()
+        for i in range(n_classes):
+            fpr[i], tpr[i], _ = roc_curve(y_true_binarized[:, i], y_score[:, i])
+            roc_auc[i] = auc(fpr[i], tpr[i])
 
-    # Plot all ROC curves
-    plt.figure(figsize=(10, 8))
-    colors = cycle(['aqua', 'darkorange', 'cornflowerblue', 'red', 'green', 'purple', 'brown', 'pink', 'gray', 'olive'])
-    for i, color in zip(range(n_classes), colors):
-        plt.plot(fpr[i], tpr[i], color=color, lw=2,
-                 label='ROC curve of class {0} (area = {1:0.2f})'
-                 ''.format(classes[i], roc_auc[i]))
+        # Plot all ROC curves
+        plt.figure(figsize=(10, 8))
+        colors = cycle(['aqua', 'darkorange', 'cornflowerblue', 'red', 'green', 'purple', 'brown', 'pink', 'gray', 'olive'])
+        for i, color in zip(range(n_classes), colors):
+            plt.plot(fpr[i], tpr[i], color=color, lw=2,
+                     label='ROC curve of class {0} (area = {1:0.2f})'
+                     ''.format(classes[i], roc_auc[i]))
 
-    plt.plot([0, 1], [0, 1], 'k--', lw=2)
-    plt.xlim([-0.05, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate', fontsize=14)
-    plt.ylabel('True Positive Rate', fontsize=14)
-    plt.title('Curvas ROC das Classes', fontsize=16)
-    plt.legend(loc="lower right", fontsize=12)
-    st.pyplot(plt.gcf())
-    plt.close()
+        plt.plot([0, 1], [0, 1], 'k--', lw=2)
+        plt.xlim([-0.05, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate', fontsize=14)
+        plt.ylabel('True Positive Rate', fontsize=14)
+        plt.title('Curvas ROC das Classes', fontsize=16)
+        plt.legend(loc="lower right", fontsize=12)
+        st.pyplot(plt.gcf())
+        plt.close()
+    except Exception as e:
+        st.error(f"Erro ao plotar a Curva ROC: {e}")
+        logging.error(f"Erro ao plotar a Curva ROC: {e}")
 
 def plot_precision_recall_curve_custom(y_true, y_score, classes):
     """
@@ -486,30 +490,34 @@ def plot_precision_recall_curve_custom(y_true, y_score, classes):
     from sklearn.metrics import precision_recall_curve, average_precision_score
     from itertools import cycle
 
-    y_true_binarized = label_binarize(y_true, classes=range(len(classes)))
-    n_classes = y_true_binarized.shape[1]
+    try:
+        y_true_binarized = label_binarize(y_true, classes=range(len(classes)))
+        n_classes = y_true_binarized.shape[1]
 
-    precision = dict()
-    recall = dict()
-    average_precision = dict()
-    for i in range(n_classes):
-        precision[i], recall[i], _ = precision_recall_curve(y_true_binarized[:, i], y_score[:, i])
-        average_precision[i] = average_precision_score(y_true_binarized[:, i], y_score[:, i])
+        precision = dict()
+        recall = dict()
+        average_precision = dict()
+        for i in range(n_classes):
+            precision[i], recall[i], _ = precision_recall_curve(y_true_binarized[:, i], y_score[:, i])
+            average_precision[i] = average_precision_score(y_true_binarized[:, i], y_score[:, i])
 
-    # Plot all Precision-Recall curves
-    plt.figure(figsize=(10, 8))
-    colors = cycle(['navy', 'turquoise', 'darkorange', 'cornflowerblue', 'teal', 'red', 'green', 'purple', 'brown', 'pink'])
-    for i, color in zip(range(n_classes), colors):
-        plt.plot(recall[i], precision[i], color=color, lw=2,
-                 label='Precision-Recall curve of class {0} (AP = {1:0.2f})'
-                 ''.format(classes[i], average_precision[i]))
+        # Plot all Precision-Recall curves
+        plt.figure(figsize=(10, 8))
+        colors = cycle(['navy', 'turquoise', 'darkorange', 'cornflowerblue', 'teal', 'red', 'green', 'purple', 'brown', 'pink'])
+        for i, color in zip(range(n_classes), colors):
+            plt.plot(recall[i], precision[i], color=color, lw=2,
+                     label='Precision-Recall curve of class {0} (AP = {1:0.2f})'
+                     ''.format(classes[i], average_precision[i]))
 
-    plt.xlabel('Recall', fontsize=14)
-    plt.ylabel('Precision', fontsize=14)
-    plt.title('Curvas Precision-Recall das Classes', fontsize=16)
-    plt.legend(loc="lower left", fontsize=12)
-    st.pyplot(plt.gcf())
-    plt.close()
+        plt.xlabel('Recall', fontsize=14)
+        plt.ylabel('Precision', fontsize=14)
+        plt.title('Curvas Precision-Recall das Classes', fontsize=16)
+        plt.legend(loc="lower left", fontsize=12)
+        st.pyplot(plt.gcf())
+        plt.close()
+    except Exception as e:
+        st.error(f"Erro ao plotar a Curva Precision-Recall: {e}")
+        logging.error(f"Erro ao plotar a Curva Precision-Recall: {e}")
 
 def plot_shap_values(model, X_sample, feature_names):
     """
@@ -650,6 +658,7 @@ def classificar_audio(SEED):
             if classes_file is not None:
                 try:
                     classes = classes_file.read().decode("utf-8").splitlines()
+                    classes = [cls.strip() for cls in classes if cls.strip()]  # Remove linhas vazias
                     if not classes:
                         st.error("O arquivo de classes está vazio.")
                         logging.error("O arquivo de classes está vazio.")
@@ -710,9 +719,16 @@ def classificar_audio(SEED):
                                 X_sample = st.session_state.X_train_final[:100]  # Limitar a 100 amostras para performance
                             else:
                                 # Se não houver, usar a própria amostra
-                                X_sample = np.expand_dims(extrair_features(data, sr), axis=0)
-                                X_sample = X_sample.reshape((X_sample.shape[0], X_sample.shape[1], 1))
-                            plot_shap_values(modelo, X_sample, feature_names=[f'MFCC_{i}' for i in range(1, 41)])
+                                X_sample_feature = extrair_features(data, sr)
+                                if X_sample_feature is not None:
+                                    X_sample = np.expand_dims(X_sample_feature, axis=0)
+                                    X_sample = X_sample.reshape((X_sample.shape[0], X_sample.shape[1], 1))
+                                else:
+                                    X_sample = None
+                            if X_sample is not None:
+                                plot_shap_values(modelo, X_sample, feature_names=[f'MFCC_{i}' for i in range(1, 41)])
+                            else:
+                                st.warning("Não foi possível gerar explicações SHAP devido a problemas na extração de features.")
                         else:
                             st.error("A classificação não pôde ser realizada devido a erros no processamento do áudio.")
 
@@ -786,6 +802,7 @@ def treinar_modelo(SEED):
             if len(categorias) == 0:
                 st.error("Nenhuma subpasta de classes encontrada no ZIP. Verifique a estrutura do seu arquivo ZIP.")
                 logging.error("Nenhuma subpasta de classes encontrada no ZIP.")
+                os.remove(caminho_zip)
                 return
 
             st.success("Dataset extraído com sucesso!")
@@ -808,6 +825,12 @@ def treinar_modelo(SEED):
                     labels.append(cat)
 
             df = pd.DataFrame({'caminho_arquivo': caminhos_arquivos, 'classe': labels})
+
+            # Verificar se houve aumento de dados
+            if 'X_aumentado' in locals():
+                # Substituir df.append por pd.concat
+                df = pd.concat([df, pd.DataFrame({'caminho_arquivo': caminhos_arquivos_aumentados, 'classe': labels_aumentadas})], ignore_index=True)
+
             st.write("### Primeiras Amostras do Dataset:")
             st.dataframe(df.head())
 
@@ -1077,6 +1100,8 @@ def treinar_modelo(SEED):
             if enable_augmentation and classes_poucas_amostras:
                 X_aumentado = []
                 y_aumentado = []
+                caminhos_arquivos_aumentados = []
+                classes_aumentadas = []
                 for classe in classes_poucas_amostras:
                     amostras = df[df['classe'] == classe]
                     for i, row in amostras.iterrows():
@@ -1103,8 +1128,9 @@ def treinar_modelo(SEED):
                                     nome_arquivo_aug = f"{os.path.splitext(arquivo_audio)[0]}_aug_{j}.wav"
                                     try:
                                         sf.write(nome_arquivo_aug, data_aug, sr)
-                                        # Adiciona ao DataFrame
-                                        df = df.append({'caminho_arquivo': nome_arquivo_aug, 'classe': classe}, ignore_index=True)
+                                        # Adiciona ao DataFrame temporário
+                                        caminhos_arquivos_aumentados.append(nome_arquivo_aug)
+                                        classes_aumentadas.append(classe)
                                         # Extrai features
                                         features_aug = extrair_features(data_aug, sr)
                                         if features_aug is not None:
@@ -1125,7 +1151,14 @@ def treinar_modelo(SEED):
                     y_aumentado = np.array(y_aumentado)
                     st.write(f"**Amostras aumentadas geradas:** {X_aumentado.shape[0]}")
                     logging.info(f"Amostras aumentadas geradas: {X_aumentado.shape[0]}")
-                    
+
+                    # Atualizar o DataFrame original com os arquivos aumentados
+                    df_aumentado = pd.DataFrame({
+                        'caminho_arquivo': caminhos_arquivos_aumentados,
+                        'classe': classes_aumentadas
+                    })
+                    df = pd.concat([df, df_aumentado], ignore_index=True)
+
                     # Concatenar os dados aumentados com os originais
                     X = np.concatenate((X, X_aumentado), axis=0)
                     y_valid = np.concatenate((y_valid, y_aumentado), axis=0)
@@ -1179,11 +1212,16 @@ def treinar_modelo(SEED):
                     st.write("**Cross-Validation Ativado:** A forma dos dados será ajustada durante o treinamento.")
                     logging.info("Forma dos dados para CNN será ajustada durante a validação cruzada.")
                 else:
-                    X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
-                    X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
-                    X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
-                    st.write(f"**Shapes:** Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
-                    logging.info(f"Shapes ajustadas: Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+                    try:
+                        X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
+                        X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
+                        X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
+                        st.write(f"**Shapes:** Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+                        logging.info(f"Shapes ajustadas: Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+                    except Exception as e:
+                        st.error(f"Erro ao ajustar a forma dos dados: {e}")
+                        logging.error(f"Erro ao ajustar a forma dos dados: {e}")
+                        st.stop()
 
                 # ==================== CÁLCULO DE CLASS WEIGHTS ====================
                 st.write("### Calculando Class Weights para Balanceamento das Classes...")
@@ -1199,8 +1237,8 @@ def treinar_modelo(SEED):
                         try:
                             class_weights = compute_class_weight(
                                 class_weight='balanced',
-                                classes=np.unique(y_train_final),
-                                y=y_train_final
+                                classes=np.unique(y_train),
+                                y=y_train
                             )
                             class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
                             st.write(f"**Pesos das Classes:** {class_weight_dict}")
@@ -1239,13 +1277,13 @@ def treinar_modelo(SEED):
                     help="Define o número de camadas convolucionais na rede."
                 )
 
-                conv_filters = st.sidebar.text_input(
+                conv_filters_input = st.sidebar.text_input(
                     "Número de Filtros por Camada (Separados por vírgula):",
                     value="64,128",
                     help="Defina o número de filtros para cada camada convolucional, separados por vírgula. Exemplo: 64,128"
                 )
 
-                conv_kernel_size = st.sidebar.text_input(
+                conv_kernel_size_input = st.sidebar.text_input(
                     "Tamanho do Kernel por Camada (Separados por vírgula):",
                     value="10,10",
                     help="Defina o tamanho do kernel para cada camada convolucional, separados por vírgula. Exemplo: 10,10"
@@ -1253,8 +1291,8 @@ def treinar_modelo(SEED):
 
                 # Processar as entradas de filtros e tamanho do kernel
                 try:
-                    conv_filters = [int(f.strip()) for f in conv_filters.split(',')]
-                    conv_kernel_size = [int(k.strip()) for k in conv_kernel_size.split(',')]
+                    conv_filters = [int(f.strip()) for f in conv_filters_input.split(',')]
+                    conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_input.split(',')]
                     if len(conv_filters) != num_conv_layers or len(conv_kernel_size) != num_conv_layers:
                         st.sidebar.error("O número de filtros e tamanhos de kernel deve corresponder ao número de camadas convolucionais.")
                         logging.error("Número de filtros e tamanhos de kernel não corresponde ao número de camadas.")
@@ -1275,14 +1313,14 @@ def treinar_modelo(SEED):
                     help="Define o número de camadas densas na rede."
                 )
 
-                dense_units = st.sidebar.text_input(
+                dense_units_input = st.sidebar.text_input(
                     "Número de Neurônios por Camada Densa (Separados por vírgula):",
                     value="64",
                     help="Defina o número de neurônios para cada camada densa, separados por vírgula. Exemplo: 64,32"
                 )
 
                 try:
-                    dense_units = [int(u.strip()) for u in dense_units.split(',')]
+                    dense_units = [int(u.strip()) for u in dense_units_input.split(',')]
                     if len(dense_units) != num_dense_layers:
                         st.sidebar.error("O número de neurônios deve corresponder ao número de camadas densas.")
                         logging.error("Número de neurônios não corresponde ao número de camadas densas.")
@@ -1346,8 +1384,13 @@ def treinar_modelo(SEED):
                 modelo.add(tf.keras.layers.Dense(len(classes), activation='softmax'))
 
                 # Compilação do Modelo
-                modelo.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-                logging.info("Modelo compilado.")
+                try:
+                    modelo.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+                    logging.info("Modelo compilado.")
+                except Exception as e:
+                    st.error(f"Erro ao compilar o modelo: {e}")
+                    logging.error(f"Erro ao compilar o modelo: {e}")
+                    st.stop()
 
                 # **Exibição do Resumo do Modelo como Tabela**
                 st.write("### Resumo do Modelo:")
@@ -1579,7 +1622,7 @@ def treinar_modelo(SEED):
                         else:
                             # Treinamento tradicional
                             historico = modelo.fit(
-                                X_train_final, to_categorical(y_train_final),
+                                X_train_final, to_categorical(y_train),
                                 epochs=num_epochs,
                                 batch_size=batch_size,
                                 validation_data=(X_val, to_categorical(y_val)),
@@ -1656,7 +1699,7 @@ def treinar_modelo(SEED):
                     A seguir, apresentamos a **Acurácia** do modelo nos conjuntos de treino, validação e teste. A acurácia representa a porcentagem de previsões corretas realizadas pelo modelo.
                     """)
                     try:
-                        score_train = modelo.evaluate(X_train_final, to_categorical(y_train_final), verbose=0)
+                        score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=0)
                         score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
                         score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
 
@@ -1693,7 +1736,7 @@ def treinar_modelo(SEED):
                     """)
                     try:
                         y_pred = modelo.predict(X_test)
-                        y_pred_classes = y_pred.argmax(axis=1)
+                        y_pred_classes = np.argmax(y_pred, axis=1)
                         y_true = y_test  # y_test já está em formato inteiro
 
                         # Matriz de Confusão com Seaborn
@@ -1790,7 +1833,7 @@ def treinar_modelo(SEED):
                 try:
                     del df, X, y_valid, X_train, X_temp, y_train, y_temp, X_val, X_test, y_val, y_test
                     if enable_augmentation:
-                        del X_aumentado, y_aumentado
+                        del X_aumentado, y_aumentado, caminhos_arquivos_aumentados, classes_aumentadas
                     gc.collect()
                     os.remove(caminho_zip)
                     for cat in categorias:
