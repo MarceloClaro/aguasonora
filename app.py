@@ -24,10 +24,10 @@ import logging
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
 
 # Definição do SEED
-seed_options = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60 ]
-seed_selection = 42  # Valor padrão
-
-# ==================== CONFIGURAÇÃO DA PÁGINA ====================
+seed_options = list(range(0, 61, 2))  # [0, 2, 4, ..., 60]
+default_seed = 42  # Valor padrão
+if default_seed not in seed_options:
+    seed_options.insert(0, default_seed)
 
 # Definir a configuração da página **ANTES** de qualquer outra chamada do Streamlit
 icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
@@ -52,7 +52,7 @@ st.sidebar.header("Configurações Gerais")
 seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
     options=seed_options,
-    index=seed_options.index(42),  # 42 como valor padrão
+    index=seed_options.index(default_seed) if default_seed in seed_options else 0,  # 42 como valor padrão
     help="Define a semente para reprodutibilidade dos resultados."
 )
 SEED = seed_selection  # Definindo a variável SEED
@@ -360,9 +360,9 @@ def plot_mfcc(data, sr, titulo="Espectrograma (MFCC)"):
     with st.expander("📖 Entenda o Espectrograma de MFCC"):
         st.markdown("""
         ### O que são MFCCs?
-
+    
         **MFCCs (Mel-Frequency Cepstral Coefficients)** são características extraídas do áudio que representam a potência espectral em diferentes frequências na escala Mel, que é mais alinhada com a percepção humana de som.
-
+    
         - **Eixo X (Tempo):** Representa o tempo em segundos.
         - **Eixo Y (Frequência Mel):** Representa a frequência na escala Mel.
         - **Cores:** Indicam a intensidade das frequências. Cores mais claras representam frequências mais intensas.
@@ -700,6 +700,19 @@ def treinar_modelo(SEED):
                 help="Número de amostras processadas antes de atualizar os pesos do modelo. Mínimo de 8."
             )
 
+            # Percentual de Divisão Treino/Teste
+            test_size_percentage = st.sidebar.slider(
+                "Percentual para o Conjunto de Teste (%)",
+                min_value=10,
+                max_value=50,
+                value=20,
+                step=5,
+                help="Define a porcentagem dos dados que serão usados para o conjunto de teste."
+            )
+
+            # Convertendo percentual para decimal
+            test_size = test_size_percentage / 100.0
+
             # Fator de Aumento de Dados
             augment_factor = st.sidebar.slider(
                 "Fator de Aumento de Dados:",
@@ -718,6 +731,16 @@ def treinar_modelo(SEED):
                 value=0.4,
                 step=0.05,
                 help="Proporção de neurônios a serem desligados durante o treinamento para evitar overfitting."
+            )
+
+            # Taxa de Regularização L2
+            l2_regularization = st.sidebar.slider(
+                "Taxa de Regularização L2:",
+                min_value=0.0,
+                max_value=0.1,
+                value=0.001,
+                step=0.001,
+                help="Define a taxa de regularização L2 para evitar overfitting."
             )
 
             # Ativar/Desativar Data Augmentation
@@ -804,7 +827,7 @@ def treinar_modelo(SEED):
             st.write("### Dividindo os Dados em Treino e Teste...")
             from sklearn.model_selection import train_test_split
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y_valid, test_size=0.2, random_state=SEED, stratify=y_valid)
+                X, y_valid, test_size=test_size, random_state=SEED, stratify=y_valid)
             st.write(f"**Treino:** {X_train.shape}, **Teste:** {X_test.shape}")
 
             # **Explicação da Divisão dos Dados**
@@ -962,7 +985,7 @@ def treinar_modelo(SEED):
                 class_weight_dict = None
                 st.write("**Balanceamento de classes não aplicado.**")
 
-            # Definição da Arquitetura da CNN
+            # Definição da Arquitetura da CNN com Regularização L2
             st.write("### Definindo a Arquitetura da Rede Neural Convolucional (CNN)...")
             st.write("""
             A **Rede Neural Convolucional (CNN)** é uma arquitetura de rede neural eficaz para processamento de dados com estrutura de grade, como imagens e sinais de áudio. Nesta aplicação, utilizamos camadas convolucionais para extrair características relevantes dos dados de áudio.
@@ -970,17 +993,33 @@ def treinar_modelo(SEED):
 
             from tensorflow.keras.models import Sequential
             from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
+            from tensorflow.keras import regularizers
 
             modelo = Sequential([
                 Input(shape=(X_train_final.shape[1], 1)),
-                Conv1D(64, kernel_size=10, activation='relu'),
+                Conv1D(
+                    64, 
+                    kernel_size=10, 
+                    activation='relu',
+                    kernel_regularizer=regularizers.l2(l2_regularization)
+                ),
                 Dropout(dropout_rate),
                 MaxPooling1D(pool_size=4),
-                Conv1D(128, kernel_size=10, activation='relu', padding='same'),
+                Conv1D(
+                    128, 
+                    kernel_size=10, 
+                    activation='relu',
+                    padding='same',
+                    kernel_regularizer=regularizers.l2(l2_regularization)
+                ),
                 Dropout(dropout_rate),
                 MaxPooling1D(pool_size=4),
                 Flatten(),
-                Dense(64, activation='relu'),
+                Dense(
+                    64, 
+                    activation='relu',
+                    kernel_regularizer=regularizers.l2(l2_regularization)
+                ),
                 Dropout(dropout_rate),
                 Dense(len(classes), activation='softmax')
             ])
@@ -1040,13 +1079,16 @@ def treinar_modelo(SEED):
                   Conv1D é uma camada convolucional unidimensional usada para processar dados sequenciais, como áudio ou séries temporais.
                 - **Função:**
                   **Extrair Padrões Locais:** Ela passa uma janela (filtro) sobre os dados para detectar padrões específicos, como certas frequências ou ritmos no áudio.
+                - **Regularização L2:**
+                  **Reduzir Overfitting:** A penalidade L2 adiciona a soma dos quadrados dos pesos à função de perda, incentivando pesos menores e simplificando o modelo.
                 - **Exemplo no Modelo:**
                   ```python
-                  Conv1D(64, kernel_size=10, activation='relu')
+                  Conv1D(64, kernel_size=10, activation='relu', kernel_regularizer=regularizers.l2(0.001))
                   ```
                   - **64:** Número de filtros (detetores de padrões) usados.
                   - **kernel_size=10:** Tamanho da janela que percorre os dados.
                   - **activation='relu':** Função de ativação que introduz não-linearidade.
+                  - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
 
                 **2. Dropout (Dropout)**
                 - **O que é?**
@@ -1075,13 +1117,16 @@ def treinar_modelo(SEED):
                   Outra camada convolucional para extrair padrões mais complexos dos dados.
                 - **Função:**
                   Similar à primeira camada Conv1D, mas com mais filtros para capturar padrões mais elaborados.
+                - **Regularização L2:**
+                  **Reduzir Overfitting:** Aplicação adicional da penalização L2.
                 - **Exemplo no Modelo:**
                   ```python
-                  Conv1D(128, kernel_size=10, activation='relu', padding='same')
+                  Conv1D(128, kernel_size=10, activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.001))
                   ```
                   - **128:** Número de filtros.
                   - **kernel_size=10:** Tamanho da janela.
                   - **padding='same':** Mantém as dimensões dos dados.
+                  - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
 
                 **5. Dropout_1 (Dropout)**
                 - **O que é?**
@@ -1121,12 +1166,15 @@ def treinar_modelo(SEED):
                   Dense é uma camada totalmente conectada onde cada neurônio está conectado a todos os neurônios da camada anterior.
                 - **Função:**
                   **Tomar Decisões Finais:** Combina todas as características extraídas pelas camadas anteriores para fazer a classificação final.
+                - **Regularização L2:**
+                  **Reduzir Overfitting:** Aplicação da penalização L2 nos pesos.
                 - **Exemplo no Modelo:**
                   ```python
-                  Dense(64, activation='relu')
+                  Dense(64, activation='relu', kernel_regularizer=regularizers.l2(0.001))
                   ```
                   - **64:** Número de neurônios na camada.
                   - **activation='relu':** Função de ativação que introduz não-linearidade.
+                  - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
 
                 **9. Dropout_2 (Dropout)**
                 - **O que é?**
@@ -1286,6 +1334,9 @@ def treinar_modelo(SEED):
                 - **Camadas do Modelo:**
                   - Cada camada tem uma função específica que contribui para a extração e processamento das informações necessárias para a classificação.
                   - **Conv1D** detecta padrões, **Dropout** previne overfitting, **MaxPooling1D** reduz a dimensionalidade, **Flatten** prepara os dados para a camada densa, e **Dense** realiza a classificação final.
+
+                - **Regularização L2:**
+                  - Adiciona uma penalização aos pesos do modelo para evitar que fiquem muito grandes, ajudando a prevenir overfitting e melhorar a generalização.
 
                 Compreender esses conceitos permite ajustar e otimizar o modelo de forma mais eficaz, melhorando sua performance e capacidade de generalização.
                 """)
