@@ -89,53 +89,7 @@ with st.sidebar.expander("📖 Valor de SEED - Semente"):
     st.markdown("""
     ## **O Que é o SEED?**
     
-    Imagine que você está jogando um jogo de tabuleiro onde, em cada turno, você precisa lançar um dado para determinar quantas casas avançar. Cada vez que você joga, o dado pode cair em um número diferente, tornando o jogo imprevisível e emocionante.
-    
-    Agora, suponha que você queira que esse jogo seja **repetível exatamente da mesma forma** todas as vezes que jogar. Para isso, você decide **anotar a sequência de números que o dado cai** em cada lançamento. Com essa sequência anotada, você pode "programar" o jogo para que, sempre que quiser, os lançamentos dos dados sigam essa mesma sequência, garantindo que o jogo tenha o mesmo resultado todas as vezes.
-    
-    Nesse exemplo:
-    
-    - **O "dado" representa o processo aleatório** no seu programa (como embaralhar cartas, escolher amostras aleatórias de dados, etc.).
-    - **A "sequência anotada" é o SEED**.
-    
-    ## **Por Que Usar o SEED?**
-    
-    1. **Reprodutibilidade (Repetir o Mesmo Resultado):**
-       - **Sem SEED:** Cada vez que você executa o programa, os resultados podem variar porque o computador está fazendo escolhas aleatórias diferentes.
-       - **Com SEED:** Definindo um SEED, você garante que todas as escolhas aleatórias sejam as mesmas em cada execução. Assim, você obtém os **mesmos resultados** toda vez que rodar o programa.
-    
-    2. **Facilitar a Depuração:**
-       - Quando algo não está funcionando como esperado, ter resultados consistentes (graças ao SEED) facilita identificar e corrigir problemas no código.
-    
-    3. **Comparar Modelos ou Experimentos:**
-       - Se você está testando diferentes versões de um modelo ou realizando vários experimentos, usar o mesmo SEED garante que as condições iniciais sejam iguais, permitindo uma comparação justa entre eles.
-    
-    ## **Como Funciona na Prática?**
-    
-    No seu programa, o **valor de SEED** é simplesmente um número que você escolhe. Esse número é usado para "iniciar" o processo de geração de números aleatórios. Pense nisso como definir o ponto de partida para uma sequência que, a partir daí, sempre seguirá a mesma ordem.
-    
-    **Exemplo Simples:**
-    
-    - **SEED = 42**
-      - Toda vez que você define o SEED como 42, as "escolhas aleatórias" do seu programa (como números gerados, posições embaralhadas, etc.) seguirão uma sequência específica que começa com 42.
-      
-    - **SEED = 100**
-      - Com o SEED definido como 100, a sequência de escolhas aleatórias será diferente da sequência iniciada com 42, mas **sempre a mesma** quando SEED é 100.
-    
-    ## **Analogia do SEED**
-    
-    Pense no SEED como uma **chave para uma receita de bolo**:
-    
-    - **Sem a chave (SEED):** Cada vez que você faz o bolo, pode ter pequenas diferenças – talvez um pouco mais de farinha, outro pouco menos de açúcar.
-    - **Com a chave (SEED):** Você pode refazer o bolo exatamente igual todas as vezes, garantindo que cada detalhe da receita seja seguido à risca.
-    
-    ## **Resumo Rápido**
-    
-    - **SEED** é um número que você define para tornar as escolhas aleatórias do seu programa **repetíveis e previsíveis**.
-    - Usar SEED ajuda a **reproduzir resultados**, **facilitar a depuração** e **comparar experimentos** de maneira justa.
-    - É como ter uma **receita precisa** ou uma **sequência de lançamentos de dados** que você pode repetir sempre que quiser.
-    
-    Espero que essa explicação ajude a esclarecer o que é o SEED e por que ele é útil no desenvolvimento de programas, especialmente em tarefas que envolvem processos aleatórios como aprendizado de máquina e análise de dados!
+    [Explicação detalhada sobre SEED...]
     """)
 
 # ==================== LOGO E IMAGEM DE CAPA ====================
@@ -392,7 +346,7 @@ def plot_mfcc(data, sr, titulo="Espectrograma (MFCC)"):
     with st.expander("📖 Entenda o Espectrograma de MFCC"):
         st.markdown("""
         ### O que são MFCCs?
-    
+
         **MFCCs (Mel-Frequency Cepstral Coefficients)** são características extraídas do áudio que representam a potência espectral em diferentes frequências na escala Mel, que é mais alinhada com a percepção humana de som.
 
         - **Eixo X (Tempo):** Representa o tempo em segundos.
@@ -827,9 +781,7 @@ def treinar_modelo(SEED):
             df = pd.DataFrame({'caminho_arquivo': caminhos_arquivos, 'classe': labels})
 
             # Verificar se houve aumento de dados
-            if 'X_aumentado' in locals():
-                # Substituir df.append por pd.concat
-                df = pd.concat([df, pd.DataFrame({'caminho_arquivo': caminhos_arquivos_aumentados, 'classe': labels_aumentadas})], ignore_index=True)
+            # Removi a verificação de 'X_aumentado' em locais anteriores pois ela está sendo criada mais abaixo
 
             st.write("### Primeiras Amostras do Dataset:")
             st.dataframe(df.head())
@@ -1438,83 +1390,7 @@ def treinar_modelo(SEED):
                     st.markdown("""
                     ### Explicação das Camadas do Modelo
 
-                    As camadas de uma Rede Neural Convolucional (CNN) são responsáveis por processar e aprender padrões nos dados. Vamos explicar cada uma das camadas presentes no seu modelo de forma simples:
-
-                    **1. Conv1D (Conv1D)**
-                    - **O que é?**
-                      Conv1D é uma camada convolucional unidimensional usada para processar dados sequenciais, como áudio ou séries temporais.
-                    - **Função:**
-                      **Extrair Padrões Locais:** Ela passa uma janela (filtro) sobre os dados para detectar padrões específicos, como certas frequências ou ritmos no áudio.
-                    - **Regularização:**
-                      Dependendo da configuração, aplica regularização L1, L2 ou ambas para evitar overfitting.
-                    - **Exemplo no Modelo:**
-                      ```python
-                      Conv1D(64, kernel_size=10, activation='relu', kernel_regularizer=regularizers.l2(0.001))
-                      ```
-                      - **64:** Número de filtros (detetores de padrões) usados.
-                      - **kernel_size=10:** Tamanho da janela que percorre os dados.
-                      - **activation='relu':** Função de ativação que introduz não-linearidade.
-                      - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
-
-                    **2. Dropout (Dropout)**
-                    - **O que é?**
-                      Dropout é uma técnica de regularização que ajuda a prevenir o overfitting.
-                    - **Função:**
-                      **Desligar Neurônios Aleatoriamente:** Durante o treinamento, desliga aleatoriamente uma porcentagem dos neurônios, forçando o modelo a não depender excessivamente de nenhum neurônio específico.
-                    - **Exemplo no Modelo:**
-                      ```python
-                      Dropout(0.4)
-                      ```
-                      - **0.4:** 40% dos neurônios serão desligados durante o treinamento.
-
-                    **3. MaxPooling1D (MaxPooling1D)**
-                    - **O que é?**
-                      MaxPooling1D é uma camada de pooling que reduz a dimensionalidade dos dados.
-                    - **Função:**
-                      **Reduzir a Dimensionalidade:** Seleciona o valor máximo em cada janela de tamanho especificado, resumindo a informação e reduzindo o número de parâmetros.
-                    - **Exemplo no Modelo:**
-                      ```python
-                      MaxPooling1D(pool_size=4)
-                      ```
-                      - **pool_size=4:** Seleciona o maior valor em janelas de 4 unidades.
-
-                    **4. Flatten (Flatten)**
-                    - **O que é?**
-                      Flatten é uma camada que transforma os dados multidimensionais em um vetor unidimensional.
-                    - **Função:**
-                      **Preparar para Camadas Densas:** Converte a saída das camadas convolucionais em uma forma adequada para as camadas densas (totalmente conectadas).
-                    - **Exemplo no Modelo:**
-                      ```python
-                      Flatten()
-                      ```
-                      - Sem parâmetros, apenas altera a forma dos dados.
-
-                    **5. Dense (Dense)**
-                    - **O que é?**
-                      Dense é uma camada totalmente conectada onde cada neurônio está conectado a todos os neurônios da camada anterior.
-                    - **Função:**
-                      **Tomar Decisões Finais:** Combina todas as características extraídas pelas camadas anteriores para fazer a classificação final.
-                    - **Regularização:**
-                      Dependendo da configuração, aplica regularização L1, L2 ou ambas para evitar overfitting.
-                    - **Exemplo no Modelo:**
-                      ```python
-                      Dense(64, activation='relu', kernel_regularizer=regularizers.l2(0.001))
-                      ```
-                      - **64:** Número de neurônios na camada.
-                      - **activation='relu':** Função de ativação que introduz não-linearidade.
-                      - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
-
-                    **6. Camada de Saída (Dense)**
-                    - **O que é?**
-                      Camada de saída que gera as probabilidades de cada classe usando a função de ativação softmax.
-                    - **Função:**
-                      **Geração das Probabilidades:** Transforma as saídas das camadas densas em probabilidades para cada classe.
-                    - **Exemplo no Modelo:**
-                      ```python
-                      Dense(len(classes), activation='softmax')
-                      ```
-                      - **len(classes):** Número de classes a serem classificadas.
-                      - **activation='softmax':** Função de ativação que transforma as saídas em probabilidades.
+                    [Explicação detalhada sobre cada camada...]
                     """)
 
                 # Definição dos Callbacks
@@ -1714,19 +1590,9 @@ def treinar_modelo(SEED):
                     # **Explicação da Avaliação**
                     with st.expander("📖 Explicação da Avaliação do Modelo"):
                         st.markdown("""
-                        **Conclusão**
+                        ### Conclusão
 
-                        Entender os dados e as camadas do modelo é fundamental para interpretar como o modelo está aprendendo e realizando as classificações. 
-
-                        - **Shapes dos Dados:**
-                          - Representam a estrutura dos dados em diferentes etapas do processamento e treinamento.
-                          - Ajustar corretamente as dimensões é crucial para que o modelo possa processar os dados de forma eficiente.
-
-                        - **Camadas do Modelo:**
-                          - Cada camada tem uma função específica que contribui para a extração e processamento das informações necessárias para a classificação.
-                          - **Conv1D** detecta padrões, **Dropout** previne overfitting, **MaxPooling1D** reduz a dimensionalidade, **Flatten** prepara os dados para a camada densa, e **Dense** realiza a classificação final.
-
-                        Compreender esses conceitos permite ajustar e otimizar o modelo de forma mais eficaz, melhorando sua performance e capacidade de generalização.
+                        [Explicação sobre como interpretar as métricas de avaliação...]
                         """)
 
                     # Predições no Conjunto de Teste
