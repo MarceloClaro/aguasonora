@@ -16,4 +16,4 @@ Pillow
 scikit-learn
 shap
 
-scipy>=1.7.0
+scipy
