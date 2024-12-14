@@ -6,7 +6,7 @@ import seaborn as sns
 import librosa
 import librosa.display as ld
 import tensorflow as tf
-from tensorflow.keras.models import load_model
+from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc, precision_recall_curve
@@ -25,6 +25,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 import shap
+import soundfile as sf  # Para salvar arquivos de áudio
 
 # ==================== CONFIGURAÇÃO DE LOGGING ====================
 # Configurar o logging para rastrear experimentos
@@ -210,7 +211,7 @@ augment_default = Compose([
     AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
     TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
     PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
-    Shift(min_shift=-0.5, max_shift=0.5, p=0.5),
+    Shift(min_fraction=-0.5, max_fraction=0.5, p=0.5),
 ])
 
 def carregar_audio(caminho_arquivo, sr=None):
@@ -253,25 +254,28 @@ def extrair_features(data, sr):
         logging.error(f"Erro ao extrair MFCC: {e}")
         return None
 
-def aumentar_audio(data, sr, augmentations):
+def aumentar_audio(data, sr, augmentacoes, num_augmentacoes=5):
     """
     Aplica Data Augmentation ao sinal de áudio com as transformações selecionadas.
 
     Parameters:
     - data (np.ndarray): Sinal de áudio.
     - sr (int): Taxa de amostragem.
-    - augmentations (Compose): Composição de transformações de aumento.
+    - augmentacoes (Compose): Composição de transformações de aumento.
+    - num_augmentacoes (int): Número de amostras aumentadas a serem geradas.
 
     Returns:
-    - augmented_data (np.ndarray): Sinal de áudio aumentado.
+    - lista_aumentada (list): Lista de sinais de áudio aumentados.
     """
-    try:
-        augmented_data = augmentations(samples=data, sample_rate=sr)
-        return augmented_data
-    except Exception as e:
-        st.error(f"Erro ao aplicar Data Augmentation: {e}")
-        logging.error(f"Erro ao aplicar Data Augmentation: {e}")
-        return data  # Retorna o original em caso de erro
+    lista_aumentada = []
+    for _ in range(num_augmentacoes):
+        try:
+            data_aug = augmentacoes(samples=data, sample_rate=sr)
+            lista_aumentada.append(data_aug)
+        except Exception as e:
+            st.warning(f"Erro durante a augmentação: {e}")
+            logging.warning(f"Erro durante a augmentação: {e}")
+    return lista_aumentada
 
 def plot_forma_onda(data, sr, titulo="Forma de Onda"):
     """
@@ -682,7 +686,8 @@ def classificar_audio(SEED):
                             X_sample = st.session_state.X_train_final[:100]  # Limitar a 100 amostras para performance
                         else:
                             # Se não houver, usar a própria amostra
-                            X_sample = np.expand_dims(mfccs, axis=0)
+                            X_sample = np.expand_dims(extrair_features(data, sr), axis=0)
+                            X_sample = X_sample.reshape((X_sample.shape[0], X_sample.shape[1], 1))
                         plot_shap_values(modelo, X_sample, feature_names=[f'MFCC_{i}' for i in range(1, 41)])
                     else:
                         st.error("A classificação não pôde ser realizada devido a erros no processamento do áudio.")
@@ -797,20 +802,6 @@ def treinar_modelo(SEED):
                 **2. Divisão dos Dados:**
                 Após extrair as features, os dados são divididos em diferentes conjuntos para treinar e avaliar o modelo.
                 """)
-
-            # **Exibir Número de Classes e Distribuição**
-            st.write(f"### Número de Classes: {len(classes)}")
-            contagem_classes = df['classe'].value_counts()
-            st.write("### Distribuição das Classes:")
-            fig_dist, ax_dist = plt.subplots(figsize=(10, 6))
-            sns.barplot(x=contagem_classes.index, y=contagem_classes.values, palette='viridis', ax=ax_dist, legend=False)
-            ax_dist.set_xlabel("Classes", fontsize=14)
-            ax_dist.set_ylabel("Número de Amostras", fontsize=14)
-            ax_dist.set_title("Distribuição das Classes no Dataset", fontsize=16)
-            ax_dist.tick_params(axis='both', which='major', labelsize=12)
-            st.pyplot(fig_dist)
-            plt.close(fig_dist)
-            logging.info("Distribuição das classes exibida.")
 
             # ==================== CONFIGURAÇÕES DE TREINAMENTO ====================
             st.sidebar.header("Configurações de Treinamento")
@@ -1032,52 +1023,29 @@ def treinar_modelo(SEED):
                   Cada arquivo de áudio tem 40 características (MFCCs) extraídas, representando aspectos importantes do som para o modelo aprender.
                 """)
 
-            # Divisão dos Dados
-            st.write("### Dividindo os Dados em Treino, Validação e Teste...")
-            X_train, X_temp, y_train, y_temp = train_test_split(
-                X, y_valid, test_size=(100 - treino_percentage)/100.0, random_state=SEED, stratify=y_valid)
-            X_val, X_test, y_val, y_test = train_test_split(
-                X_temp, y_temp, test_size=test_percentage/(test_percentage + valid_percentage), random_state=SEED, stratify=y_temp)
-            st.write(f"**Treino:** {X_train.shape}, **Validação:** {X_val.shape}, **Teste:** {X_test.shape}")
-            logging.info(f"Divisão dos dados: Treino={X_train.shape}, Validação={X_val.shape}, Teste={X_test.shape}")
+            # ==================== AUMENTO DE DADOS ANTES DA DIVISÃO ====================
+            st.write("### Aplicando Aumento de Dados nas Classes com Poucas Amostras...")
+            st.write("""
+            Para garantir que todas as classes tenham um número suficiente de amostras para a divisão em treino, validação e teste, aplicamos técnicas de **Data Augmentation** nas classes que possuem menos de duas amostras.
+            """)
 
-            # **Explicação da Divisão dos Dados**
-            with st.expander("📖 Explicação da Divisão dos Dados"):
-                st.markdown("""
-                **2. Divisão dos Dados:**
-                Após extrair as features, os dados são divididos em diferentes conjuntos para treinar e avaliar o modelo.
+            # Identificar classes com menos de 2 amostras
+            contagem_classes = df['classe'].value_counts()
+            classes_poucas_amostras = contagem_classes[contagem_classes < 2].index.tolist()
+            st.write(f"**Classes com menos de 2 amostras:** {', '.join(classes_poucas_amostras) if classes_poucas_amostras else 'Nenhuma'}")
+            logging.info(f"Classes com poucas amostras: {', '.join(classes_poucas_amostras) if classes_poucas_amostras else 'Nenhuma'}")
 
-                - **Treino: (N_train, 40)**
-                  - **N_train:** Número de amostras usadas para treinar o modelo.
-                  - **40:** Número de características por amostra.
-                  - **Explicação:** Uma porcentagem definida pelo usuário é usada para treinar o modelo.
-
-                - **Validação: (N_val, 40)**
-                  - **N_val:** Número de amostras usadas para validar o modelo durante o treinamento.
-                  - **40:** Número de características por amostra.
-                  - **Explicação:** Uma porcentagem definida pelo usuário é usada para validar o modelo e ajustar hiperparâmetros.
-
-                - **Teste: (N_test, 40)**
-                  - **N_test:** Número de amostras usadas para testar a performance do modelo.
-                  - **40:** Número de características por amostra.
-                  - **Explicação:** A porcentagem restante é usada para avaliar o modelo após o treinamento.
-                """)
-
-            # Data Augmentation no Treino
-            if enable_augmentation:
-                st.write("### Aplicando Data Augmentation no Conjunto de Treino...")
-                st.write("""
-                **Data Augmentation** é uma técnica utilizada para aumentar a quantidade e diversidade dos dados de treinamento aplicando transformações nos dados originais. Isso ajuda o modelo a generalizar melhor e reduzir o overfitting.
-                """)
-                X_train_augmented = []
-                y_train_augmented = []
-
-                for i in range(len(X_train)):
-                    arquivo = df['caminho_arquivo'].iloc[i]
-                    data, sr = carregar_audio(arquivo, sr=None)
-                    if data is not None:
-                        for _ in range(augment_factor):
-                            # Aplicar apenas as transformações selecionadas
+            # Aplicar data augmentation nas classes com poucas amostras
+            if enable_augmentation and classes_poucas_amostras:
+                X_aumentado = []
+                y_aumentado = []
+                for classe in classes_poucas_amostras:
+                    amostras = df[df['classe'] == classe]
+                    for i, row in amostras.iterrows():
+                        arquivo_audio = row['caminho_arquivo']
+                        data, sr = carregar_audio(arquivo_audio, sr=None)
+                        if data is not None:
+                            # Definir as transformações selecionadas
                             transformacoes = []
                             if adicionar_ruido:
                                 transformacoes.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
@@ -1086,673 +1054,669 @@ def treinar_modelo(SEED):
                             if alteracao_pitch:
                                 transformacoes.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
                             if deslocamento:
-                                transformacoes.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))
-
+                                transformacoes.append(Shift(min_fraction=-0.5, max_fraction=0.5, p=1.0))
+                            
                             if transformacoes:
-                                augmentations = Compose(transformacoes)
-                                augmented_data = aumentar_audio(data, sr, augmentations)
-
-                                features = extrair_features(augmented_data, sr)
-                                if features is not None:
-                                    X_train_augmented.append(features)
-                                    y_train_augmented.append(y_train[i])
-                                else:
-                                    st.warning(f"Erro na extração de features de uma amostra aumentada do arquivo '{arquivo}'.")
-                                    logging.warning(f"Erro na extração de features de uma amostra aumentada do arquivo '{arquivo}'.")
-                    else:
-                        st.warning(f"Erro no carregamento do arquivo '{arquivo}' para Data Augmentation.")
-                        logging.warning(f"Erro no carregamento do arquivo '{arquivo}' para Data Augmentation.")
-
-                X_train_augmented = np.array(X_train_augmented)
-                y_train_augmented = np.array(y_train_augmented)
-                st.write(f"**Dados aumentados:** {X_train_augmented.shape}")
-                logging.info(f"Dados aumentados: {X_train_augmented.shape}")
-
-                # **Explicação dos Dados Aumentados**
-                with st.expander("📖 Explicação dos Dados Aumentados"):
-                    st.markdown("""
-                    **Dados Aumentados: (N_augmented, 40)**
-                    - **N_augmented:** Número de amostras adicionais geradas através de técnicas de aumento de dados.
-                    - **40:** Número de características por amostra.
-                    - **Explicação:** Para melhorar a performance do modelo, criamos novas amostras a partir das originais, aplicando transformações como adicionar ruído, alterar o pitch, estirar o tempo ou deslocar o áudio.
-                    """)
-
-                # Combinação dos Dados
-                X_train_combined = np.concatenate((X_train, X_train_augmented), axis=0)
-                y_train_combined = np.concatenate((y_train, y_train_augmented), axis=0)
-                st.write(f"**Treino combinado:** {X_train_combined.shape}")
-                logging.info(f"Treino combinado: {X_train_combined.shape}")
-
-                # **Explicação da Combinação dos Dados**
-                with st.expander("📖 Explicação da Combinação dos Dados"):
-                    st.markdown("""
-                    **3. Combinação e Validação:**
-                    - **Treino Combinado: (N_train + N_augmented, 40)**
-                      - **N_train + N_augmented:** Soma das amostras de treino original e aumentadas.
-                      - **40:** Número de características por amostra.
-                      - **Explicação:** Unimos as amostras originais com as aumentadas para formar um conjunto de treino mais robusto.
-                    """)
-
+                                augmentacoes = Compose(transformacoes)
+                                amostras_aumentadas = aumentar_audio(data, sr, augmentacoes, num_augmentacoes=augment_factor)
+                                
+                                for j, data_aug in enumerate(amostras_aumentadas):
+                                    # Salva os arquivos aumentados
+                                    nome_arquivo_aug = f"{os.path.splitext(arquivo_audio)[0]}_aug_{j}.wav"
+                                    sf.write(nome_arquivo_aug, data_aug, sr)
+                                    # Adiciona ao DataFrame
+                                    df = df.append({'caminho_arquivo': nome_arquivo_aug, 'classe': classe}, ignore_index=True)
+                                    # Extrai features
+                                    features_aug = extrair_features(data_aug, sr)
+                                    if features_aug is not None:
+                                        X_aumentado.append(features_aug)
+                                        y_aumentado.append(labelencoder.transform([classe])[0])
+                                    else:
+                                        st.warning(f"Erro na extração de features do arquivo aumentado '{nome_arquivo_aug}'.")
+                                        logging.warning(f"Erro na extração de features do arquivo aumentado '{nome_arquivo_aug}'.")
+                        else:
+                            st.warning(f"Erro no carregamento do arquivo '{arquivo_audio}' para Data Augmentation.")
+                            logging.warning(f"Erro no carregamento do arquivo '{arquivo_audio}' para Data Augmentation.")
+                
+                if X_aumentado:
+                    X_aumentado = np.array(X_aumentado)
+                    y_aumentado = np.array(y_aumentado)
+                    st.write(f"**Amostras aumentadas geradas:** {X_aumentado.shape[0]}")
+                    logging.info(f"Amostras aumentadas geradas: {X_aumentado.shape[0]}")
+                    
+                    # Concatenar os dados aumentados com os originais
+                    X = np.concatenate((X, X_aumentado), axis=0)
+                    y_valid = np.concatenate((y_valid, y_aumentado), axis=0)
+                    st.write(f"**Nova forma das Features:** {X.shape}")
+                    logging.info(f"Nova forma das Features após aumento: {X.shape}")
+                else:
+                    st.write("**Nenhuma amostra aumentada foi gerada.**")
+                    logging.warning("Nenhuma amostra aumentada foi gerada.")
             else:
-                X_train_combined = X_train
-                y_train_combined = y_train
-                logging.info("Data Augmentation desativado.")
+                st.write("**Aumento de dados não necessário ou desativado.**")
+                logging.info("Aumento de dados não necessário ou desativado.")
 
-            # Divisão em Treino Final e Validação (já realizada anteriormente)
-            st.write("### Dividindo o Treino Combinado em Treino Final e Validação...")
-            if cross_validation:
-                st.write("**Validação Cruzada Ativada.** O conjunto de validação será gerado durante o processo de cross-validation.")
-                logging.info("Validação cruzada ativada.")
-            else:
-                # Divisão adicional para validação
-                X_train_final, X_val, y_train_final, y_val = train_test_split(
-                    X_train_combined, y_train_combined, test_size=0.1, random_state=SEED, stratify=y_train_combined)
-                st.write(f"**Treino Final:** {X_train_final.shape}, **Validação:** {X_val.shape}")
-                logging.info(f"Treino Final: {X_train_final.shape}, Validação: {X_val.shape}")
+            # ==================== DIVISÃO DOS DADOS ====================
+            st.write("### Dividindo os Dados em Treino, Validação e Teste...")
+            try:
+                X_train, X_temp, y_train, y_temp = train_test_split(
+                    X, y_valid, test_size=(100 - treino_percentage)/100.0, random_state=SEED, stratify=y_valid
+                )
+                X_val, X_test, y_val, y_test = train_test_split(
+                    X_temp, y_temp, test_size=test_percentage/(test_percentage + valid_percentage), random_state=SEED, stratify=y_temp
+                )
+                st.write(f"**Treino:** {X_train.shape}, **Validação:** {X_val.shape}, **Teste:** {X_test.shape}")
+                logging.info(f"Divisão dos dados: Treino={X_train.shape}, Validação={X_val.shape}, Teste={X_test.shape}")
 
-                # **Explicação da Divisão Final**
-                with st.expander("📖 Explicação da Divisão Final"):
+                # **Explicação da Divisão dos Dados**
+                with st.expander("📖 Explicação da Divisão dos Dados"):
                     st.markdown("""
-                    **3. Combinação e Validação:**
-                    - **Treino Combinado: (N_train + N_augmented, 40)**
-                      - **N_train + N_augmented:** Soma das amostras de treino original e aumentadas.
+                    **2. Divisão dos Dados:**
+                    Após extrair as features e aplicar Data Augmentation, os dados são divididos em diferentes conjuntos para treinar e avaliar o modelo.
+
+                    - **Treino: (N_train, 40)**
+                      - **N_train:** Número de amostras usadas para treinar o modelo.
                       - **40:** Número de características por amostra.
-                      - **Explicação:** Unimos as amostras originais com as aumentadas para formar um conjunto de treino mais robusto.
-                    - **Treino Final: (N_final, 40)**
-                      - **N_final:** Número de amostras após uma divisão adicional para validação.
-                      - **40:** Número de características por amostra.
-                      - **Explicação:** Das amostras combinadas, uma parte é usada para treinar o modelo definitivamente.
+                      - **Explicação:** Uma porcentagem definida pelo usuário é usada para treinar o modelo.
+
                     - **Validação: (N_val, 40)**
                       - **N_val:** Número de amostras usadas para validar o modelo durante o treinamento.
                       - **40:** Número de características por amostra.
-                      - **Explicação:** As amostras restantes são usadas para monitorar se o modelo está aprendendo de forma adequada.
+                      - **Explicação:** Uma porcentagem definida pelo usuário é usada para validar o modelo e ajustar hiperparâmetros.
+
+                    - **Teste: (N_test, 40)**
+                      - **N_test:** Número de amostras usadas para testar a performance do modelo.
+                      - **40:** Número de características por amostra.
+                      - **Explicação:** A porcentagem restante é usada para avaliar o modelo após o treinamento.
                     """)
 
-            # Ajuste da Forma dos Dados para a CNN (Conv1D)
-            st.write("### Ajustando a Forma dos Dados para a CNN (Conv1D)...")
-            if cross_validation:
-                # Para cross-validation, manter a forma original
-                st.write("**Cross-Validation Ativado:** A forma dos dados será ajustada durante o treinamento.")
-                logging.info("Forma dos dados para CNN será ajustada durante a validação cruzada.")
-            else:
-                X_train_final = X_train_final.reshape((X_train_final.shape[0], X_train_final.shape[1], 1))
-                X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
-                X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
-                st.write(f"**Shapes:** Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
-                logging.info(f"Shapes ajustadas: Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
-
-            # Cálculo de Class Weights
-            st.write("### Calculando Class Weights para Balanceamento das Classes...")
-            st.write("""
-            **Class Weights** são utilizados para lidar com desequilíbrios nas classes do conjunto de dados. Quando algumas classes têm muito mais amostras do que outras, o modelo pode se tornar tendencioso em favor das classes mais frequentes. Aplicar pesos balanceados ajuda o modelo a prestar mais atenção às classes menos representadas.
-            """)
-            if balance_classes == "Balanced":
+                # ==================== AJUSTE DA FORMA DOS DADOS PARA A CNN ====================
+                st.write("### Ajustando a Forma dos Dados para a CNN (Conv1D)...")
                 if cross_validation:
-                    st.warning("Balanceamento de classes durante Cross-Validation não está implementado.")
+                    # Para cross-validation, manter a forma original
+                    st.write("**Cross-Validation Ativado:** A forma dos dados será ajustada durante o treinamento.")
+                    logging.info("Forma dos dados para CNN será ajustada durante a validação cruzada.")
+                else:
+                    X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
+                    X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
+                    X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
+                    st.write(f"**Shapes:** Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+                    logging.info(f"Shapes ajustadas: Treino Final: {X_train_final.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+
+                # ==================== CÁLCULO DE CLASS WEIGHTS ====================
+                st.write("### Calculando Class Weights para Balanceamento das Classes...")
+                st.write("""
+                **Class Weights** são utilizados para lidar com desequilíbrios nas classes do conjunto de dados. Quando algumas classes têm muito mais amostras do que outras, o modelo pode se tornar tendencioso em favor das classes mais frequentes. Aplicar pesos balanceados ajuda o modelo a prestar mais atenção às classes menos representadas.
+                """)
+                if balance_classes == "Balanced":
+                    if cross_validation:
+                        st.warning("Balanceamento de classes durante Cross-Validation não está implementado.")
+                        class_weight_dict = None
+                        logging.warning("Balanceamento de classes não implementado para Cross-Validation.")
+                    else:
+                        class_weights = compute_class_weight(
+                            class_weight='balanced',
+                            classes=np.unique(y_train_final),
+                            y=y_train_final
+                        )
+                        class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
+                        st.write(f"**Pesos das Classes:** {class_weight_dict}")
+                        logging.info(f"Pesos das classes calculados: {class_weight_dict}")
+                else:
                     class_weight_dict = None
-                    logging.warning("Balanceamento de classes não implementado para Cross-Validation.")
-                else:
-                    class_weights = compute_class_weight(
-                        class_weight='balanced',
-                        classes=np.unique(y_train_final),
-                        y=y_train_final
-                    )
-                    class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
-                    st.write(f"**Pesos das Classes:** {class_weight_dict}")
-                    logging.info(f"Pesos das classes calculados: {class_weight_dict}")
-            else:
-                class_weight_dict = None
-                st.write("**Balanceamento de classes não aplicado.**")
-                logging.info("Balanceamento de classes não aplicado.")
+                    st.write("**Balanceamento de classes não aplicado.**")
+                    logging.info("Balanceamento de classes não aplicado.")
 
-            # Definição da Arquitetura da CNN com Regularização
-            st.write("### Definindo a Arquitetura da Rede Neural Convolucional (CNN)...")
-            st.write("""
-            A **Rede Neural Convolucional (CNN)** é uma arquitetura de rede neural eficaz para processamento de dados com estrutura de grade, como imagens e sinais de áudio. Nesta aplicação, utilizamos camadas convolucionais para extrair características relevantes dos dados de áudio.
+                # ==================== DEFINIÇÃO DA ARQUITETURA DA CNN ====================
+                st.write("### Definindo a Arquitetura da Rede Neural Convolucional (CNN)...")
+                st.write("""
+                A **Rede Neural Convolucional (CNN)** é uma arquitetura de rede neural eficaz para processamento de dados com estrutura de grade, como imagens e sinais de áudio. Nesta aplicação, utilizamos camadas convolucionais para extrair características relevantes dos dados de áudio.
 
-            **Personalize a Arquitetura:**
-            Você pode ajustar os seguintes hiperparâmetros:
-            - **Número de Camadas Convolucionais**
-            - **Número de Filtros por Camada**
-            - **Tamanho do Kernel**
-            - **Tipo e Taxa de Regularização (L1, L2 ou ambas)**
-            """)
-
-            # Hiperparâmetros da CNN
-            st.sidebar.subheader("Arquitetura da CNN")
-
-            num_conv_layers = st.sidebar.slider(
-                "Número de Camadas Convolucionais:",
-                min_value=1,
-                max_value=5,
-                value=2,
-                step=1,
-                help="Define o número de camadas convolucionais na rede."
-            )
-
-            conv_filters = st.sidebar.text_input(
-                "Número de Filtros por Camada (Separados por vírgula):",
-                value="64,128",
-                help="Defina o número de filtros para cada camada convolucional, separados por vírgula. Exemplo: 64,128"
-            )
-
-            conv_kernel_size = st.sidebar.text_input(
-                "Tamanho do Kernel por Camada (Separados por vírgula):",
-                value="10,10",
-                help="Defina o tamanho do kernel para cada camada convolucional, separados por vírgula. Exemplo: 10,10"
-            )
-
-            # Processar as entradas de filtros e tamanho do kernel
-            try:
-                conv_filters = [int(f.strip()) for f in conv_filters.split(',')]
-                conv_kernel_size = [int(k.strip()) for k in conv_kernel_size.split(',')]
-                if len(conv_filters) != num_conv_layers or len(conv_kernel_size) != num_conv_layers:
-                    st.sidebar.error("O número de filtros e tamanhos de kernel deve corresponder ao número de camadas convolucionais.")
-                    logging.error("Número de filtros e tamanhos de kernel não corresponde ao número de camadas.")
-                    st.stop()
-            except ValueError:
-                st.sidebar.error("Certifique-se de que os filtros e tamanhos de kernel sejam números inteiros separados por vírgula.")
-                logging.error("Erro na conversão de filtros ou tamanhos de kernel para inteiros.")
-                st.stop()
-
-            # Número de Camadas Densas
-            st.sidebar.subheader("Arquitetura da CNN - Camadas Densas")
-            num_dense_layers = st.sidebar.slider(
-                "Número de Camadas Densas:",
-                min_value=1,
-                max_value=3,
-                value=1,
-                step=1,
-                help="Define o número de camadas densas na rede."
-            )
-
-            dense_units = st.sidebar.text_input(
-                "Número de Neurônios por Camada Densa (Separados por vírgula):",
-                value="64",
-                help="Defina o número de neurônios para cada camada densa, separados por vírgula. Exemplo: 64,32"
-            )
-
-            try:
-                dense_units = [int(u.strip()) for u in dense_units.split(',')]
-                if len(dense_units) != num_dense_layers:
-                    st.sidebar.error("O número de neurônios deve corresponder ao número de camadas densas.")
-                    logging.error("Número de neurônios não corresponde ao número de camadas densas.")
-                    st.stop()
-            except ValueError:
-                st.sidebar.error("Certifique-se de que os neurônios sejam números inteiros separados por vírgula.")
-                logging.error("Erro na conversão de neurônios para inteiros.")
-                st.stop()
-
-            # Definição da Arquitetura da CNN com Regularização
-            from tensorflow.keras.models import Sequential
-            from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
-
-            modelo = Sequential()
-            modelo.add(Input(shape=(X_train_combined.shape[1], 1)))
-
-            # Adicionar Camadas Convolucionais
-            for i in range(num_conv_layers):
-                if regularization_type == "L1":
-                    reg = regularizers.l1(l1_regularization)
-                elif regularization_type == "L2":
-                    reg = regularizers.l2(l2_regularization)
-                elif regularization_type == "L1_L2":
-                    reg = regularizers.l1_l2(l1=l1_regularization, l2=l2_regularization)
-                else:
-                    reg = None
-
-                modelo.add(Conv1D(
-                    filters=conv_filters[i],
-                    kernel_size=conv_kernel_size[i],
-                    activation='relu',
-                    kernel_regularizer=reg
-                ))
-                modelo.add(Dropout(dropout_rate))
-                modelo.add(MaxPooling1D(pool_size=4))
-
-            modelo.add(Flatten())
-
-            # Adicionar Camadas Densas
-            for i in range(num_dense_layers):
-                if regularization_type in ["L1", "L2", "L1_L2"]:
-                    reg = regularizers.l1_l2(l1=l1_regularization, l2=l2_regularization) if regularization_type == "L1_L2" else (regularizers.l1(l1_regularization) if regularization_type == "L1" else regularizers.l2(l2_regularization))
-                else:
-                    reg = None
-
-                modelo.add(Dense(
-                    units=dense_units[i],
-                    activation='relu',
-                    kernel_regularizer=reg
-                ))
-                modelo.add(Dropout(dropout_rate))
-
-            # Camada de Saída
-            modelo.add(Dense(len(classes), activation='softmax'))
-
-            # Compilação do Modelo
-            modelo.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-            logging.info("Modelo compilado.")
-
-            # **Exibição do Resumo do Modelo como Tabela**
-            st.write("### Resumo do Modelo:")
-            st.write("""
-            A tabela abaixo apresenta as camadas da rede neural, a forma de saída de cada camada e o número de parâmetros (pesos) que cada camada possui. 
-            - **Camada (Tipo):** Nome e tipo da camada.
-            - **Forma de Saída:** Dimensões da saída da camada.
-            - **Parâmetros:** Número de parâmetros treináveis na camada.
-            """)
-
-            resumo_modelo = []
-            for layer in modelo.layers:
-                nome_layer = layer.name
-                tipo_layer = layer.__class__.__name__
-                try:
-                    forma_saida = layer.output_shape
-                except AttributeError:
-                    forma_saida = 'N/A'
-                parametros = layer.count_params()
-                resumo_modelo.append({
-                    'Camada (Tipo)': f"{nome_layer} ({tipo_layer})",
-                    'Forma de Saída': forma_saida,
-                    'Parâmetros': f"{parametros:,}"
-                })
-
-            # Criação do DataFrame
-            df_resumo = pd.DataFrame(resumo_modelo)
-
-            # Adicionar total de parâmetros
-            total_parametros = modelo.count_params()
-            parametros_trainable = np.sum([layer.count_params() for layer in modelo.layers if layer.trainable])
-            parametros_nao_trainable = total_parametros - parametros_trainable
-
-            # Exibição da tabela
-            st.dataframe(df_resumo)
-
-            # Exibição dos totais
-            st.write(f"**Total de parâmetros:** {total_parametros:,} ({total_parametros / 1e3:.2f} KB)")
-            st.write(f"**Parâmetros treináveis:** {parametros_trainable:,} ({parametros_trainable / 1e3:.2f} KB)")
-            st.write(f"**Parâmetros não treináveis:** {parametros_nao_trainable:,} ({parametros_nao_trainable / 1e3:.2f} KB)")
-            logging.info("Resumo do modelo exibido.")
-
-            # **Explicação das Camadas do Modelo**
-            with st.expander("📖 Explicação das Camadas do Modelo"):
-                st.markdown("""
-                ### Explicação das Camadas do Modelo
-
-                As camadas de uma Rede Neural Convolucional (CNN) são responsáveis por processar e aprender padrões nos dados. Vamos explicar cada uma das camadas presentes no seu modelo de forma simples:
-
-                **1. Conv1D (Conv1D)**
-                - **O que é?**
-                  Conv1D é uma camada convolucional unidimensional usada para processar dados sequenciais, como áudio ou séries temporais.
-                - **Função:**
-                  **Extrair Padrões Locais:** Ela passa uma janela (filtro) sobre os dados para detectar padrões específicos, como certas frequências ou ritmos no áudio.
-                - **Regularização:**
-                  Dependendo da configuração, aplica regularização L1, L2 ou ambas para evitar overfitting.
-                - **Exemplo no Modelo:**
-                  ```python
-                  Conv1D(64, kernel_size=10, activation='relu', kernel_regularizer=regularizers.l2(0.001))
-                  ```
-                  - **64:** Número de filtros (detetores de padrões) usados.
-                  - **kernel_size=10:** Tamanho da janela que percorre os dados.
-                  - **activation='relu':** Função de ativação que introduz não-linearidade.
-                  - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
-
-                **2. Dropout (Dropout)**
-                - **O que é?**
-                  Dropout é uma técnica de regularização que ajuda a prevenir o overfitting.
-                - **Função:**
-                  **Desligar Neurônios Aleatoriamente:** Durante o treinamento, desliga aleatoriamente uma porcentagem dos neurônios, forçando o modelo a não depender excessivamente de nenhum neurônio específico.
-                - **Exemplo no Modelo:**
-                  ```python
-                  Dropout(0.4)
-                  ```
-                  - **0.4:** 40% dos neurônios serão desligados durante o treinamento.
-
-                **3. MaxPooling1D (MaxPooling1D)**
-                - **O que é?**
-                  MaxPooling1D é uma camada de pooling que reduz a dimensionalidade dos dados.
-                - **Função:**
-                  **Reduzir a Dimensionalidade:** Seleciona o valor máximo em cada janela de tamanho especificado, resumindo a informação e reduzindo o número de parâmetros.
-                - **Exemplo no Modelo:**
-                  ```python
-                  MaxPooling1D(pool_size=4)
-                  ```
-                  - **pool_size=4:** Seleciona o maior valor em janelas de 4 unidades.
-
-                **4. Flatten (Flatten)**
-                - **O que é?**
-                  Flatten é uma camada que transforma os dados multidimensionais em um vetor unidimensional.
-                - **Função:**
-                  **Preparar para Camadas Densas:** Converte a saída das camadas convolucionais em uma forma adequada para as camadas densas (totalmente conectadas).
-                - **Exemplo no Modelo:**
-                  ```python
-                  Flatten()
-                  ```
-                  - Sem parâmetros, apenas altera a forma dos dados.
-
-                **5. Dense (Dense)**
-                - **O que é?**
-                  Dense é uma camada totalmente conectada onde cada neurônio está conectado a todos os neurônios da camada anterior.
-                - **Função:**
-                  **Tomar Decisões Finais:** Combina todas as características extraídas pelas camadas anteriores para fazer a classificação final.
-                - **Regularização:**
-                  Dependendo da configuração, aplica regularização L1, L2 ou ambas para evitar overfitting.
-                - **Exemplo no Modelo:**
-                  ```python
-                  Dense(64, activation='relu', kernel_regularizer=regularizers.l2(0.001))
-                  ```
-                  - **64:** Número de neurônios na camada.
-                  - **activation='relu':** Função de ativação que introduz não-linearidade.
-                  - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
-
-                **6. Camada de Saída (Dense)**
-                - **O que é?**
-                  Camada de saída que gera as probabilidades de cada classe usando a função de ativação softmax.
-                - **Função:**
-                  **Geração das Probabilidades:** Transforma as saídas das camadas densas em probabilidades para cada classe.
-                - **Exemplo no Modelo:**
-                  ```python
-                  Dense(len(classes), activation='softmax')
-                  ```
-                  - **len(classes):** Número de classes a serem classificadas.
-                  - **activation='softmax':** Função de ativação que transforma as saídas em probabilidades.
+                **Personalize a Arquitetura:**
+                Você pode ajustar os seguintes hiperparâmetros:
+                - **Número de Camadas Convolucionais**
+                - **Número de Filtros por Camada**
+                - **Tamanho do Kernel**
+                - **Tipo e Taxa de Regularização (L1, L2 ou ambas)**
                 """)
 
-            # Definição dos Callbacks
-            st.write("### Configurando Callbacks para o Treinamento...")
-            st.write("""
-            **Callbacks** são funções que são chamadas durante o treinamento da rede neural. Elas podem ser usadas para monitorar o desempenho do modelo e ajustar o treinamento de acordo com certos critérios. Nesta aplicação, utilizamos dois callbacks:
-            - **ModelCheckpoint:** Salva o modelo automaticamente quando a métrica de validação melhora.
-            - **EarlyStopping:** Interrompe o treinamento automaticamente se a métrica de validação não melhorar após um número especificado de épocas, evitando overfitting.
-            """)
+                # Hiperparâmetros da CNN
+                st.sidebar.subheader("Arquitetura da CNN")
 
-            diretorio_salvamento = 'modelos_salvos'
-            if not os.path.exists(diretorio_salvamento):
-                os.makedirs(diretorio_salvamento)
-                st.write(f"**Diretório '{diretorio_salvamento}' criado para salvamento do modelo.**")
-                logging.info(f"Diretório '{diretorio_salvamento}' criado.")
-            else:
-                st.write(f"**Diretório '{diretorio_salvamento}' já existe.**")
-                logging.info(f"Diretório '{diretorio_salvamento}' já existe.")
+                num_conv_layers = st.sidebar.slider(
+                    "Número de Camadas Convolucionais:",
+                    min_value=1,
+                    max_value=5,
+                    value=2,
+                    step=1,
+                    help="Define o número de camadas convolucionais na rede."
+                )
 
-            # Configuração do ModelCheckpoint
-            checkpointer = ModelCheckpoint(
-                filepath=os.path.join(diretorio_salvamento, 'modelo_agua_aumentado.keras'),  # Pode usar .h5 se preferir
-                monitor='val_loss',
-                verbose=1,
-                save_best_only=True
-            )
+                conv_filters = st.sidebar.text_input(
+                    "Número de Filtros por Camada (Separados por vírgula):",
+                    value="64,128",
+                    help="Defina o número de filtros para cada camada convolucional, separados por vírgula. Exemplo: 64,128"
+                )
 
-            # Parâmetros de EarlyStopping
-            st.sidebar.subheader("Parâmetros de EarlyStopping")
-            es_monitor = st.sidebar.selectbox(
-                "Monitorar:",
-                options=["val_loss", "val_accuracy"],
-                index=0,
-                help="Métrica a ser monitorada para EarlyStopping. 'val_loss' monitora a perda na validação, enquanto 'val_accuracy' monitora a acurácia na validação."
-            )
-            es_patience = st.sidebar.slider(
-                "Paciência (Épocas):",
-                min_value=1,
-                max_value=20,
-                value=5,
-                step=1,
-                help="Número de épocas sem melhoria antes de interromper o treinamento. Por exemplo, se 'patience' for 5, o treinamento será interrompido após 5 épocas sem melhoria na métrica monitorada."
-            )
-            es_mode = st.sidebar.selectbox(
-                "Modo:",
-                options=["min", "max"],
-                index=0,
-                help="Define se a métrica monitorada deve ser minimizada ('min') ou maximizada ('max'). 'val_loss' deve ser minimizada, enquanto 'val_accuracy' deve ser maximizada."
-            )
+                conv_kernel_size = st.sidebar.text_input(
+                    "Tamanho do Kernel por Camada (Separados por vírgula):",
+                    value="10,10",
+                    help="Defina o tamanho do kernel para cada camada convolucional, separados por vírgula. Exemplo: 10,10"
+                )
 
-            earlystop = EarlyStopping(
-                monitor=es_monitor,
-                patience=es_patience,
-                restore_best_weights=True,
-                mode=es_mode
-            )
+                # Processar as entradas de filtros e tamanho do kernel
+                try:
+                    conv_filters = [int(f.strip()) for f in conv_filters.split(',')]
+                    conv_kernel_size = [int(k.strip()) for k in conv_kernel_size.split(',')]
+                    if len(conv_filters) != num_conv_layers or len(conv_kernel_size) != num_conv_layers:
+                        st.sidebar.error("O número de filtros e tamanhos de kernel deve corresponder ao número de camadas convolucionais.")
+                        logging.error("Número de filtros e tamanhos de kernel não corresponde ao número de camadas.")
+                        st.stop()
+                except ValueError:
+                    st.sidebar.error("Certifique-se de que os filtros e tamanhos de kernel sejam números inteiros separados por vírgula.")
+                    logging.error("Erro na conversão de filtros ou tamanhos de kernel para inteiros.")
+                    st.stop()
 
-            # Definir as callbacks
-            callbacks = [checkpointer, earlystop]
+                # Número de Camadas Densas
+                st.sidebar.subheader("Arquitetura da CNN - Camadas Densas")
+                num_dense_layers = st.sidebar.slider(
+                    "Número de Camadas Densas:",
+                    min_value=1,
+                    max_value=3,
+                    value=1,
+                    step=1,
+                    help="Define o número de camadas densas na rede."
+                )
 
-            # Treinamento do Modelo
-            st.write("### Iniciando o Treinamento do Modelo...")
-            st.write("""
-            O treinamento pode demorar algum tempo, dependendo do tamanho do seu conjunto de dados e dos parâmetros selecionados. Durante o treinamento, as métricas de perda e acurácia serão exibidas para acompanhamento.
-            """)
-            with st.spinner('Treinando o modelo...'):
-                if cross_validation and k_folds > 1:
-                    # Implementar Validação Cruzada
-                    st.write("**Validação Cruzada Iniciada**")
-                    kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
-                    fold_no = 1
-                    val_scores = []
-                    for train_index, val_index in kf.split(X_train_combined):
-                        st.write(f"#### Fold {fold_no}")
-                        logging.info(f"Iniciando Fold {fold_no} de {k_folds}")
-                        X_train_cv, X_val_cv = X_train_combined[train_index], X_train_combined[val_index]
-                        y_train_cv, y_val_cv = y_train_combined[train_index], y_train_combined[val_index]
+                dense_units = st.sidebar.text_input(
+                    "Número de Neurônios por Camada Densa (Separados por vírgula):",
+                    value="64",
+                    help="Defina o número de neurônios para cada camada densa, separados por vírgula. Exemplo: 64,32"
+                )
 
-                        # Ajustar a forma dos dados
-                        X_train_cv = X_train_cv.reshape((X_train_cv.shape[0], X_train_cv.shape[1], 1))
-                        X_val_cv = X_val_cv.reshape((X_val_cv.shape[0], X_val_cv.shape[1], 1))
+                try:
+                    dense_units = [int(u.strip()) for u in dense_units.split(',')]
+                    if len(dense_units) != num_dense_layers:
+                        st.sidebar.error("O número de neurônios deve corresponder ao número de camadas densas.")
+                        logging.error("Número de neurônios não corresponde ao número de camadas densas.")
+                        st.stop()
+                except ValueError:
+                    st.sidebar.error("Certifique-se de que os neurônios sejam números inteiros separados por vírgula.")
+                    logging.error("Erro na conversão de neurônios para inteiros.")
+                    st.stop()
 
-                        # Treinar o modelo
+                # Definição da Arquitetura da CNN com Regularização
+                modelo = Sequential()
+                modelo.add(tf.keras.layers.Input(shape=(X_train_combined.shape[1], 1)))
+
+                # Adicionar Camadas Convolucionais
+                for i in range(num_conv_layers):
+                    if regularization_type == "L1":
+                        reg = regularizers.l1(l1_regularization)
+                    elif regularization_type == "L2":
+                        reg = regularizers.l2(l2_regularization)
+                    elif regularization_type == "L1_L2":
+                        reg = regularizers.l1_l2(l1=l1_regularization, l2=l2_regularization)
+                    else:
+                        reg = None
+
+                    modelo.add(Conv1D(
+                        filters=conv_filters[i],
+                        kernel_size=conv_kernel_size[i],
+                        activation='relu',
+                        kernel_regularizer=reg
+                    ))
+                    modelo.add(Dropout(dropout_rate))
+                    modelo.add(MaxPooling1D(pool_size=4))
+
+                modelo.add(Flatten())
+
+                # Adicionar Camadas Densas
+                for i in range(num_dense_layers):
+                    if regularization_type in ["L1", "L2", "L1_L2"]:
+                        if regularization_type == "L1_L2":
+                            reg = regularizers.l1_l2(l1=l1_regularization, l2=l2_regularization)
+                        elif regularization_type == "L1":
+                            reg = regularizers.l1(l1_regularization)
+                        else:
+                            reg = regularizers.l2(l2_regularization)
+                    else:
+                        reg = None
+
+                    modelo.add(Dense(
+                        units=dense_units[i],
+                        activation='relu',
+                        kernel_regularizer=reg
+                    ))
+                    modelo.add(Dropout(dropout_rate))
+
+                # Camada de Saída
+                modelo.add(Dense(len(classes), activation='softmax'))
+
+                # Compilação do Modelo
+                modelo.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+                logging.info("Modelo compilado.")
+
+                # **Exibição do Resumo do Modelo como Tabela**
+                st.write("### Resumo do Modelo:")
+                st.write("""
+                A tabela abaixo apresenta as camadas da rede neural, a forma de saída de cada camada e o número de parâmetros (pesos) que cada camada possui. 
+                - **Camada (Tipo):** Nome e tipo da camada.
+                - **Forma de Saída:** Dimensões da saída da camada.
+                - **Parâmetros:** Número de parâmetros treináveis na camada.
+                """)
+
+                resumo_modelo = []
+                for layer in modelo.layers:
+                    nome_layer = layer.name
+                    tipo_layer = layer.__class__.__name__
+                    try:
+                        forma_saida = layer.output_shape
+                    except AttributeError:
+                        forma_saida = 'N/A'
+                    parametros = layer.count_params()
+                    resumo_modelo.append({
+                        'Camada (Tipo)': f"{nome_layer} ({tipo_layer})",
+                        'Forma de Saída': forma_saida,
+                        'Parâmetros': f"{parametros:,}"
+                    })
+
+                # Criação do DataFrame
+                df_resumo = pd.DataFrame(resumo_modelo)
+
+                # Adicionar total de parâmetros
+                total_parametros = modelo.count_params()
+                parametros_trainable = np.sum([layer.count_params() for layer in modelo.layers if layer.trainable])
+                parametros_nao_trainable = total_parametros - parametros_trainable
+
+                # Exibição da tabela
+                st.dataframe(df_resumo)
+
+                # Exibição dos totais
+                st.write(f"**Total de parâmetros:** {total_parametros:,} ({total_parametros / 1e3:.2f} KB)")
+                st.write(f"**Parâmetros treináveis:** {parametros_trainable:,} ({parametros_trainable / 1e3:.2f} KB)")
+                st.write(f"**Parâmetros não treináveis:** {parametros_nao_trainable:,} ({parametros_nao_trainable / 1e3:.2f} KB)")
+                logging.info("Resumo do modelo exibido.")
+
+                # **Explicação das Camadas do Modelo**
+                with st.expander("📖 Explicação das Camadas do Modelo"):
+                    st.markdown("""
+                    ### Explicação das Camadas do Modelo
+
+                    As camadas de uma Rede Neural Convolucional (CNN) são responsáveis por processar e aprender padrões nos dados. Vamos explicar cada uma das camadas presentes no seu modelo de forma simples:
+
+                    **1. Conv1D (Conv1D)**
+                    - **O que é?**
+                      Conv1D é uma camada convolucional unidimensional usada para processar dados sequenciais, como áudio ou séries temporais.
+                    - **Função:**
+                      **Extrair Padrões Locais:** Ela passa uma janela (filtro) sobre os dados para detectar padrões específicos, como certas frequências ou ritmos no áudio.
+                    - **Regularização:**
+                      Dependendo da configuração, aplica regularização L1, L2 ou ambas para evitar overfitting.
+                    - **Exemplo no Modelo:**
+                      ```python
+                      Conv1D(64, kernel_size=10, activation='relu', kernel_regularizer=regularizers.l2(0.001))
+                      ```
+                      - **64:** Número de filtros (detetores de padrões) usados.
+                      - **kernel_size=10:** Tamanho da janela que percorre os dados.
+                      - **activation='relu':** Função de ativação que introduz não-linearidade.
+                      - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
+
+                    **2. Dropout (Dropout)**
+                    - **O que é?**
+                      Dropout é uma técnica de regularização que ajuda a prevenir o overfitting.
+                    - **Função:**
+                      **Desligar Neurônios Aleatoriamente:** Durante o treinamento, desliga aleatoriamente uma porcentagem dos neurônios, forçando o modelo a não depender excessivamente de nenhum neurônio específico.
+                    - **Exemplo no Modelo:**
+                      ```python
+                      Dropout(0.4)
+                      ```
+                      - **0.4:** 40% dos neurônios serão desligados durante o treinamento.
+
+                    **3. MaxPooling1D (MaxPooling1D)**
+                    - **O que é?**
+                      MaxPooling1D é uma camada de pooling que reduz a dimensionalidade dos dados.
+                    - **Função:**
+                      **Reduzir a Dimensionalidade:** Seleciona o valor máximo em cada janela de tamanho especificado, resumindo a informação e reduzindo o número de parâmetros.
+                    - **Exemplo no Modelo:**
+                      ```python
+                      MaxPooling1D(pool_size=4)
+                      ```
+                      - **pool_size=4:** Seleciona o maior valor em janelas de 4 unidades.
+
+                    **4. Flatten (Flatten)**
+                    - **O que é?**
+                      Flatten é uma camada que transforma os dados multidimensionais em um vetor unidimensional.
+                    - **Função:**
+                      **Preparar para Camadas Densas:** Converte a saída das camadas convolucionais em uma forma adequada para as camadas densas (totalmente conectadas).
+                    - **Exemplo no Modelo:**
+                      ```python
+                      Flatten()
+                      ```
+                      - Sem parâmetros, apenas altera a forma dos dados.
+
+                    **5. Dense (Dense)**
+                    - **O que é?**
+                      Dense é uma camada totalmente conectada onde cada neurônio está conectado a todos os neurônios da camada anterior.
+                    - **Função:**
+                      **Tomar Decisões Finais:** Combina todas as características extraídas pelas camadas anteriores para fazer a classificação final.
+                    - **Regularização:**
+                      Dependendo da configuração, aplica regularização L1, L2 ou ambas para evitar overfitting.
+                    - **Exemplo no Modelo:**
+                      ```python
+                      Dense(64, activation='relu', kernel_regularizer=regularizers.l2(0.001))
+                      ```
+                      - **64:** Número de neurônios na camada.
+                      - **activation='relu':** Função de ativação que introduz não-linearidade.
+                      - **kernel_regularizer=regularizers.l2(0.001):** Aplicação da regularização L2 com taxa 0.001.
+
+                    **6. Camada de Saída (Dense)**
+                    - **O que é?**
+                      Camada de saída que gera as probabilidades de cada classe usando a função de ativação softmax.
+                    - **Função:**
+                      **Geração das Probabilidades:** Transforma as saídas das camadas densas em probabilidades para cada classe.
+                    - **Exemplo no Modelo:**
+                      ```python
+                      Dense(len(classes), activation='softmax')
+                      ```
+                      - **len(classes):** Número de classes a serem classificadas.
+                      - **activation='softmax':** Função de ativação que transforma as saídas em probabilidades.
+                    """)
+
+                # Definição dos Callbacks
+                st.write("### Configurando Callbacks para o Treinamento...")
+                st.write("""
+                **Callbacks** são funções que são chamadas durante o treinamento da rede neural. Elas podem ser usadas para monitorar o desempenho do modelo e ajustar o treinamento de acordo com certos critérios. Nesta aplicação, utilizamos dois callbacks:
+                - **ModelCheckpoint:** Salva o modelo automaticamente quando a métrica de validação melhora.
+                - **EarlyStopping:** Interrompe o treinamento automaticamente se a métrica de validação não melhorar após um número especificado de épocas, evitando overfitting.
+                """)
+
+                diretorio_salvamento = 'modelos_salvos'
+                if not os.path.exists(diretorio_salvamento):
+                    os.makedirs(diretorio_salvamento)
+                    st.write(f"**Diretório '{diretorio_salvamento}' criado para salvamento do modelo.**")
+                    logging.info(f"Diretório '{diretorio_salvamento}' criado.")
+                else:
+                    st.write(f"**Diretório '{diretorio_salvamento}' já existe.**")
+                    logging.info(f"Diretório '{diretorio_salvamento}' já existe.")
+
+                # Configuração do ModelCheckpoint
+                checkpointer = ModelCheckpoint(
+                    filepath=os.path.join(diretorio_salvamento, 'modelo_agua_aumentado.keras'),  # Pode usar .h5 se preferir
+                    monitor='val_loss',
+                    verbose=1,
+                    save_best_only=True
+                )
+
+                # Parâmetros de EarlyStopping
+                st.sidebar.subheader("Parâmetros de EarlyStopping")
+                es_monitor = st.sidebar.selectbox(
+                    "Monitorar:",
+                    options=["val_loss", "val_accuracy"],
+                    index=0,
+                    help="Métrica a ser monitorada para EarlyStopping. 'val_loss' monitora a perda na validação, enquanto 'val_accuracy' monitora a acurácia na validação."
+                )
+                es_patience = st.sidebar.slider(
+                    "Paciência (Épocas):",
+                    min_value=1,
+                    max_value=20,
+                    value=5,
+                    step=1,
+                    help="Número de épocas sem melhoria antes de interromper o treinamento. Por exemplo, se 'patience' for 5, o treinamento será interrompido após 5 épocas sem melhoria na métrica monitorada."
+                )
+                es_mode = st.sidebar.selectbox(
+                    "Modo:",
+                    options=["min", "max"],
+                    index=0,
+                    help="Define se a métrica monitorada deve ser minimizada ('min') ou maximizada ('max'). 'val_loss' deve ser minimizada, enquanto 'val_accuracy' deve ser maximizada."
+                )
+
+                earlystop = EarlyStopping(
+                    monitor=es_monitor,
+                    patience=es_patience,
+                    restore_best_weights=True,
+                    mode=es_mode
+                )
+
+                # Definir as callbacks
+                callbacks = [checkpointer, earlystop]
+
+                # ==================== TREINAMENTO DO MODELO ====================
+                st.write("### Iniciando o Treinamento do Modelo...")
+                st.write("""
+                O treinamento pode demorar algum tempo, dependendo do tamanho do seu conjunto de dados e dos parâmetros selecionados. Durante o treinamento, as métricas de perda e acurácia serão exibidas para acompanhamento.
+                """)
+                with st.spinner('Treinando o modelo...'):
+                    if cross_validation and k_folds > 1:
+                        # Implementar Validação Cruzada
+                        st.write("**Validação Cruzada Iniciada**")
+                        kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
+                        fold_no = 1
+                        val_scores = []
+                        for train_index, val_index in kf.split(X_train_combined):
+                            st.write(f"#### Fold {fold_no}")
+                            logging.info(f"Iniciando Fold {fold_no} de {k_folds}")
+                            X_train_cv, X_val_cv = X_train_combined[train_index], X_train_combined[val_index]
+                            y_train_cv, y_val_cv = y_train_combined[train_index], y_train_combined[val_index]
+
+                            # Ajustar a forma dos dados
+                            X_train_cv = X_train_cv.reshape((X_train_cv.shape[0], X_train_cv.shape[1], 1))
+                            X_val_cv = X_val_cv.reshape((X_val_cv.shape[0], X_val_cv.shape[1], 1))
+
+                            # Treinar o modelo
+                            historico = modelo.fit(
+                                X_train_cv, to_categorical(y_train_cv),
+                                epochs=num_epochs,
+                                batch_size=batch_size,
+                                validation_data=(X_val_cv, to_categorical(y_val_cv)),
+                                callbacks=callbacks,
+                                class_weight=class_weight_dict,
+                                verbose=1
+                            )
+
+                            # Avaliar no fold atual
+                            score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
+                            st.write(f"**Acurácia no Fold {fold_no}:** {score[1]*100:.2f}%")
+                            val_scores.append(score[1]*100)
+                            logging.info(f"Fold {fold_no} Acurácia: {score[1]*100:.2f}%")
+                            fold_no += 1
+
+                        st.write(f"**Acurácia Média da Validação Cruzada ({k_folds}-Fold):** {np.mean(val_scores):.2f}%")
+                        logging.info(f"Acurácia Média da Validação Cruzada: {np.mean(val_scores):.2f}%")
+                    else:
+                        # Treinamento tradicional
                         historico = modelo.fit(
-                            X_train_cv, to_categorical(y_train_cv),
+                            X_train_final, to_categorical(y_train_final),
                             epochs=num_epochs,
                             batch_size=batch_size,
-                            validation_data=(X_val_cv, to_categorical(y_val_cv)),
+                            validation_data=(X_val, to_categorical(y_val)),
                             callbacks=callbacks,
                             class_weight=class_weight_dict,
                             verbose=1
                         )
+                    st.success("Treinamento concluído com sucesso!")
+                    logging.info("Treinamento concluído.")
 
-                        # Avaliar no fold atual
-                        score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
-                        st.write(f"**Acurácia no Fold {fold_no}:** {score[1]*100:.2f}%")
-                        val_scores.append(score[1]*100)
-                        logging.info(f"Fold {fold_no} Acurácia: {score[1]*100:.2f}%")
-                        fold_no += 1
-
-                    st.write(f"**Acurácia Média da Validação Cruzada ({k_folds}-Fold):** {np.mean(val_scores):.2f}%")
-                    logging.info(f"Acurácia Média da Validação Cruzada: {np.mean(val_scores):.2f}%")
-                else:
-                    # Treinamento tradicional
-                    historico = modelo.fit(
-                        X_train_final, to_categorical(y_train_final),
-                        epochs=num_epochs,
-                        batch_size=batch_size,
-                        validation_data=(X_val, to_categorical(y_val)),
-                        callbacks=callbacks,
-                        class_weight=class_weight_dict,
-                        verbose=1
-                    )
-                st.success("Treinamento concluído com sucesso!")
-                logging.info("Treinamento concluído.")
-
-            # Salvamento do Modelo e Classes
-            st.write("### Download do Modelo Treinado e Arquivo de Classes")
-            st.write("""
-            Após o treinamento, você pode baixar o modelo treinado e o arquivo de classes para utilização futura ou para compartilhar com outros.
-            """)
-
-            # Salvar o modelo em um arquivo temporário com extensão .keras
-            with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
-                modelo.save(tmp_model.name)
-                caminho_tmp_model = tmp_model.name
-                logging.info(f"Modelo salvo temporariamente em {caminho_tmp_model}.")
-
-            # Ler o modelo salvo e preparar para download
-            with open(caminho_tmp_model, 'rb') as f:
-                modelo_bytes = f.read()
-
-            buffer = io.BytesIO(modelo_bytes)
-
-            st.download_button(
-                label="Download do Modelo Treinado (.keras)",
-                data=buffer,
-                file_name="modelo_agua_aumentado.keras",
-                mime="application/octet-stream"
-            )
-
-            # Remove o arquivo temporário após o download
-            os.remove(caminho_tmp_model)
-            logging.info(f"Arquivo temporário do modelo {caminho_tmp_model} removido.")
-
-            # Salvar as classes
-            classes_str = "\n".join(classes)
-            st.download_button(
-                label="Download das Classes (classes.txt)",
-                data=classes_str,
-                file_name="classes.txt",
-                mime="text/plain"
-            )
-            logging.info("Arquivo de classes disponível para download.")
-
-            # Avaliação do Modelo
-            if not cross_validation:
-                st.write("### Avaliação do Modelo nos Conjuntos de Treino, Validação e Teste")
+                # ==================== SALVAMENTO DO MODELO E CLASSES ====================
+                st.write("### Download do Modelo Treinado e Arquivo de Classes")
                 st.write("""
-                A seguir, apresentamos a **Acurácia** do modelo nos conjuntos de treino, validação e teste. A acurácia representa a porcentagem de previsões corretas realizadas pelo modelo.
+                Após o treinamento, você pode baixar o modelo treinado e o arquivo de classes para utilização futura ou para compartilhar com outros.
                 """)
-                score_train = modelo.evaluate(X_train_final, to_categorical(y_train_final), verbose=0)
-                score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
-                score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
 
-                st.write(f"**Acurácia no Treino:** {score_train[1]*100:.2f}%")
-                st.write(f"**Acurácia na Validação:** {score_val[1]*100:.2f}%")
-                st.write(f"**Acurácia no Teste:** {score_test[1]*100:.2f}%")
-                logging.info(f"Acurácia: Treino={score_train[1]*100:.2f}%, Validação={score_val[1]*100:.2f}%, Teste={score_test[1]*100:.2f}%")
+                # Salvar o modelo em um arquivo temporário com extensão .keras
+                with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
+                    modelo.save(tmp_model.name)
+                    caminho_tmp_model = tmp_model.name
+                    logging.info(f"Modelo salvo temporariamente em {caminho_tmp_model}.")
 
-                # **Explicação da Avaliação**
-                with st.expander("📖 Explicação da Avaliação do Modelo"):
-                    st.markdown("""
-                    **Conclusão**
+                # Ler o modelo salvo e preparar para download
+                with open(caminho_tmp_model, 'rb') as f:
+                    modelo_bytes = f.read()
 
-                    Entender os dados e as camadas do modelo é fundamental para interpretar como o modelo está aprendendo e realizando as classificações. 
+                buffer = io.BytesIO(modelo_bytes)
 
-                    - **Shapes dos Dados:**
-                      - Representam a estrutura dos dados em diferentes etapas do processamento e treinamento.
-                      - Ajustar corretamente as dimensões é crucial para que o modelo possa processar os dados de forma eficiente.
+                st.download_button(
+                    label="Download do Modelo Treinado (.keras)",
+                    data=buffer,
+                    file_name="modelo_agua_aumentado.keras",
+                    mime="application/octet-stream"
+                )
 
-                    - **Camadas do Modelo:**
-                      - Cada camada tem uma função específica que contribui para a extração e processamento das informações necessárias para a classificação.
-                      - **Conv1D** detecta padrões, **Dropout** previne overfitting, **MaxPooling1D** reduz a dimensionalidade, **Flatten** prepara os dados para a camada densa, e **Dense** realiza a classificação final.
+                # Remove o arquivo temporário após o download
+                os.remove(caminho_tmp_model)
+                logging.info(f"Arquivo temporário do modelo {caminho_tmp_model} removido.")
 
-                    Compreender esses conceitos permite ajustar e otimizar o modelo de forma mais eficaz, melhorando sua performance e capacidade de generalização.
+                # Salvar as classes
+                classes_str = "\n".join(classes)
+                st.download_button(
+                    label="Download das Classes (classes.txt)",
+                    data=classes_str,
+                    file_name="classes.txt",
+                    mime="text/plain"
+                )
+                logging.info("Arquivo de classes disponível para download.")
+
+                # ==================== AVALIAÇÃO DO MODELO ====================
+                if not cross_validation:
+                    st.write("### Avaliação do Modelo nos Conjuntos de Treino, Validação e Teste")
+                    st.write("""
+                    A seguir, apresentamos a **Acurácia** do modelo nos conjuntos de treino, validação e teste. A acurácia representa a porcentagem de previsões corretas realizadas pelo modelo.
                     """)
+                    score_train = modelo.evaluate(X_train_final, to_categorical(y_train_final), verbose=0)
+                    score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
+                    score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
 
-                # Predições no Conjunto de Teste
-                st.write("### Métricas Avançadas de Avaliação")
+                    st.write(f"**Acurácia no Treino:** {score_train[1]*100:.2f}%")
+                    st.write(f"**Acurácia na Validação:** {score_val[1]*100:.2f}%")
+                    st.write(f"**Acurácia no Teste:** {score_test[1]*100:.2f}%")
+                    logging.info(f"Acurácia: Treino={score_train[1]*100:.2f}%, Validação={score_val[1]*100:.2f}%, Teste={score_test[1]*100:.2f}%")
+
+                    # **Explicação da Avaliação**
+                    with st.expander("📖 Explicação da Avaliação do Modelo"):
+                        st.markdown("""
+                        **Conclusão**
+
+                        Entender os dados e as camadas do modelo é fundamental para interpretar como o modelo está aprendendo e realizando as classificações. 
+
+                        - **Shapes dos Dados:**
+                          - Representam a estrutura dos dados em diferentes etapas do processamento e treinamento.
+                          - Ajustar corretamente as dimensões é crucial para que o modelo possa processar os dados de forma eficiente.
+
+                        - **Camadas do Modelo:**
+                          - Cada camada tem uma função específica que contribui para a extração e processamento das informações necessárias para a classificação.
+                          - **Conv1D** detecta padrões, **Dropout** previne overfitting, **MaxPooling1D** reduz a dimensionalidade, **Flatten** prepara os dados para a camada densa, e **Dense** realiza a classificação final.
+
+                        Compreender esses conceitos permite ajustar e otimizar o modelo de forma mais eficaz, melhorando sua performance e capacidade de generalização.
+                        """)
+
+                    # Predições no Conjunto de Teste
+                    st.write("### Métricas Avançadas de Avaliação")
+                    st.write("""
+                    A seguir, apresentamos métricas avançadas como Curva ROC, Curva Precision-Recall e AUC para uma análise mais detalhada do desempenho do modelo.
+                    """)
+                    y_pred = modelo.predict(X_test)
+                    y_pred_classes = y_pred.argmax(axis=1)
+                    y_true = y_test  # y_test já está em formato inteiro
+
+                    # Matriz de Confusão com Seaborn
+                    st.write("""
+                    ### Matriz de Confusão
+                    A **Matriz de Confusão** mostra como as previsões do modelo se comparam com os rótulos reais. Cada célula representa o número de previsões para cada combinação de classe real e prevista.
+                    """)
+                    cm = confusion_matrix(y_true, y_pred_classes, labels=range(len(classes)))
+                    cm_df = pd.DataFrame(cm, index=classes, columns=classes)
+                    fig_cm, ax_cm = plt.subplots(figsize=(12,8))
+                    sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
+                    ax_cm.set_title("Matriz de Confusão", fontsize=16)
+                    ax_cm.set_xlabel("Classe Prevista", fontsize=14)
+                    ax_cm.set_ylabel("Classe Real", fontsize=14)
+                    ax_cm.tick_params(axis='both', which='major', labelsize=12)
+                    st.pyplot(fig_cm)
+                    plt.close(fig_cm)
+                    logging.info("Matriz de Confusão exibida.")
+
+                    # Relatório de Classificação com Seaborn
+                    st.write("""
+                    ### Relatório de Classificação
+                    O **Relatório de Classificação** fornece métricas detalhadas sobre o desempenho do modelo em cada classe, incluindo precisão, recall e F1-score.
+                    """)
+                    report = classification_report(y_true, y_pred_classes, labels=range(len(classes)),
+                                                   target_names=classes, zero_division=0, output_dict=True)
+                    report_df = pd.DataFrame(report).transpose()
+                    st.dataframe(report_df)
+                    logging.info("Relatório de Classificação exibido.")
+
+                    # Curva ROC
+                    st.write("### Curva ROC")
+                    plot_roc_curve(y_true, y_pred, classes)
+
+                    # Curva Precision-Recall
+                    st.write("### Curva Precision-Recall")
+                    plot_precision_recall_curve_custom(y_true, y_pred, classes)
+
+                    # Visualizações das Métricas de Treinamento com Seaborn
+                    st.write("""
+                    ### Visualizações das Métricas de Treinamento
+                    As seguintes figuras mostram como a **Perda (Loss)** e a **Acurácia** evoluíram durante o treinamento e validação. Isso ajuda a entender como o modelo está aprendendo ao longo das épocas.
+                    """)
+                    historico_df = pd.DataFrame(historico.history)
+                    fig_loss, ax_loss = plt.subplots(figsize=(10,6))
+                    sns.lineplot(data=historico_df[['loss', 'val_loss']], ax=ax_loss)
+                    ax_loss.set_title("Perda (Loss) durante o Treinamento", fontsize=16)
+                    ax_loss.set_xlabel("Época", fontsize=14)
+                    ax_loss.set_ylabel("Loss", fontsize=14)
+                    ax_loss.tick_params(axis='both', which='major', labelsize=12)
+                    st.pyplot(fig_loss)
+                    plt.close(fig_loss)
+
+                    fig_acc, ax_acc = plt.subplots(figsize=(10,6))
+                    sns.lineplot(data=historico_df[['accuracy', 'val_accuracy']], ax=ax_acc)
+                    ax_acc.set_title("Acurácia durante o Treinamento", fontsize=16)
+                    ax_acc.set_xlabel("Época", fontsize=14)
+                    ax_acc.set_ylabel("Acurácia", fontsize=14)
+                    ax_acc.tick_params(axis='both', which='major', labelsize=12)
+                    st.pyplot(fig_acc)
+                    plt.close(fig_acc)
+                    logging.info("Curvas de Loss e Acurácia exibidas.")
+
+                    # Limpeza de Memória
+                    del modelo, historico, historico_df
+                    gc.collect()
+                    logging.info("Memória limpa após avaliação.")
+
+                    st.success("Processo de Treinamento e Avaliação concluído!")
+                else:
+                    # Avaliação durante Cross-Validation (não exibido aqui para simplicidade)
+                    st.write("**Validação Cruzada concluída.**")
+                    logging.info("Validação Cruzada concluída.")
+
+                # ==================== VISUALIZAÇÕES DE EXPERIMENT TRACKING ====================
+                st.write("### Logs de Experimentos")
                 st.write("""
-                A seguir, apresentamos métricas avançadas como Curva ROC, Curva Precision-Recall e AUC para uma análise mais detalhada do desempenho do modelo.
+                Acompanhe os detalhes dos experimentos realizados no arquivo `experiment_logs.log`. Isso inclui informações sobre configurações de treinamento, desempenho do modelo e quaisquer erros que possam ter ocorrido.
                 """)
-                y_pred = modelo.predict(X_test)
-                y_pred_classes = y_pred.argmax(axis=1)
-                y_true = y_test  # y_test já está em formato inteiro
+                try:
+                    with open('experiment_logs.log', 'r') as log_file:
+                        logs = log_file.read()
+                        st.text_area("Logs de Experimentos", logs, height=300)
+                except Exception as e:
+                    st.error(f"Erro ao carregar logs: {e}")
+                    logging.error(f"Erro ao carregar logs: {e}")
 
-                # Matriz de Confusão com Seaborn
-                st.write("""
-                ### Matriz de Confusão
-                A **Matriz de Confusão** mostra como as previsões do modelo se comparam com os rótulos reais. Cada célula representa o número de previsões para cada combinação de classe real e prevista.
-                """)
-                cm = confusion_matrix(y_true, y_pred_classes, labels=range(len(classes)))
-                cm_df = pd.DataFrame(cm, index=classes, columns=classes)
-                fig_cm, ax_cm = plt.subplots(figsize=(12,8))
-                sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-                ax_cm.set_title("Matriz de Confusão", fontsize=16)
-                ax_cm.set_xlabel("Classe Prevista", fontsize=14)
-                ax_cm.set_ylabel("Classe Real", fontsize=14)
-                ax_cm.tick_params(axis='both', which='major', labelsize=12)
-                st.pyplot(fig_cm)
-                plt.close(fig_cm)
-                logging.info("Matriz de Confusão exibida.")
-
-                # Relatório de Classificação com Seaborn
-                st.write("""
-                ### Relatório de Classificação
-                O **Relatório de Classificação** fornece métricas detalhadas sobre o desempenho do modelo em cada classe, incluindo precisão, recall e F1-score.
-                """)
-                report = classification_report(y_true, y_pred_classes, labels=range(len(classes)),
-                                               target_names=classes, zero_division=0, output_dict=True)
-                report_df = pd.DataFrame(report).transpose()
-                st.dataframe(report_df)
-                logging.info("Relatório de Classificação exibido.")
-
-                # Curva ROC
-                st.write("### Curva ROC")
-                plot_roc_curve(y_true, y_pred, classes)
-
-                # Curva Precision-Recall
-                st.write("### Curva Precision-Recall")
-                plot_precision_recall_curve_custom(y_true, y_pred, classes)
-
-                # Visualizações das Métricas de Treinamento com Seaborn
-                st.write("""
-                ### Visualizações das Métricas de Treinamento
-                As seguintes figuras mostram como a **Perda (Loss)** e a **Acurácia** evoluíram durante o treinamento e validação. Isso ajuda a entender como o modelo está aprendendo ao longo das épocas.
-                """)
-                historico_df = pd.DataFrame(historico.history)
-                fig_loss, ax_loss = plt.subplots(figsize=(10,6))
-                sns.lineplot(data=historico_df[['loss', 'val_loss']], ax=ax_loss)
-                ax_loss.set_title("Perda (Loss) durante o Treinamento", fontsize=16)
-                ax_loss.set_xlabel("Época", fontsize=14)
-                ax_loss.set_ylabel("Loss", fontsize=14)
-                ax_loss.tick_params(axis='both', which='major', labelsize=12)
-                st.pyplot(fig_loss)
-                plt.close(fig_loss)
-
-                fig_acc, ax_acc = plt.subplots(figsize=(10,6))
-                sns.lineplot(data=historico_df[['accuracy', 'val_accuracy']], ax=ax_acc)
-                ax_acc.set_title("Acurácia durante o Treinamento", fontsize=16)
-                ax_acc.set_xlabel("Época", fontsize=14)
-                ax_acc.set_ylabel("Acurácia", fontsize=14)
-                ax_acc.tick_params(axis='both', which='major', labelsize=12)
-                st.pyplot(fig_acc)
-                plt.close(fig_acc)
-                logging.info("Curvas de Loss e Acurácia exibidas.")
-
-                # Limpeza de Memória
-                del modelo, historico, historico_df
+                # ==================== LIMPEZA DE MEMÓRIA E REMOÇÃO DOS ARQUIVOS TEMPORÁRIOS ====================
+                st.write("### Limpeza de Memória e Remoção de Arquivos Temporários")
+                del df, X, y_valid, X_train, X_temp, y_train, y_temp, X_val, X_test, y_val, y_test
+                if enable_augmentation:
+                    del X_aumentado, y_aumentado
                 gc.collect()
-                logging.info("Memória limpa após avaliação.")
-
+                os.remove(caminho_zip)
+                for cat in categorias:
+                    caminho_cat = os.path.join(caminho_base, cat)
+                    for arquivo in os.listdir(caminho_cat):
+                        os.remove(os.path.join(caminho_cat, arquivo))
+                    os.rmdir(caminho_cat)
+                os.rmdir(caminho_base)
+                logging.info("Arquivos temporários removidos e memória limpa.")
                 st.success("Processo de Treinamento e Avaliação concluído!")
-            else:
-                # Avaliação durante Cross-Validation (não exibido aqui para simplicidade)
-                st.write("**Validação Cruzada concluída.**")
-                logging.info("Validação Cruzada concluída.")
-
-            # Visualizações de Experiment Tracking
-            st.write("### Logs de Experimentos")
-            st.write("""
-            Acompanhe os detalhes dos experimentos realizados no arquivo `experiment_logs.log`. Isso inclui informações sobre configurações de treinamento, desempenho do modelo e quaisquer erros que possam ter ocorrido.
-            """)
-            try:
-                with open('experiment_logs.log', 'r') as log_file:
-                    logs = log_file.read()
-                    st.text_area("Logs de Experimentos", logs, height=300)
-            except Exception as e:
-                st.error(f"Erro ao carregar logs: {e}")
-                logging.error(f"Erro ao carregar logs: {e}")
-
-            # Limpeza de Memória e Remoção dos Arquivos Temporários
-            st.write("### Limpeza de Memória e Remoção de Arquivos Temporários")
-            del df, X, y_valid, X_train, X_temp, y_train, y_temp, X_val, X_test, y_val, y_test
-            if enable_augmentation:
-                del X_train_augmented, y_train_augmented, X_train_combined, y_train_combined
-            gc.collect()
-            os.remove(caminho_zip)
-            for cat in categorias:
-                caminho_cat = os.path.join(caminho_base, cat)
-                for arquivo in os.listdir(caminho_cat):
-                    os.remove(os.path.join(caminho_cat, arquivo))
-                os.rmdir(caminho_cat)
-            os.rmdir(caminho_base)
-            logging.info("Arquivos temporários removidos e memória limpa.")
-            st.success("Processo de Treinamento e Avaliação concluído!")
         except Exception as e:
             st.error(f"Erro durante o processamento do dataset: {e}")
             logging.error(f"Erro durante o processamento do dataset: {e}")
