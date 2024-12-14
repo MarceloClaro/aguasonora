@@ -612,18 +612,31 @@ def classificar_audio(SEED):
             # Carrega o modelo
             if caminho_modelo.endswith('.pth'):
                 # Para modelos PyTorch, carregue de forma apropriada
-                modelo = torch.load(caminho_modelo, map_location=torch.device('cpu'))
-                modelo.eval()
-                st.write("**Tipo de Modelo:** PyTorch")
-                logging.info("Modelo PyTorch carregado.")
+                try:
+                    modelo = torch.load(caminho_modelo, map_location=torch.device('cpu'))
+                    modelo.eval()
+                    st.write("**Tipo de Modelo:** PyTorch")
+                    logging.info("Modelo PyTorch carregado.")
+                except Exception as e:
+                    st.error(f"Erro ao carregar o modelo PyTorch: {e}")
+                    logging.error(f"Erro ao carregar o modelo PyTorch: {e}")
+                    os.remove(caminho_modelo)
+                    return
             elif caminho_modelo.endswith(('.h5', '.keras')):
                 # Para modelos Keras (.h5 e .keras)
-                modelo = load_model(caminho_modelo, compile=False)
-                st.write("**Tipo de Modelo:** Keras")
-                logging.info("Modelo Keras carregado.")
+                try:
+                    modelo = load_model(caminho_modelo, compile=False)
+                    st.write("**Tipo de Modelo:** Keras")
+                    logging.info("Modelo Keras carregado.")
+                except Exception as e:
+                    st.error(f"Erro ao carregar o modelo Keras: {e}")
+                    logging.error(f"Erro ao carregar o modelo Keras: {e}")
+                    os.remove(caminho_modelo)
+                    return
             else:
                 st.error("Formato de modelo não suportado. Utilize .keras, .h5 ou .pth.")
                 logging.error("Formato de modelo não suportado.")
+                os.remove(caminho_modelo)
                 return
             st.success("Modelo carregado com sucesso!")
 
@@ -636,12 +649,23 @@ def classificar_audio(SEED):
                 key="classes_upload"
             )
             if classes_file is not None:
-                classes = classes_file.read().decode("utf-8").splitlines()
-                labelencoder = LabelEncoder()
-                labelencoder.fit(classes)
-                st.success("Classes carregadas com sucesso!")
-                st.write(f"**Classes:** {', '.join(classes)}")
-                logging.info(f"Classes carregadas: {', '.join(classes)}")
+                try:
+                    classes = classes_file.read().decode("utf-8").splitlines()
+                    if not classes:
+                        st.error("O arquivo de classes está vazio.")
+                        logging.error("O arquivo de classes está vazio.")
+                        os.remove(caminho_modelo)
+                        return
+                    labelencoder = LabelEncoder()
+                    labelencoder.fit(classes)
+                    st.success("Classes carregadas com sucesso!")
+                    st.write(f"**Classes:** {', '.join(classes)}")
+                    logging.info(f"Classes carregadas: {', '.join(classes)}")
+                except Exception as e:
+                    st.error(f"Erro ao carregar as classes: {e}")
+                    logging.error(f"Erro ao carregar as classes: {e}")
+                    os.remove(caminho_modelo)
+                    return
 
                 st.write("### Passo 3: Upload do Arquivo de Áudio para Classificação")
                 audio_upload = st.file_uploader(
@@ -651,50 +675,65 @@ def classificar_audio(SEED):
                 )
 
                 if audio_upload is not None:
-                    # Salva o arquivo de áudio temporariamente
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_upload.name)[1]) as tmp_audio:
-                        tmp_audio.write(audio_upload.read())
-                        caminho_audio = tmp_audio.name
+                    try:
+                        # Salva o arquivo de áudio temporariamente
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_upload.name)[1]) as tmp_audio:
+                            tmp_audio.write(audio_upload.read())
+                            caminho_audio = tmp_audio.name
 
-                    # Exibe o áudio
-                    st.audio(caminho_audio, format=f'audio/{os.path.splitext(audio_upload.name)[1][1:]}')
+                        # Exibe o áudio
+                        st.audio(caminho_audio, format=f'audio/{os.path.splitext(audio_upload.name)[1][1:]}')
 
-                    # Realiza a classificação
-                    with st.spinner('Classificando...'):
-                        rotulo_predito, confianca, probs_classes = processar_novo_audio(caminho_audio, modelo, labelencoder)
+                        # Realiza a classificação
+                        with st.spinner('Classificando...'):
+                            rotulo_predito, confianca, probs_classes = processar_novo_audio(caminho_audio, modelo, labelencoder)
 
-                    if rotulo_predito is not None and confianca is not None:
-                        st.success(f"**Classe Predita:** {rotulo_predito}")
-                        st.info(f"**Grau de Confiança:** {confianca * 100:.2f}%")
+                        if rotulo_predito is not None and confianca is not None:
+                            st.success(f"**Classe Predita:** {rotulo_predito}")
+                            st.info(f"**Grau de Confiança:** {confianca * 100:.2f}%")
 
-                        st.write("### Probabilidades das Classes:")
-                        plot_probabilidades_classes(probs_classes, titulo="Probabilidades das Classes")
+                            st.write("### Probabilidades das Classes:")
+                            plot_probabilidades_classes(probs_classes, titulo="Probabilidades das Classes")
 
-                        # Visualizações
-                        st.write("### Visualizações do Áudio:")
-                        data, sr = carregar_audio(caminho_audio, sr=None)
-                        if data is not None:
-                            plot_forma_onda(data, sr, titulo=f"Forma de Onda - {rotulo_predito}")
-                            plot_espectro_frequencias(data, sr, titulo=f"Espectro de Frequências - {rotulo_predito}")
-                            plot_espectrograma(data, sr, titulo=f"Espectrograma STFT - {rotulo_predito}")
-                            plot_mfcc(data, sr, titulo=f"Espectrograma MFCC - {rotulo_predito}")
+                            # Visualizações
+                            st.write("### Visualizações do Áudio:")
+                            data, sr = carregar_audio(caminho_audio, sr=None)
+                            if data is not None:
+                                plot_forma_onda(data, sr, titulo=f"Forma de Onda - {rotulo_predito}")
+                                plot_espectro_frequencias(data, sr, titulo=f"Espectro de Frequências - {rotulo_predito}")
+                                plot_espectrograma(data, sr, titulo=f"Espectrograma STFT - {rotulo_predito}")
+                                plot_mfcc(data, sr, titulo=f"Espectrograma MFCC - {rotulo_predito}")
 
-                        # Explicabilidade com SHAP
-                        st.write("### Explicabilidade das Previsões com SHAP")
-                        # Selecionar uma amostra do conjunto de treino para o explainer
-                        if 'X_train_final' in st.session_state and st.session_state.X_train_final is not None:
-                            X_sample = st.session_state.X_train_final[:100]  # Limitar a 100 amostras para performance
+                            # Explicabilidade com SHAP
+                            st.write("### Explicabilidade das Previsões com SHAP")
+                            # Selecionar uma amostra do conjunto de treino para o explainer
+                            if 'X_train_final' in st.session_state and st.session_state.X_train_final is not None:
+                                X_sample = st.session_state.X_train_final[:100]  # Limitar a 100 amostras para performance
+                            else:
+                                # Se não houver, usar a própria amostra
+                                X_sample = np.expand_dims(extrair_features(data, sr), axis=0)
+                                X_sample = X_sample.reshape((X_sample.shape[0], X_sample.shape[1], 1))
+                            plot_shap_values(modelo, X_sample, feature_names=[f'MFCC_{i}' for i in range(1, 41)])
                         else:
-                            # Se não houver, usar a própria amostra
-                            X_sample = np.expand_dims(extrair_features(data, sr), axis=0)
-                            X_sample = X_sample.reshape((X_sample.shape[0], X_sample.shape[1], 1))
-                        plot_shap_values(modelo, X_sample, feature_names=[f'MFCC_{i}' for i in range(1, 41)])
-                    else:
-                        st.error("A classificação não pôde ser realizada devido a erros no processamento do áudio.")
+                            st.error("A classificação não pôde ser realizada devido a erros no processamento do áudio.")
 
-                    # Remove os arquivos temporários
-                    os.remove(caminho_audio)
-                    os.remove(caminho_modelo)
+                        # Remove os arquivos temporários
+                        try:
+                            os.remove(caminho_audio)
+                        except Exception as e:
+                            logging.warning(f"Erro ao remover o arquivo de áudio temporário: {e}")
+                        try:
+                            os.remove(caminho_modelo)
+                        except Exception as e:
+                            logging.warning(f"Erro ao remover o arquivo de modelo temporário: {e}")
+                    except Exception as e:
+                        st.error(f"Erro ao processar o arquivo de áudio: {e}")
+                        logging.error(f"Erro ao processar o arquivo de áudio: {e}")
+                        # Assegura a remoção dos arquivos temporários em caso de erro
+                        if 'caminho_audio' in locals() and os.path.exists(caminho_audio):
+                            os.remove(caminho_audio)
+                        if 'caminho_modelo' in locals() and os.path.exists(caminho_modelo):
+                            os.remove(caminho_modelo)
         except Exception as e:
             st.error(f"Erro ao carregar o modelo: {e}")
             logging.error(f"Erro ao carregar o modelo: {e}")
@@ -800,7 +839,7 @@ def treinar_modelo(SEED):
                   Cada arquivo de áudio tem 40 características (MFCCs) extraídas, representando aspectos importantes do som para o modelo aprender.
 
                 **2. Divisão dos Dados:**
-                Após extrair as features, os dados são divididos em diferentes conjuntos para treinar e avaliar o modelo.
+                Após extrair as features e aplicar Data Augmentation, os dados são divididos em diferentes conjuntos para treinar e avaliar o modelo.
                 """)
 
             # ==================== CONFIGURAÇÕES DE TREINAMENTO ====================
@@ -1063,17 +1102,21 @@ def treinar_modelo(SEED):
                                 for j, data_aug in enumerate(amostras_aumentadas):
                                     # Salva os arquivos aumentados
                                     nome_arquivo_aug = f"{os.path.splitext(arquivo_audio)[0]}_aug_{j}.wav"
-                                    sf.write(nome_arquivo_aug, data_aug, sr)
-                                    # Adiciona ao DataFrame
-                                    df = df.append({'caminho_arquivo': nome_arquivo_aug, 'classe': classe}, ignore_index=True)
-                                    # Extrai features
-                                    features_aug = extrair_features(data_aug, sr)
-                                    if features_aug is not None:
-                                        X_aumentado.append(features_aug)
-                                        y_aumentado.append(labelencoder.transform([classe])[0])
-                                    else:
-                                        st.warning(f"Erro na extração de features do arquivo aumentado '{nome_arquivo_aug}'.")
-                                        logging.warning(f"Erro na extração de features do arquivo aumentado '{nome_arquivo_aug}'.")
+                                    try:
+                                        sf.write(nome_arquivo_aug, data_aug, sr)
+                                        # Adiciona ao DataFrame
+                                        df = df.append({'caminho_arquivo': nome_arquivo_aug, 'classe': classe}, ignore_index=True)
+                                        # Extrai features
+                                        features_aug = extrair_features(data_aug, sr)
+                                        if features_aug is not None:
+                                            X_aumentado.append(features_aug)
+                                            y_aumentado.append(labelencoder.transform([classe])[0])
+                                        else:
+                                            st.warning(f"Erro na extração de features do arquivo aumentado '{nome_arquivo_aug}'.")
+                                            logging.warning(f"Erro na extração de features do arquivo aumentado '{nome_arquivo_aug}'.")
+                                    except Exception as e:
+                                        st.warning(f"Erro ao salvar ou processar o arquivo aumentado '{nome_arquivo_aug}': {e}")
+                                        logging.warning(f"Erro ao salvar ou processar o arquivo aumentado '{nome_arquivo_aug}': {e}")
                         else:
                             st.warning(f"Erro no carregamento do arquivo '{arquivo_audio}' para Data Augmentation.")
                             logging.warning(f"Erro no carregamento do arquivo '{arquivo_audio}' para Data Augmentation.")
@@ -1247,7 +1290,12 @@ def treinar_modelo(SEED):
 
                 # Definição da Arquitetura da CNN com Regularização
                 modelo = Sequential()
-                modelo.add(tf.keras.layers.Input(shape=(X_train_combined.shape[1], 1)))
+                try:
+                    modelo.add(tf.keras.layers.Input(shape=(X_train_final.shape[1], 1)))
+                except NameError:
+                    st.error("Erro: 'X_train_final' não está definido. Verifique a divisão dos dados.")
+                    logging.error("'X_train_final' não está definido.")
+                    st.stop()
 
                 # Adicionar Camadas Convolucionais
                 for i in range(num_conv_layers):
@@ -1260,16 +1308,16 @@ def treinar_modelo(SEED):
                     else:
                         reg = None
 
-                    modelo.add(Conv1D(
+                    modelo.add(tf.keras.layers.Conv1D(
                         filters=conv_filters[i],
                         kernel_size=conv_kernel_size[i],
                         activation='relu',
                         kernel_regularizer=reg
                     ))
-                    modelo.add(Dropout(dropout_rate))
-                    modelo.add(MaxPooling1D(pool_size=4))
+                    modelo.add(tf.keras.layers.Dropout(dropout_rate))
+                    modelo.add(tf.keras.layers.MaxPooling1D(pool_size=4))
 
-                modelo.add(Flatten())
+                modelo.add(tf.keras.layers.Flatten())
 
                 # Adicionar Camadas Densas
                 for i in range(num_dense_layers):
@@ -1283,15 +1331,15 @@ def treinar_modelo(SEED):
                     else:
                         reg = None
 
-                    modelo.add(Dense(
+                    modelo.add(tf.keras.layers.Dense(
                         units=dense_units[i],
                         activation='relu',
                         kernel_regularizer=reg
                     ))
-                    modelo.add(Dropout(dropout_rate))
+                    modelo.add(tf.keras.layers.Dropout(dropout_rate))
 
                 # Camada de Saída
-                modelo.add(Dense(len(classes), activation='softmax'))
+                modelo.add(tf.keras.layers.Dense(len(classes), activation='softmax'))
 
                 # Compilação do Modelo
                 modelo.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
@@ -1486,55 +1534,56 @@ def treinar_modelo(SEED):
                 O treinamento pode demorar algum tempo, dependendo do tamanho do seu conjunto de dados e dos parâmetros selecionados. Durante o treinamento, as métricas de perda e acurácia serão exibidas para acompanhamento.
                 """)
                 with st.spinner('Treinando o modelo...'):
-                    if cross_validation and k_folds > 1:
-                        # Implementar Validação Cruzada
-                        st.write("**Validação Cruzada Iniciada**")
-                        kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
-                        fold_no = 1
-                        val_scores = []
-                        for train_index, val_index in kf.split(X_train_combined):
-                            st.write(f"#### Fold {fold_no}")
-                            logging.info(f"Iniciando Fold {fold_no} de {k_folds}")
-                            X_train_cv, X_val_cv = X_train_combined[train_index], X_train_combined[val_index]
-                            y_train_cv, y_val_cv = y_train_combined[train_index], y_train_combined[val_index]
+                    try:
+                        if cross_validation and k_folds > 1:
+                            # Implementar Validação Cruzada
+                            st.write("**Validação Cruzada Iniciada**")
+                            kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
+                            fold_no = 1
+                            val_scores = []
+                            for train_index, val_index in kf.split(X_train_final):
+                                st.write(f"#### Fold {fold_no}")
+                                logging.info(f"Iniciando Fold {fold_no} de {k_folds}")
+                                X_train_cv, X_val_cv = X_train_final[train_index], X_train_final[val_index]
+                                y_train_cv, y_val_cv = y_train[train_index], y_train[val_index]
 
-                            # Ajustar a forma dos dados
-                            X_train_cv = X_train_cv.reshape((X_train_cv.shape[0], X_train_cv.shape[1], 1))
-                            X_val_cv = X_val_cv.reshape((X_val_cv.shape[0], X_val_cv.shape[1], 1))
+                                # Treinar o modelo
+                                historico = modelo.fit(
+                                    X_train_cv, to_categorical(y_train_cv),
+                                    epochs=num_epochs,
+                                    batch_size=batch_size,
+                                    validation_data=(X_val_cv, to_categorical(y_val_cv)),
+                                    callbacks=callbacks,
+                                    class_weight=class_weight_dict,
+                                    verbose=1
+                                )
 
-                            # Treinar o modelo
+                                # Avaliar no fold atual
+                                score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
+                                st.write(f"**Acurácia no Fold {fold_no}:** {score[1]*100:.2f}%")
+                                val_scores.append(score[1]*100)
+                                logging.info(f"Fold {fold_no} Acurácia: {score[1]*100:.2f}%")
+                                fold_no += 1
+
+                            st.write(f"**Acurácia Média da Validação Cruzada ({k_folds}-Fold):** {np.mean(val_scores):.2f}%")
+                            logging.info(f"Acurácia Média da Validação Cruzada: {np.mean(val_scores):.2f}%")
+                        else:
+                            # Treinamento tradicional
                             historico = modelo.fit(
-                                X_train_cv, to_categorical(y_train_cv),
+                                X_train_final, to_categorical(y_train_final),
                                 epochs=num_epochs,
                                 batch_size=batch_size,
-                                validation_data=(X_val_cv, to_categorical(y_val_cv)),
+                                validation_data=(X_val, to_categorical(y_val)),
                                 callbacks=callbacks,
                                 class_weight=class_weight_dict,
                                 verbose=1
                             )
-
-                            # Avaliar no fold atual
-                            score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
-                            st.write(f"**Acurácia no Fold {fold_no}:** {score[1]*100:.2f}%")
-                            val_scores.append(score[1]*100)
-                            logging.info(f"Fold {fold_no} Acurácia: {score[1]*100:.2f}%")
-                            fold_no += 1
-
-                        st.write(f"**Acurácia Média da Validação Cruzada ({k_folds}-Fold):** {np.mean(val_scores):.2f}%")
-                        logging.info(f"Acurácia Média da Validação Cruzada: {np.mean(val_scores):.2f}%")
-                    else:
-                        # Treinamento tradicional
-                        historico = modelo.fit(
-                            X_train_final, to_categorical(y_train_final),
-                            epochs=num_epochs,
-                            batch_size=batch_size,
-                            validation_data=(X_val, to_categorical(y_val)),
-                            callbacks=callbacks,
-                            class_weight=class_weight_dict,
-                            verbose=1
-                        )
-                    st.success("Treinamento concluído com sucesso!")
-                    logging.info("Treinamento concluído.")
+                        st.success("Treinamento concluído com sucesso!")
+                        logging.info("Treinamento concluído.")
+                    except Exception as e:
+                        st.error(f"Erro durante o treinamento: {e}")
+                        logging.error(f"Erro durante o treinamento: {e}")
+                        st.stop()
 
                 # ==================== SALVAMENTO DO MODELO E CLASSES ====================
                 st.write("### Download do Modelo Treinado e Arquivo de Classes")
@@ -1543,37 +1592,53 @@ def treinar_modelo(SEED):
                 """)
 
                 # Salvar o modelo em um arquivo temporário com extensão .keras
-                with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
-                    modelo.save(tmp_model.name)
-                    caminho_tmp_model = tmp_model.name
-                    logging.info(f"Modelo salvo temporariamente em {caminho_tmp_model}.")
+                try:
+                    with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
+                        modelo.save(tmp_model.name)
+                        caminho_tmp_model = tmp_model.name
+                        logging.info(f"Modelo salvo temporariamente em {caminho_tmp_model}.")
+                except Exception as e:
+                    st.error(f"Erro ao salvar o modelo temporariamente: {e}")
+                    logging.error(f"Erro ao salvar o modelo temporariamente: {e}")
+                    st.stop()
 
                 # Ler o modelo salvo e preparar para download
-                with open(caminho_tmp_model, 'rb') as f:
-                    modelo_bytes = f.read()
+                try:
+                    with open(caminho_tmp_model, 'rb') as f:
+                        modelo_bytes = f.read()
 
-                buffer = io.BytesIO(modelo_bytes)
+                    buffer = io.BytesIO(modelo_bytes)
 
-                st.download_button(
-                    label="Download do Modelo Treinado (.keras)",
-                    data=buffer,
-                    file_name="modelo_agua_aumentado.keras",
-                    mime="application/octet-stream"
-                )
-
-                # Remove o arquivo temporário após o download
-                os.remove(caminho_tmp_model)
-                logging.info(f"Arquivo temporário do modelo {caminho_tmp_model} removido.")
+                    st.download_button(
+                        label="Download do Modelo Treinado (.keras)",
+                        data=buffer,
+                        file_name="modelo_agua_aumentado.keras",
+                        mime="application/octet-stream"
+                    )
+                except Exception as e:
+                    st.error(f"Erro ao preparar o download do modelo: {e}")
+                    logging.error(f"Erro ao preparar o download do modelo: {e}")
+                finally:
+                    # Remove o arquivo temporário após o download
+                    try:
+                        os.remove(caminho_tmp_model)
+                        logging.info(f"Arquivo temporário do modelo {caminho_tmp_model} removido.")
+                    except Exception as e:
+                        logging.warning(f"Erro ao remover o arquivo temporário do modelo: {e}")
 
                 # Salvar as classes
-                classes_str = "\n".join(classes)
-                st.download_button(
-                    label="Download das Classes (classes.txt)",
-                    data=classes_str,
-                    file_name="classes.txt",
-                    mime="text/plain"
-                )
-                logging.info("Arquivo de classes disponível para download.")
+                try:
+                    classes_str = "\n".join(classes)
+                    st.download_button(
+                        label="Download das Classes (classes.txt)",
+                        data=classes_str,
+                        file_name="classes.txt",
+                        mime="text/plain"
+                    )
+                    logging.info("Arquivo de classes disponível para download.")
+                except Exception as e:
+                    st.error(f"Erro ao preparar o download das classes: {e}")
+                    logging.error(f"Erro ao preparar o download das classes: {e}")
 
                 # ==================== AVALIAÇÃO DO MODELO ====================
                 if not cross_validation:
@@ -1581,14 +1646,18 @@ def treinar_modelo(SEED):
                     st.write("""
                     A seguir, apresentamos a **Acurácia** do modelo nos conjuntos de treino, validação e teste. A acurácia representa a porcentagem de previsões corretas realizadas pelo modelo.
                     """)
-                    score_train = modelo.evaluate(X_train_final, to_categorical(y_train_final), verbose=0)
-                    score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
-                    score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
+                    try:
+                        score_train = modelo.evaluate(X_train_final, to_categorical(y_train_final), verbose=0)
+                        score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
+                        score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
 
-                    st.write(f"**Acurácia no Treino:** {score_train[1]*100:.2f}%")
-                    st.write(f"**Acurácia na Validação:** {score_val[1]*100:.2f}%")
-                    st.write(f"**Acurácia no Teste:** {score_test[1]*100:.2f}%")
-                    logging.info(f"Acurácia: Treino={score_train[1]*100:.2f}%, Validação={score_val[1]*100:.2f}%, Teste={score_test[1]*100:.2f}%")
+                        st.write(f"**Acurácia no Treino:** {score_train[1]*100:.2f}%")
+                        st.write(f"**Acurácia na Validação:** {score_val[1]*100:.2f}%")
+                        st.write(f"**Acurácia no Teste:** {score_test[1]*100:.2f}%")
+                        logging.info(f"Acurácia: Treino={score_train[1]*100:.2f}%, Validação={score_val[1]*100:.2f}%, Teste={score_test[1]*100:.2f}%")
+                    except Exception as e:
+                        st.error(f"Erro ao avaliar o modelo: {e}")
+                        logging.error(f"Erro ao avaliar o modelo: {e}")
 
                     # **Explicação da Avaliação**
                     with st.expander("📖 Explicação da Avaliação do Modelo"):
@@ -1613,77 +1682,82 @@ def treinar_modelo(SEED):
                     st.write("""
                     A seguir, apresentamos métricas avançadas como Curva ROC, Curva Precision-Recall e AUC para uma análise mais detalhada do desempenho do modelo.
                     """)
-                    y_pred = modelo.predict(X_test)
-                    y_pred_classes = y_pred.argmax(axis=1)
-                    y_true = y_test  # y_test já está em formato inteiro
+                    try:
+                        y_pred = modelo.predict(X_test)
+                        y_pred_classes = y_pred.argmax(axis=1)
+                        y_true = y_test  # y_test já está em formato inteiro
 
-                    # Matriz de Confusão com Seaborn
-                    st.write("""
-                    ### Matriz de Confusão
-                    A **Matriz de Confusão** mostra como as previsões do modelo se comparam com os rótulos reais. Cada célula representa o número de previsões para cada combinação de classe real e prevista.
-                    """)
-                    cm = confusion_matrix(y_true, y_pred_classes, labels=range(len(classes)))
-                    cm_df = pd.DataFrame(cm, index=classes, columns=classes)
-                    fig_cm, ax_cm = plt.subplots(figsize=(12,8))
-                    sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-                    ax_cm.set_title("Matriz de Confusão", fontsize=16)
-                    ax_cm.set_xlabel("Classe Prevista", fontsize=14)
-                    ax_cm.set_ylabel("Classe Real", fontsize=14)
-                    ax_cm.tick_params(axis='both', which='major', labelsize=12)
-                    st.pyplot(fig_cm)
-                    plt.close(fig_cm)
-                    logging.info("Matriz de Confusão exibida.")
+                        # Matriz de Confusão com Seaborn
+                        st.write("""
+                        ### Matriz de Confusão
+                        A **Matriz de Confusão** mostra como as previsões do modelo se comparam com os rótulos reais. Cada célula representa o número de previsões para cada combinação de classe real e prevista.
+                        """)
+                        cm = confusion_matrix(y_true, y_pred_classes, labels=range(len(classes)))
+                        cm_df = pd.DataFrame(cm, index=classes, columns=classes)
+                        fig_cm, ax_cm = plt.subplots(figsize=(12,8))
+                        sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
+                        ax_cm.set_title("Matriz de Confusão", fontsize=16)
+                        ax_cm.set_xlabel("Classe Prevista", fontsize=14)
+                        ax_cm.set_ylabel("Classe Real", fontsize=14)
+                        ax_cm.tick_params(axis='both', which='major', labelsize=12)
+                        st.pyplot(fig_cm)
+                        plt.close(fig_cm)
+                        logging.info("Matriz de Confusão exibida.")
 
-                    # Relatório de Classificação com Seaborn
-                    st.write("""
-                    ### Relatório de Classificação
-                    O **Relatório de Classificação** fornece métricas detalhadas sobre o desempenho do modelo em cada classe, incluindo precisão, recall e F1-score.
-                    """)
-                    report = classification_report(y_true, y_pred_classes, labels=range(len(classes)),
-                                                   target_names=classes, zero_division=0, output_dict=True)
-                    report_df = pd.DataFrame(report).transpose()
-                    st.dataframe(report_df)
-                    logging.info("Relatório de Classificação exibido.")
+                        # Relatório de Classificação com Seaborn
+                        st.write("""
+                        ### Relatório de Classificação
+                        O **Relatório de Classificação** fornece métricas detalhadas sobre o desempenho do modelo em cada classe, incluindo precisão, recall e F1-score.
+                        """)
+                        report = classification_report(y_true, y_pred_classes, labels=range(len(classes)),
+                                                       target_names=classes, zero_division=0, output_dict=True)
+                        report_df = pd.DataFrame(report).transpose()
+                        st.dataframe(report_df)
+                        logging.info("Relatório de Classificação exibido.")
 
-                    # Curva ROC
-                    st.write("### Curva ROC")
-                    plot_roc_curve(y_true, y_pred, classes)
+                        # Curva ROC
+                        st.write("### Curva ROC")
+                        plot_roc_curve(y_true, y_pred, classes)
 
-                    # Curva Precision-Recall
-                    st.write("### Curva Precision-Recall")
-                    plot_precision_recall_curve_custom(y_true, y_pred, classes)
+                        # Curva Precision-Recall
+                        st.write("### Curva Precision-Recall")
+                        plot_precision_recall_curve_custom(y_true, y_pred, classes)
 
-                    # Visualizações das Métricas de Treinamento com Seaborn
-                    st.write("""
-                    ### Visualizações das Métricas de Treinamento
-                    As seguintes figuras mostram como a **Perda (Loss)** e a **Acurácia** evoluíram durante o treinamento e validação. Isso ajuda a entender como o modelo está aprendendo ao longo das épocas.
-                    """)
-                    historico_df = pd.DataFrame(historico.history)
-                    fig_loss, ax_loss = plt.subplots(figsize=(10,6))
-                    sns.lineplot(data=historico_df[['loss', 'val_loss']], ax=ax_loss)
-                    ax_loss.set_title("Perda (Loss) durante o Treinamento", fontsize=16)
-                    ax_loss.set_xlabel("Época", fontsize=14)
-                    ax_loss.set_ylabel("Loss", fontsize=14)
-                    ax_loss.tick_params(axis='both', which='major', labelsize=12)
-                    st.pyplot(fig_loss)
-                    plt.close(fig_loss)
+                        # Visualizações das Métricas de Treinamento com Seaborn
+                        st.write("""
+                        ### Visualizações das Métricas de Treinamento
+                        As seguintes figuras mostram como a **Perda (Loss)** e a **Acurácia** evoluíram durante o treinamento e validação. Isso ajuda a entender como o modelo está aprendendo ao longo das épocas.
+                        """)
+                        historico_df = pd.DataFrame(historico.history)
+                        fig_loss, ax_loss = plt.subplots(figsize=(10,6))
+                        sns.lineplot(data=historico_df[['loss', 'val_loss']], ax=ax_loss)
+                        ax_loss.set_title("Perda (Loss) durante o Treinamento", fontsize=16)
+                        ax_loss.set_xlabel("Época", fontsize=14)
+                        ax_loss.set_ylabel("Loss", fontsize=14)
+                        ax_loss.tick_params(axis='both', which='major', labelsize=12)
+                        st.pyplot(fig_loss)
+                        plt.close(fig_loss)
 
-                    fig_acc, ax_acc = plt.subplots(figsize=(10,6))
-                    sns.lineplot(data=historico_df[['accuracy', 'val_accuracy']], ax=ax_acc)
-                    ax_acc.set_title("Acurácia durante o Treinamento", fontsize=16)
-                    ax_acc.set_xlabel("Época", fontsize=14)
-                    ax_acc.set_ylabel("Acurácia", fontsize=14)
-                    ax_acc.tick_params(axis='both', which='major', labelsize=12)
-                    st.pyplot(fig_acc)
-                    plt.close(fig_acc)
-                    logging.info("Curvas de Loss e Acurácia exibidas.")
+                        fig_acc, ax_acc = plt.subplots(figsize=(10,6))
+                        sns.lineplot(data=historico_df[['accuracy', 'val_accuracy']], ax=ax_acc)
+                        ax_acc.set_title("Acurácia durante o Treinamento", fontsize=16)
+                        ax_acc.set_xlabel("Época", fontsize=14)
+                        ax_acc.set_ylabel("Acurácia", fontsize=14)
+                        ax_acc.tick_params(axis='both', which='major', labelsize=12)
+                        st.pyplot(fig_acc)
+                        plt.close(fig_acc)
+                        logging.info("Curvas de Loss e Acurácia exibidas.")
 
-                    # Limpeza de Memória
-                    del modelo, historico, historico_df
-                    gc.collect()
-                    logging.info("Memória limpa após avaliação.")
+                        # Limpeza de Memória
+                        del modelo, historico, historico_df
+                        gc.collect()
+                        logging.info("Memória limpa após avaliação.")
 
-                    st.success("Processo de Treinamento e Avaliação concluído!")
+                        st.success("Processo de Treinamento e Avaliação concluído!")
+                    except Exception as e:
+                        st.error(f"Erro durante a avaliação do modelo: {e}")
+                        logging.error(f"Erro durante a avaliação do modelo: {e}")
+
                 else:
                     # Avaliação durante Cross-Validation (não exibido aqui para simplicidade)
                     st.write("**Validação Cruzada concluída.**")
@@ -1704,33 +1778,40 @@ def treinar_modelo(SEED):
 
                 # ==================== LIMPEZA DE MEMÓRIA E REMOÇÃO DOS ARQUIVOS TEMPORÁRIOS ====================
                 st.write("### Limpeza de Memória e Remoção de Arquivos Temporários")
-                del df, X, y_valid, X_train, X_temp, y_train, y_temp, X_val, X_test, y_val, y_test
-                if enable_augmentation:
-                    del X_aumentado, y_aumentado
-                gc.collect()
-                os.remove(caminho_zip)
-                for cat in categorias:
-                    caminho_cat = os.path.join(caminho_base, cat)
-                    for arquivo in os.listdir(caminho_cat):
-                        os.remove(os.path.join(caminho_cat, arquivo))
-                    os.rmdir(caminho_cat)
-                os.rmdir(caminho_base)
-                logging.info("Arquivos temporários removidos e memória limpa.")
-                st.success("Processo de Treinamento e Avaliação concluído!")
+                try:
+                    del df, X, y_valid, X_train, X_temp, y_train, y_temp, X_val, X_test, y_val, y_test
+                    if enable_augmentation:
+                        del X_aumentado, y_aumentado
+                    gc.collect()
+                    os.remove(caminho_zip)
+                    for cat in categorias:
+                        caminho_cat = os.path.join(caminho_base, cat)
+                        for arquivo in os.listdir(caminho_cat):
+                            os.remove(os.path.join(caminho_cat, arquivo))
+                        os.rmdir(caminho_cat)
+                    os.rmdir(caminho_base)
+                    logging.info("Arquivos temporários removidos e memória limpa.")
+                    st.success("Processo de Treinamento e Avaliação concluído!")
+                except Exception as e:
+                    st.warning(f"Erro durante a limpeza de memória ou remoção de arquivos temporários: {e}")
+                    logging.warning(f"Erro durante a limpeza de memória ou remoção de arquivos temporários: {e}")
         except Exception as e:
             st.error(f"Erro durante o processamento do dataset: {e}")
             logging.error(f"Erro durante o processamento do dataset: {e}")
             # Assegura a remoção dos arquivos temporários em caso de erro
-            if 'caminho_zip' in locals() and os.path.exists(caminho_zip):
-                os.remove(caminho_zip)
-            if 'caminho_base' in locals() and os.path.exists(caminho_base):
-                for cat in categorias:
-                    caminho_cat = os.path.join(caminho_base, cat)
-                    for arquivo in os.listdir(caminho_cat):
-                        os.remove(os.path.join(caminho_cat, arquivo))
-                    os.rmdir(caminho_cat)
-                os.rmdir(caminho_base)
-            logging.info("Arquivos temporários removidos devido a erro.")
+            try:
+                if 'caminho_zip' in locals() and os.path.exists(caminho_zip):
+                    os.remove(caminho_zip)
+                if 'caminho_base' in locals() and os.path.exists(caminho_base):
+                    for cat in categorias:
+                        caminho_cat = os.path.join(caminho_base, cat)
+                        for arquivo in os.listdir(caminho_cat):
+                            os.remove(os.path.join(caminho_cat, arquivo))
+                        os.rmdir(caminho_cat)
+                    os.rmdir(caminho_base)
+                logging.info("Arquivos temporários removidos devido a erro.")
+            except Exception as cleanup_error:
+                logging.warning(f"Erro durante a limpeza de arquivos temporários: {cleanup_error}")
 
 if __name__ == "__main__":
     # Chamada da função principal
