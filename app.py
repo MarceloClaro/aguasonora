@@ -689,7 +689,7 @@ def treinar_modelo(SEED):
             augment_factor = st.sidebar.slider(
                 "Fator de Aumento de Dados:",
                 min_value=1,
-                max_value=20,
+                max_value=100,
                 value=10,
                 step=1,
                 help="Define quantas amostras aumentadas serão geradas a partir de cada amostra original."
