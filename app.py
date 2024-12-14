@@ -1,4 +1,3 @@
-import os
 import random
 import numpy as np
 import pandas as pd
@@ -19,6 +18,8 @@ import io
 import torch
 import zipfile
 import gc
+import os
+import logging
 
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
 
@@ -26,18 +27,28 @@ import gc
 seed_options = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60 ]
 seed_selection = 42  # Valor padrão
 
-# Adicionando a seleção de SEED na barra lateral
-# **Nota:** Este comando do Streamlit está abaixo de set_page_config(). 
-# Para evitar o erro, todas as chamadas do Streamlit devem ser após set_page_config().
-# Portanto, vamos mover a configuração do SEED para depois de set_page_config().
+# ==================== CONFIGURAÇÃO DA PÁGINA ====================
+
+# Definir a configuração da página **ANTES** de qualquer outra chamada do Streamlit
+icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
+
+if os.path.exists(icon_path):
+    try:
+        st.set_page_config(page_title="Geomaker", page_icon=icon_path, layout="wide")
+        logging.info(f"Ícone {icon_path} carregado com sucesso.")
+    except Exception as e:
+        st.set_page_config(page_title="Geomaker", layout="wide")
+        logging.warning(f"Erro ao carregar o ícone {icon_path}: {e}")
+else:
+    st.set_page_config(page_title="Geomaker", layout="wide")
+    logging.warning(f"Ícone '{icon_path}' não encontrado, carregando sem favicon.")
 
 # ==================== CONFIGURAÇÕES GERAIS NO SIDEBAR ====================
 
-# Barra Lateral de Configurações Gerais
+# Agora, todas as chamadas do Streamlit podem ocorrer após set_page_config()
 st.sidebar.header("Configurações Gerais")
 
 # Definição do SEED
-seed_options = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60 ]
 seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
     options=seed_options,
@@ -101,21 +112,10 @@ with st.sidebar.expander("📖 Valor de SEED - Semente"):
     """)
 
 # ==================== LOGO E IMAGEM DE CAPA ====================
-    # Definir o caminho do ícone
-    icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
 
-    # Verificar se o arquivo de ícone existe antes de configurá-lo
-    if os.path.exists(icon_path):
-        try:
-            st.set_page_config(page_title="Geomaker", page_icon=icon_path, layout="wide")
-            logging.info(f"Ícone {icon_path} carregado com sucesso.")
-        except Exception as e:
-            st.set_page_config(page_title="Geomaker", layout="wide")
-            logging.warning(f"Erro ao carregar o ícone {icon_path}: {e}")
-    else:
-        # Se o ícone não for encontrado, carrega sem favicon
-        st.set_page_config(page_title="Geomaker", layout="wide")
-        logging.warning(f"Ícone {icon_path} não encontrado, carregando sem favicon.")
+# Definir o caminho do ícone
+icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
+
 # Carrega e exibe a capa.png na página principal
 capa_path = 'capa (2).png'
 if os.path.exists(capa_path):
@@ -140,6 +140,7 @@ if os.path.exists(logo_path):
 else:
     st.sidebar.text("Imagem do logotipo não encontrada.")
 
+# Título da Aplicação
 st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
 st.write("""
 Bem-vindo à nossa aplicação! Aqui, você pode **classificar sons de água vibrando em copos de vidro**. Você tem duas opções:
@@ -163,7 +164,7 @@ else:
 
 st.sidebar.write("""
 Produzido pelo:
-
+    
 Projeto Geomaker + IA 
 
 https://doi.org/10.5281/zenodo.13910277
