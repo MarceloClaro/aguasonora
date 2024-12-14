@@ -141,10 +141,10 @@ with st.sidebar.expander("📖 Valor de SEED - Semente"):
 # ==================== LOGO E IMAGEM DE CAPA ====================
 
 # Definir o caminho do ícone
-icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
+icon_path = "logo.png"
+capa_path = 'capa (2).png'
 
 # Carrega e exibe a capa.png na página principal
-capa_path = 'capa (2).png'
 if os.path.exists(capa_path):
     try:
         st.image(
@@ -158,10 +158,9 @@ else:
     st.warning(f"Imagem '{capa_path}' não encontrada.")
 
 # Carregar o logotipo na barra lateral
-logo_path = "logo.png"
-if os.path.exists(logo_path):
+if os.path.exists(icon_path):
     try:
-        st.sidebar.image(logo_path, width=200, use_container_width=False)
+        st.sidebar.image(icon_path, width=200, use_container_width=False)
     except UnidentifiedImageError:
         st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
 else:
@@ -1197,14 +1196,19 @@ def treinar_modelo(SEED):
                         class_weight_dict = None
                         logging.warning("Balanceamento de classes não implementado para Cross-Validation.")
                     else:
-                        class_weights = compute_class_weight(
-                            class_weight='balanced',
-                            classes=np.unique(y_train_final),
-                            y=y_train_final
-                        )
-                        class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
-                        st.write(f"**Pesos das Classes:** {class_weight_dict}")
-                        logging.info(f"Pesos das classes calculados: {class_weight_dict}")
+                        try:
+                            class_weights = compute_class_weight(
+                                class_weight='balanced',
+                                classes=np.unique(y_train_final),
+                                y=y_train_final
+                            )
+                            class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
+                            st.write(f"**Pesos das Classes:** {class_weight_dict}")
+                            logging.info(f"Pesos das classes calculados: {class_weight_dict}")
+                        except Exception as e:
+                            st.error(f"Erro ao calcular os pesos das classes: {e}")
+                            logging.error(f"Erro ao calcular os pesos das classes: {e}")
+                            class_weight_dict = None
                 else:
                     class_weight_dict = None
                     st.write("**Balanceamento de classes não aplicado.**")
@@ -1480,9 +1484,14 @@ def treinar_modelo(SEED):
 
                 diretorio_salvamento = 'modelos_salvos'
                 if not os.path.exists(diretorio_salvamento):
-                    os.makedirs(diretorio_salvamento)
-                    st.write(f"**Diretório '{diretorio_salvamento}' criado para salvamento do modelo.**")
-                    logging.info(f"Diretório '{diretorio_salvamento}' criado.")
+                    try:
+                        os.makedirs(diretorio_salvamento)
+                        st.write(f"**Diretório '{diretorio_salvamento}' criado para salvamento do modelo.**")
+                        logging.info(f"Diretório '{diretorio_salvamento}' criado.")
+                    except Exception as e:
+                        st.error(f"Erro ao criar o diretório '{diretorio_salvamento}': {e}")
+                        logging.error(f"Erro ao criar o diretório '{diretorio_salvamento}': {e}")
+                        st.stop()
                 else:
                     st.write(f"**Diretório '{diretorio_salvamento}' já existe.**")
                     logging.info(f"Diretório '{diretorio_salvamento}' já existe.")
