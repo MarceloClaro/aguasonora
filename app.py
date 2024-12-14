@@ -37,7 +37,7 @@ seed_selection = 42  # Valor padrão
 st.sidebar.header("Configurações Gerais")
 
 # Definição do SEED
-seed_options = [0, 42, 100]
+seed_options = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60 ]
 seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
     options=seed_options,
