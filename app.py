@@ -3,43 +3,26 @@ Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados 
 
 Contexto Físico:
 ---------------
-Quando um copo com água é excitado (por exemplo, batendo na lateral),
-as ondas resultantes no fluido geram vibrações audíveis. Essas vibrações
-são relacionadas aos modos normais de oscilação do líquido no recipiente,
-que por sua vez dependem da altura da coluna de água, do diâmetro do copo,
-das condições de contorno e das propriedades físicas do fluido (densidade,
-viscosidade) e do recipiente.
+Quando um copo com água é excitado, as vibrações no fluido geram padrões de ondas.
+Esses padrões dependem de propriedades físicas (altura da coluna de água, geometria do copo,
+características do fluido). O espectro acústico resultante reflete modos de vibração,
+frequências ressonantes e outras características físicas.
 
-O espectro de frequências do som gerado está conectado a esses modos ressonantes.
-Analisar o áudio, extrair características espectrais (MFCCs, centroides, etc.)
-e treinar uma rede neural para classificação pode ajudar a identificar:
-- Diferentes condições do fluido (ex.: nível da água).
-- Tipos de fluidos (água pura vs. água contaminada que muda o espectro).
-- Padronizar estados ressonantes específicos.
+Ao extrair características espectrais (MFCCs, centroides) e treinar uma CNN, podemos
+classificar estados do fluido-copo, identificando padrões relacionados a determinados
+modos de oscilação ou condições experimentais.
 
-Ao associar MFCCs (usados amplamente em processamento de fala) e outros
-descritores espectrais à física do problema, podemos compreender como as
-frequências dominantes, harmônicos, e distribuições espectrais se relacionam
-aos modos de vibração do fluido.
+Melhorias:
+- Contextualização física detalhada.
+- Normalização de features.
+- Métricas avançadas (F1, precisão, recall).
+- Comentários e docstrings enriquecidas.
+- Possibilidade de extrair mais de uma feature espectral.
+- SHAP para explicabilidade (mantido).
 
-Melhorias Implementadas:
-------------------------
-- Contextualização Física detalhada.
-- Extração adicional de centroides espectrais, além dos MFCCs, para enriquecer
-  o entendimento do espectro.
-- Normalização das features.
-- Métricas adicionais (F1-score, precisão, recall) além da acurácia.
-- Comentários explicando a lógica física por trás das transformações do sinal
-  (Data Augmentation) e o ajuste da arquitetura da CNN.
-- Uso de SHAP para explicabilidade, sugerindo análise física das componentes.
-
-Referências Futuras:
---------------------
-- Incluir também cálculo de Bandwidth, Spectral Roll-off e outros parâmetros espectrais.
-- Estudar a correlação entre parâmetros acústicos e propriedades físicas do fluido
-  com base em modelagem teórica ou dados experimentais anteriores.
-- Referência: "Fundamentals of Acoustics" - Kinsler, Frey, Coppens, Sanders
-- Referência: Pesquisas sobre vibrações em fluidos confinados (artigos em Journal of Fluid Mechanics).
+Referências:
+- "Fundamentals of Acoustics" (Kinsler et al.)
+- Pesquisas em Journal of Fluid Mechanics sobre modos de oscilação em líquidos confinados.
 """
 
 import random
@@ -99,6 +82,7 @@ else:
 
 st.sidebar.header("Configurações Gerais")
 
+# Configurações gerais (SEED)
 seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
     options=seed_options,
@@ -146,6 +130,7 @@ else:
 st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
 st.write("""
 Este aplicativo classifica sons resultantes da vibração de um fluido (água) em um copo de vidro.
+
 **Opções:**
 - Classificar Áudio: Use um modelo já treinado.
 - Treinar Modelo: Treine seu próprio modelo com seus dados.
@@ -193,15 +178,11 @@ def carregar_audio(caminho_arquivo, sr=None):
 def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
     try:
         features_list = []
-        # MFCCs: representam a distribuição de energia em bandas de frequência Mel,
-        # o que pode capturar características relevantes dos modos de vibração.
         if use_mfcc:
             mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
             mfccs_scaled = np.mean(mfccs.T, axis=0)
             features_list.append(mfccs_scaled)
 
-        # Centróide Espectral: frequências médias do espectro, podem se relacionar
-        # às frequências ressonantes dominantes do fluido no copo.
         if use_spectral_centroid:
             centroid = librosa.feature.spectral_centroid(y=data, sr=sr)
             centroid_mean = np.mean(centroid, axis=1)
@@ -212,7 +193,7 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
         else:
             features_vector = features_list[0]
 
-        # Normalização das features (importante para estabilidade do treinamento)
+        # Normalização das features
         features_vector = (features_vector - np.mean(features_vector)) / (np.std(features_vector) + 1e-9)
         return features_vector
     except Exception as e:
@@ -230,8 +211,6 @@ def aumentar_audio(data, sr, augmentations):
         return data
 
 def classificar_audio(SEED):
-    # Aqui entraria o código para classificar um novo áudio usando modelo já treinado.
-    # Omitido por brevidade, mas manteríamos o mesmo estilo e explicações.
     st.header("Classificação de Novo Áudio (Omitido)")
     st.write("Esta seção permitiria carregar um modelo treinado e classificar um novo áudio.")
     pass
@@ -241,7 +220,7 @@ def treinar_modelo(SEED):
 
     st.write("""  
     ### Passo 1: Upload do Dataset (ZIP)
-    O dataset deve ser um arquivo .zip contendo subpastas, cada uma representando uma classe.
+    O dataset deve ser um arquivo .zip com subpastas, cada uma representando uma classe.
     """)
 
     zip_upload = st.file_uploader(
@@ -296,6 +275,17 @@ def treinar_modelo(SEED):
             labelencoder = LabelEncoder()
             y = labelencoder.fit_transform(df['classe'])
             classes = labelencoder.classes_
+
+            # Agora que temos as classes, permitimos ao usuário visualizar e escolher parâmetros já na seção "Configurações Gerais"
+            # Atualizamos a barra lateral com parâmetros principais e escolha do número de classes a considerar
+            st.sidebar.subheader("Parâmetros Principais")
+            st.sidebar.write(f"**Número de Classes Detectadas:** {len(classes)}")
+            st.sidebar.write("As classes foram detectadas automaticamente a partir do dataset.")
+            # Caso o usuário queira limitar o número de classes (opcional):
+            # Aqui deixaremos apenas informativo, sem limitar, pois limitar classes exigiria filtrar o dataset.
+            # Poderíamos inserir uma logica para filtrar classes se necessário.
+            st.sidebar.write("Classes: " + ", ".join(classes))
+
             st.write(f"**Classes codificadas:** {', '.join(classes)}")
             logging.info(f"Classes codificadas: {', '.join(classes)}")
 
@@ -321,26 +311,26 @@ def treinar_modelo(SEED):
             st.write(f"**Features extraídas:** {X.shape}")
             logging.info(f"Features extraídas: {X.shape}")
 
-            # ==================== CONFIGURAÇÕES DE TREINAMENTO ====================
-            st.sidebar.header("Configurações de Treinamento")
+            # ==================== Configurações no Sidebar já à vista ====================
+            st.sidebar.subheader("Configurações de Treinamento")
 
             num_epochs = st.sidebar.slider("Número de Épocas:", 10, 500, 200, 10)
             batch_size = st.sidebar.selectbox("Tamanho do Batch:", [8, 16, 32, 64, 128], index=0)
 
             st.sidebar.subheader("Divisão dos Dados")
-            treino_percentage = st.sidebar.slider("Percentual para o Conjunto de Treino (%)", 50, 90, 70, 5)
-            valid_percentage = st.sidebar.slider("Percentual para o Conjunto de Validação (%)", 5, 30, 15, 5)
+            treino_percentage = st.sidebar.slider("Treino (%)", 50, 90, 70, 5)
+            valid_percentage = st.sidebar.slider("Validação (%)", 5, 30, 15, 5)
             test_percentage = 100 - (treino_percentage + valid_percentage)
             if test_percentage < 0:
-                st.sidebar.error("A soma dos percentuais excede 100%. Ajuste os valores.")
+                st.sidebar.error("A soma de treino+validação excede 100%. Ajuste os valores.")
                 st.stop()
-            st.sidebar.write(f"Percentual para Teste: {test_percentage}%")
+            st.sidebar.write(f"Teste (%) = {test_percentage}%")
 
             augment_factor = st.sidebar.slider("Fator de Aumento de Dados:", 1, 100, 10, 1)
             dropout_rate = st.sidebar.slider("Taxa de Dropout:", 0.0, 0.9, 0.4, 0.05)
 
             st.sidebar.subheader("Regularização")
-            regularization_type = st.sidebar.selectbox("Tipo de Regularização:", ["None", "L1", "L2", "L1_L2"], index=0)
+            regularization_type = st.sidebar.selectbox("Regularização:", ["None", "L1", "L2", "L1_L2"], index=0)
             if regularization_type == "L1":
                 l1_regularization = st.sidebar.slider("Taxa L1:", 0.0, 0.1, 0.001, 0.001)
                 l2_regularization = 0.0
@@ -357,27 +347,20 @@ def treinar_modelo(SEED):
             enable_augmentation = st.sidebar.checkbox("Ativar Data Augmentation", value=True)
             if enable_augmentation:
                 st.sidebar.subheader("Tipos de Data Augmentation")
-                adicionar_ruido = st.sidebar.checkbox("Adicionar Ruído Gaussiano", value=True)
-                estiramento_tempo = st.sidebar.checkbox("Estiramento de Tempo", value=True)
-                alteracao_pitch = st.sidebar.checkbox("Alteração de Pitch", value=True)
+                adicionar_ruido = st.sidebar.checkbox("Ruído Gaussiano", value=True)
+                estiramento_tempo = st.sidebar.checkbox("Time Stretch", value=True)
+                alteracao_pitch = st.sidebar.checkbox("Pitch Shift", value=True)
                 deslocamento = st.sidebar.checkbox("Deslocamento", value=True)
 
             st.sidebar.subheader("Validação Cruzada")
-            cross_validation = st.sidebar.checkbox("Ativar Validação Cruzada (k-Fold)", value=False)
+            cross_validation = st.sidebar.checkbox("Ativar k-Fold?", value=False)
             if cross_validation:
                 k_folds = st.sidebar.number_input("Número de Folds:", 2, 10, 5, 1)
             else:
                 k_folds = 1
 
             st.sidebar.subheader("Balanceamento das Classes")
-            balance_classes = st.sidebar.selectbox("Método de Balanceamento:", ["Balanced", "None"], index=0)
-
-            contagem_classes = df['classe'].value_counts()
-            fig_dist, ax_dist = plt.subplots(figsize=(10, 6))
-            sns.barplot(x=contagem_classes.index, y=contagem_classes.values, palette='viridis', ax=ax_dist, legend=False)
-            ax_dist.set_title("Distribuição das Classes no Dataset", fontsize=16)
-            st.pyplot(fig_dist)
-            plt.close(fig_dist)
+            balance_classes = st.sidebar.selectbox("Balanceamento:", ["Balanced", "None"], index=0)
 
             # ==================== DATA AUGMENTATION ANTES DA DIVISÃO ====================
             if enable_augmentation:
@@ -445,26 +428,26 @@ def treinar_modelo(SEED):
             X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
             X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
 
+            # Parâmetros de arquitetura também já visíveis no sidebar
             st.sidebar.subheader("Arquitetura da CNN")
-            num_conv_layers = st.sidebar.slider("Número de Camadas Convolucionais:", 1, 5, 2, 1)
-            conv_filters_str = st.sidebar.text_input("Número de Filtros por Camada (vírgula):", "64,128")
-            conv_kernel_size_str = st.sidebar.text_input("Tamanho do Kernel (vírgula):", "10,10")
+            num_conv_layers = st.sidebar.slider("Camadas Convolucionais:", 1, 5, 2, 1)
+            conv_filters_str = st.sidebar.text_input("Filtros por Camada (vírgula):", "64,128")
+            conv_kernel_size_str = st.sidebar.text_input("Kernel Size (vírgula):", "10,10")
             conv_filters = [int(f.strip()) for f in conv_filters_str.split(',')]
             conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_str.split(',')]
 
             if len(conv_filters) != num_conv_layers or len(conv_kernel_size) != num_conv_layers:
-                st.sidebar.error("Nº de filtros/kernels deve ser igual ao nº de camadas conv.")
+                st.sidebar.error("Nº de filtros/kernels deve corresponder ao nº de camadas conv.")
                 st.stop()
 
-            # Ajustar kernel_size se maior que o comprimento temporal
             input_length = X_train_final.shape[1]
             for i in range(num_conv_layers):
                 if conv_kernel_size[i] > input_length:
-                    st.warning(f"Kernel size da camada {i+1} maior que o comprimento temporal ({input_length}). Ajustando para {input_length}.")
+                    st.warning(f"Kernel size da camada {i+1} > comprimento temporal ({input_length}). Ajustando para {input_length}.")
                     conv_kernel_size[i] = input_length
 
             st.sidebar.subheader("Camadas Densas")
-            num_dense_layers = st.sidebar.slider("Número de Camadas Densas:", 1, 3, 1, 1)
+            num_dense_layers = st.sidebar.slider("Camadas Densas:", 1, 3, 1, 1)
             dense_units_str = st.sidebar.text_input("Neurônios por Camada Densa (vírgula):", "64")
             dense_units = [int(u.strip()) for u in dense_units_str.split(',')]
             if len(dense_units) != num_dense_layers:
@@ -485,8 +468,6 @@ def treinar_modelo(SEED):
 
             modelo = Sequential()
             modelo.add(Input(shape=(X_train_final.shape[1], 1)))
-
-            # pool_size reduzido para 2 a fim de evitar redução excessiva do tamanho
             for i in range(num_conv_layers):
                 modelo.add(Conv1D(filters=conv_filters[i], kernel_size=conv_kernel_size[i],
                                    activation='relu', kernel_regularizer=reg))
@@ -494,7 +475,6 @@ def treinar_modelo(SEED):
                 modelo.add(MaxPooling1D(pool_size=2))
 
             modelo.add(Flatten())
-
             for i in range(num_dense_layers):
                 modelo.add(Dense(units=dense_units[i], activation='relu', kernel_regularizer=reg))
                 modelo.add(Dropout(dropout_rate))
@@ -515,7 +495,7 @@ def treinar_modelo(SEED):
             )
 
             st.sidebar.subheader("EarlyStopping")
-            es_monitor = st.sidebar.selectbox("Monitorar:", ["val_loss", "val_accuracy"], index=0)
+            es_monitor = st.sidebar.selectbox("Monitorar (EarlyStopping):", ["val_loss", "val_accuracy"], index=0)
             es_patience = st.sidebar.slider("Paciência (Épocas):", 1, 20, 5, 1)
             es_mode = st.sidebar.selectbox("Modo:", ["min", "max"], index=0)
             earlystop = EarlyStopping(monitor=es_monitor, patience=es_patience,
@@ -569,7 +549,6 @@ def treinar_modelo(SEED):
 
                 st.success("Treinamento concluído!")
 
-            # Salvar o modelo
             with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
                 modelo.save(tmp_model.name)
                 caminho_tmp_model = tmp_model.name
@@ -594,7 +573,7 @@ def treinar_modelo(SEED):
             )
 
             if not cross_validation:
-                st.write("### Avaliação do Modelo nos Conjuntos de Treino, Validação e Teste")
+                st.write("### Avaliação do Modelo")
                 score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=0)
                 score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
                 score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
@@ -606,20 +585,15 @@ def treinar_modelo(SEED):
                 # Métricas Avançadas
                 y_pred = modelo.predict(X_test)
                 y_pred_classes = y_pred.argmax(axis=1)
-                f1 = f1_score(y_test, y_pred_classes, average='weighted')
+                f1_val = f1_score(y_test, y_pred_classes, average='weighted')
                 prec = precision_score(y_test, y_pred_classes, average='weighted')
                 rec = recall_score(y_test, y_pred_classes, average='weighted')
 
-                st.write(f"F1-score (weighted): {f1*100:.2f}%")
+                st.write(f"F1-score (weighted): {f1_val*100:.2f}%")
                 st.write(f"Precisão (weighted): {prec*100:.2f}%")
                 st.write(f"Revocação (weighted): {rec*100:.2f}%")
 
-                st.write("Essas métricas extras ajudam a avaliar melhor o desempenho do modelo, especialmente se algumas classes forem mais difíceis de classificar. Fisicamente, isso pode indicar que certos modos de vibração ou certas condições do fluido são mais sutis de detectar.")
-
-                # Aqui poderíamos adicionar explicações SHAP para interpretabilidade.
-                # Explicando fisicamente: Se um coeficiente MFCC específico for importante,
-                # isso pode indicar uma faixa de frequência chave para distinção das classes.
-                # Esse insight pode guiar um estudo mais profundo dos modos ressonantes.
+                st.write("Essas métricas extras (F1, precisão, revocação) ajudam a avaliar melhor o desempenho, refletindo se o modelo é robusto mesmo em classes mais raras.")
 
                 # Matriz de Confusão
                 st.write("### Matriz de Confusão")
@@ -633,7 +607,7 @@ def treinar_modelo(SEED):
                 st.pyplot(fig_cm)
                 plt.close(fig_cm)
 
-                st.write("A matriz de confusão mostra quais classes são confundidas com outras. Por exemplo, se o modelo confunde modos com frequência próxima, isso reflete a dificuldade de diferenciar estados fisicamente semelhantes.")
+                st.write("Interpretando fisicamente: se o modelo confunde classes com espectros semelhantes, pode indicar que os modos ressonantes destas classes são muito próximos.")
 
             # Limpeza final
             del X, y_valid, X_train, X_temp, y_train, y_temp, X_val, X_test, y_val, y_test
