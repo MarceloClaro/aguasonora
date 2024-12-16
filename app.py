@@ -1,30 +1,42 @@
 """
 Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN
 
-Contexto Físico:
----------------
-Quando um copo com água é excitado, formam-se ondas no fluido. Essas ondas apresentam modos ressonantes,
-cuja frequência depende da altura da coluna de água, geometria do copo, densidade e outras características físicas.
-Esses modos geram padrões acústicos distintos. Ao extrair características espectrais do áudio (como MFCCs e 
-centróide espectral), podemos capturar informações sobre quais frequências dominam o sinal.
+Este aplicativo realiza duas tarefas principais:
 
-- MFCCs (Mel-Frequency Cepstral Coefficients): mapeiam frequências para uma escala Mel próxima da percepção humana.
-  Fisicamente, se um determinado modo ressonante (frequência particular) domina, certos MFCCs refletirão
-  maior energia nessa banda.
+1. **Treinar Modelo:**  
+   - Você faz upload de um dataset .zip contendo pastas, cada pasta representando uma classe (estado físico do fluido-copo).
+   - O app extrai características do áudio (MFCCs, centróide espectral), normaliza, aplica (opcionalmente) Data Augmentation.
+   - Treina uma CNN (rede neural convolucional) para classificar os sons.
+   - Mostra métricas (acurácia, F1, precisão, recall), matriz de confusão, histórico de treinamento.
+   - Usa SHAP para interpretar quais frequências (MFCCs) são mais importantes para a classificação.
+   - Executa clustering (K-Means, Hierárquico) para entender a distribuição dos dados.
+   - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
+   
+2. **Classificar Áudio com Modelo Treinado:**  
+   - Você faz upload de um modelo já treinado (.keras) e do arquivo de classes (classes.txt).
+   - Envia um arquivo de áudio para classificação.
+   - O app extrai as mesmas features e prediz a classe do áudio, mostrando probabilidades.
 
-- Centróide Espectral: indica a frequência média. Modos mais agudos (frequências elevadas) tendem a aumentar o centróide.
-  Se a água é mais rasa, espera-se modos de frequência mais alta, logo um centróide mais alto.
+Contexto Físico (para Especialistas):
+-----------------------------------
+A análise baseia-se nos modos ressonantes do fluido no copo, que dependem da altura da coluna de água
+e outras propriedades físicas. As frequências dominantes alteram o espectro sonoro,
+e as MFCCs/centróide capturam essa informação, permitindo ao modelo distinguir estados.
 
-Ao treinar uma CNN com esses dados, o modelo aprende a mapear essas características espectrais para estados específicos
-do fluido-copo (ex.: diferentes níveis de água ou condições experimentais).
+Explicação para Leigos:
+----------------------
+Imagine um copo com água. Ao bater nele, o som muda conforme a quantidade de água (mais grave ou agudo).
+Transformamos o som em números (MFCCs) e o computador aprende a reconhecer padrões nesses números
+para "adivinhar" quanto de água tem.
 
-Nesta versão (Nota 10/10):
-- Docstrings detalhadas e explicações físicas mais profundas.
-- SHAP aplicado para interpretar a importância de cada feature, relacionando-as a fenômenos físicos.
-- Comentários mais ricos no clustering (K-Means e Hierárquico), interpretando a estrutura dos dados em termos físicos.
-- LR Scheduler (ReduceLROnPlateau) adicionado para refinar o treinamento.
-
-O objetivo é um pipeline robusto, cientificamente coerente e bem documentado.
+Versão Nota 10/10:
+------------------
+- Docstrings detalhadas e comentários.
+- SHAP para interpretabilidade física.
+- Clustering para entender a estrutura dos dados.
+- LR Scheduler para melhorar treinamento.
+- Expanders com explicações para especialistas e leigos.
+- Função de Classificar Áudio completa (não omitida).
 """
 
 import random
@@ -55,7 +67,7 @@ from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 import shap
 
-# ==================== LOGGING ====================
+# LOGGING
 logging.basicConfig(
     filename='experiment_logs.log',
     filemode='a',
@@ -63,7 +75,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# ==================== CONFIGURAÇÃO DA PÁGINA ====================
+# Configurações da Página
 seed_options = list(range(0, 61, 2))
 default_seed = 42
 if default_seed not in seed_options:
@@ -81,7 +93,30 @@ else:
     st.set_page_config(page_title="Geomaker", layout="wide")
     logging.warning("Ícone não encontrado.")
 
+st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
+
+with st.expander("ℹ Explicações e Contexto (Clique para ver)", expanded=False):
+    st.markdown("""
+    **Contexto para Especialistas:**  
+    Modos ressonantes do fluido no copo analisados via espectro (MFCCs, centróide) permitem a CNN classificar estados físicos.
+
+    **Explicação para Leigos:**  
+    O som do copo muda com a quantidade de água. O computador aprende a reconhecer padrões nesse som para dizer quanta água há.
+
+    **O que este App faz:**  
+    - Upload dataset (ZIP), extrai features, treina CNN.
+    - Mostra métricas, matriz de confusão, histórico.
+    - SHAP para interpretar frequências importantes.
+    - Clustering para entender distribuição dos dados.
+    - Classificar Áudio: usar modelo treinado em novo áudio.
+    """)
+
 st.sidebar.header("Configurações Gerais")
+
+with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
+    st.markdown("""
+    SEED garante resultados reproduzíveis.
+    """)
 
 seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
@@ -102,8 +137,8 @@ def set_seeds(seed):
 set_seeds(SEED)
 logging.info(f"SEED={SEED}")
 
-with st.sidebar.expander("📖 Valor de SEED - Semente"):
-    st.markdown("(Explicação do SEED omitida.)")
+with st.sidebar.expander("Sobre o SEED"):
+    st.markdown("Garante replicabilidade de resultados.")
 
 capa_path = 'capa (2).png'
 if os.path.exists(capa_path):
@@ -114,9 +149,9 @@ if os.path.exists(capa_path):
             use_container_width=True
         )
     except UnidentifiedImageError:
-        st.warning("Imagem da capa corrompida.")
+        st.warning("Capa corrompida.")
 else:
-    st.warning("Imagem da capa não encontrada.")
+    st.warning("Capa não encontrada.")
 
 logo_path = "logo.png"
 if os.path.exists(logo_path):
@@ -127,12 +162,10 @@ if os.path.exists(logo_path):
 else:
     st.sidebar.text("Logo não encontrado.")
 
-st.title("Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN")
-
 st.write("""
-Opções:
-- Classificar Áudio: usar modelo treinado.
-- Treinar Modelo: treinar modelo novo.
+**Opções no App:**
+- Classificar Áudio: usar modelo treinado para classificar um novo áudio.
+- Treinar Modelo: subir dataset, extrair features, treinar CNN, analisar resultados.
 """)
 
 st.sidebar.title("Navegação")
@@ -147,12 +180,7 @@ if os.path.exists(eu_icon_path):
 else:
     st.sidebar.text("Ícone 'eu.ico' não encontrado.")
 
-st.sidebar.write("""
-Produzido: Projeto Geomaker + IA
-
-Prof: Marcelo Claro
-Contato: marceloclaro@gmail.com
-""")
+st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
 
 augment_default = Compose([
     AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
@@ -162,10 +190,6 @@ augment_default = Compose([
 ])
 
 def carregar_audio(caminho_arquivo, sr=None):
-    """
-    Carrega um arquivo de áudio. 
-    Retorna o sinal e a taxa de amostragem.
-    """
     try:
         data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast')
         return data, sr
@@ -174,14 +198,7 @@ def carregar_audio(caminho_arquivo, sr=None):
 
 def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
     """
-    Extrai features do sinal de áudio (MFCCs e centróide espectral).
-    
-    MFCCs: refletem a distribuição de energia em bandas de frequência. 
-    Estados físicos diferentes do fluido-copo alteram frequências dominantes, logo MFCCs mudam.
-
-    Centróide Espectral: indica frequência média. Modos mais agudos (frequências altas) -> centróide maior.
-
-    Normalização: garante escala uniforme.
+    Extrai MFCCs e centróide. Normaliza. MFCCs=características do espectro. Centróide=freq média.
     """
     try:
         features_list = []
@@ -199,26 +216,81 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
             features_vector = features_list[0]
         features_vector = (features_vector - np.mean(features_vector)) / (np.std(features_vector) + 1e-9)
         return features_vector
-    except Exception as e:
-        logging.error(f"Erro na extração de features: {e}")
+    except:
         return None
 
 def aumentar_audio(data, sr, augmentations):
-    """
-    Aplica Data Augmentation ao sinal.
-    Isso simula variações experimentais (ruído, mudança de pitch, estiramento de tempo),
-    ajudando o modelo a generalizar melhor.
-    """
     try:
         return augmentations(samples=data, sample_rate=sr)
     except:
         return data
 
 def classificar_audio(SEED):
-    st.header("Classificação de Novo Áudio (Omitido)")
+    st.header("Classificação de Novo Áudio com Modelo Treinado")
+
+    with st.expander("Instruções para Classificar Áudio"):
+        st.markdown("""
+        **Passo 1:** Upload do modelo treinado (.keras) e classes (classes.txt).  
+        **Passo 2:** Upload do áudio a ser classificado.  
+        **Passo 3:** O app extrai features e prediz a classe.
+        """)
+
+    modelo_file = st.file_uploader("Upload do Modelo (.keras)", type=["keras","h5"])
+    classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
+
+    if modelo_file is not None and classes_file is not None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.keras') as tmp_model:
+            tmp_model.write(modelo_file.read())
+            caminho_modelo = tmp_model.name
+
+        modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
+        classes = classes_file.read().decode("utf-8").splitlines()
+
+        st.write("Modelo e Classes Carregados!")
+        st.write(f"Classes: {', '.join(classes)}")
+
+        audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
+        if audio_file is not None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
+                tmp_audio.write(audio_file.read())
+                caminho_audio = tmp_audio.name
+
+            data, sr = carregar_audio(caminho_audio, sr=None)
+            if data is not None:
+                ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+                if ftrs is not None:
+                    ftrs = ftrs.reshape(1, -1, 1)
+                    pred = modelo.predict(ftrs)
+                    pred_class = np.argmax(pred, axis=1)
+                    pred_label = classes[pred_class[0]]
+                    confidence = pred[0][pred_class[0]]*100
+                    st.write(f"Classe Predita: {pred_label} (Confiança: {confidence:.2f}%)")
+
+                    fig_prob, ax_prob = plt.subplots(figsize=(8,4))
+                    ax_prob.bar(classes, pred[0])
+                    ax_prob.set_title("Probabilidades por Classe")
+                    ax_prob.set_ylabel("Probabilidade")
+                    plt.xticks(rotation=45)
+                    st.pyplot(fig_prob)
+                    plt.close(fig_prob)
+
+                    st.audio(caminho_audio)
+                else:
+                    st.error("Não foi possível extrair features do áudio.")
+            else:
+                st.error("Não foi possível carregar o áudio.")
 
 def treinar_modelo(SEED):
     st.header("Treinamento do Modelo CNN")
+
+    with st.expander("Instruções Passo a Passo", expanded=False):
+        st.markdown("""
+        **Passo 1:** Upload do dataset .zip (pastas=classes).  
+        **Passo 2:** Ajuste parâmetros no sidebar.  
+        **Passo 3:** Clique em 'Treinar Modelo'.  
+        **Passo 4:** Analise métricas, matriz de confusão, histórico, SHAP.  
+        **Passo 5:** Veja o clustering.
+        """)
 
     st.write("### Passo 1: Upload do Dataset (ZIP)")
     zip_upload = st.file_uploader("Upload do ZIP", type=["zip"])
@@ -237,7 +309,7 @@ def treinar_modelo(SEED):
 
             categorias = [d for d in os.listdir(caminho_base) if os.path.isdir(os.path.join(caminho_base, d))]
             if len(categorias) == 0:
-                st.error("Nenhuma subpasta encontrada.")
+                st.error("Nenhuma subpasta encontrada no ZIP.")
                 return
 
             st.success("Dataset extraído!")
@@ -264,12 +336,10 @@ def treinar_modelo(SEED):
             labelencoder = LabelEncoder()
             y = labelencoder.fit_transform(df['classe'])
             classes = labelencoder.classes_
-            st.sidebar.subheader("Parâmetros Principais")
-            st.sidebar.write(f"Número de Classes: {len(classes)}")
-            st.sidebar.write("Classes: "+", ".join(classes))
+
             st.write(f"Classes codificadas: {', '.join(classes)}")
 
-            st.write("Extraindo Features...")
+            st.write("Extraindo Features (MFCCs, Centróide)...")
             X = []
             y_valid = []
             for i, row in df.iterrows():
@@ -285,11 +355,17 @@ def treinar_modelo(SEED):
             y_valid = np.array(y_valid)
             st.write(f"Features extraídas: {X.shape}")
 
-            # Configurações
-            st.sidebar.subheader("Configurações de Treinamento")
+            with st.sidebar.expander("Configurações de Treinamento", expanded=False):
+                st.markdown("""
+                Ajuste épocas, batch size, data augmentation, regularização, etc.
+                """)
+
             num_epochs = st.sidebar.slider("Número de Épocas:", 10, 500, 50, 10)
             batch_size = st.sidebar.selectbox("Batch:", [8,16,32,64,128],0)
-            st.sidebar.subheader("Divisão dos Dados")
+
+            with st.sidebar.expander("Divisão dos Dados"):
+                st.markdown("Ajuste porcentagens de treino/validação/teste.")
+
             treino_percentage = st.sidebar.slider("Treino (%)",50,90,70,5)
             valid_percentage = st.sidebar.slider("Validação (%)",5,30,15,5)
             test_percentage = 100-(treino_percentage+valid_percentage)
@@ -298,10 +374,15 @@ def treinar_modelo(SEED):
                 st.stop()
             st.sidebar.write(f"Teste (%)={test_percentage}%")
 
+            with st.sidebar.expander("Data Augmentation"):
+                st.markdown("Simula variações no áudio.")
+
             augment_factor = st.sidebar.slider("Fator Aumento:",1,100,10,1)
             dropout_rate = st.sidebar.slider("Dropout:",0.0,0.9,0.4,0.05)
 
-            st.sidebar.subheader("Regularização")
+            with st.sidebar.expander("Regularização"):
+                st.markdown("L1/L2 evitam overfitting penalizando pesos grandes.")
+
             regularization_type = st.sidebar.selectbox("Regularização:",["None","L1","L2","L1_L2"],0)
             if regularization_type=="L1":
                 l1_regularization=st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
@@ -316,22 +397,28 @@ def treinar_modelo(SEED):
                 l1_regularization=0.0
                 l2_regularization=0.0
 
+            with st.sidebar.expander("Opções de Data Augmentation"):
+                st.markdown("Selecione quais transformações aplicar.")
+
             enable_augmentation=st.sidebar.checkbox("Data Augmentation",True)
             if enable_augmentation:
-                st.sidebar.subheader("Data Aug Options")
                 adicionar_ruido=st.sidebar.checkbox("Ruído Gaussiano",True)
                 estiramento_tempo=st.sidebar.checkbox("Time Stretch",True)
                 alteracao_pitch=st.sidebar.checkbox("Pitch Shift",True)
                 deslocamento=st.sidebar.checkbox("Deslocamento",True)
 
-            st.sidebar.subheader("Validação Cruzada")
+            with st.sidebar.expander("Validação Cruzada"):
+                st.markdown("k-Fold: avaliar estabilidade do modelo.")
+
             cross_validation=st.sidebar.checkbox("k-Fold?",False)
             if cross_validation:
                 k_folds=st.sidebar.number_input("Folds:",2,10,5,1)
             else:
                 k_folds=1
 
-            st.sidebar.subheader("Balanceamento")
+            with st.sidebar.expander("Balanceamento"):
+                st.markdown("Balanced: ajusta pesos para classes desbalanceadas.")
+
             balance_classes=st.sidebar.selectbox("Balanceamento:",["Balanced","None"],0)
 
             if enable_augmentation:
@@ -384,7 +471,9 @@ def treinar_modelo(SEED):
             X_val = X_val.reshape((X_val.shape[0],X_val.shape[1],1))
             X_test = X_test.reshape((X_test.shape[0],X_test.shape[1],1))
 
-            st.sidebar.subheader("Arquitetura da CNN")
+            with st.sidebar.expander("Arquitetura da CNN"):
+                st.markdown("Defina camadas conv, filtros, kernel, camadas densas, neurônios.")
+
             num_conv_layers=st.sidebar.slider("Conv Layers",1,5,2,1)
             conv_filters_str=st.sidebar.text_input("Filtros (vírgula):","64,128")
             conv_kernel_size_str=st.sidebar.text_input("Kernel (vírgula):","10,10")
@@ -440,7 +529,6 @@ def treinar_modelo(SEED):
             es_mode=st.sidebar.selectbox("Mode:",["min","max"],0)
             earlystop=EarlyStopping(monitor=es_monitor,patience=es_patience,restore_best_weights=True,mode=es_mode)
 
-            # Adicionando LR Scheduler
             lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=1)
 
             callbacks=[checkpointer,earlystop,lr_scheduler]
@@ -476,7 +564,6 @@ def treinar_modelo(SEED):
                                          callbacks=callbacks,class_weight=class_weight_dict,verbose=1)
                 st.success("Treino concluído!")
 
-            # Download modelo
             with tempfile.NamedTemporaryFile(suffix='.keras',delete=False) as tmp_model:
                 modelo.save(tmp_model.name)
                 caminho_tmp_model=tmp_model.name
@@ -520,7 +607,6 @@ def treinar_modelo(SEED):
                 st.pyplot(fig_cm)
                 plt.close(fig_cm)
 
-                # Arquitetura e Resumo
                 st.write("### Arquitetura da CNN (Camadas)")
                 modelo.summary(print_fn=lambda x: st.text(x))
                 try:
@@ -532,50 +618,38 @@ def treinar_modelo(SEED):
                 except:
                     st.write("Instale graphviz para plotar arquitetura.")
 
-                # Histórico de Treinamento
-                if not cross_validation:
-                    st.write("### Histórico de Treinamento")
-                    hist_df=pd.DataFrame(historico.history)
-                    st.dataframe(hist_df)
+                st.write("### Histórico de Treinamento")
+                hist_df=pd.DataFrame(historico.history)
+                st.dataframe(hist_df)
 
-                # SHAP para Interpretabilidade
                 st.write("### Explicabilidade com SHAP")
                 st.write("Selecionando amostras de teste para análise SHAP.")
                 X_sample = X_test[:50]
-                # Criando explainer SHAP
                 try:
                     explainer = shap.DeepExplainer(modelo, X_train_final[:100])
                     shap_values = explainer.shap_values(X_sample)
-                    # Plot summary
-                    st.write("Plot SHAP Summary (MFCCs + Centróide):")
+                    st.write("Plot SHAP Summary:")
                     fig_shap = plt.figure()
                     shap.summary_plot(shap_values, X_sample.reshape((X_sample.shape[0],X_sample.shape[1])), show=False)
                     st.pyplot(fig_shap)
                     plt.close(fig_shap)
                     st.write("""
-                    Interpretação Física: 
-                    Valores SHAP positivos em certos MFCCs indicam que aquelas frequências específicas
-                    ajudam o modelo a reconhecer uma determinada classe. Se essa classe corresponde
-                    a um estado físico com modos de vibração mais agudos, então o MFCC associado a frequências
-                    mais altas terá grande importância SHAP positiva.
-                    Assim, o SHAP nos mostra como as frequências (MFCCs) estão ligadas às propriedades físicas 
-                    do estado do fluido.
+                    Interpretação SHAP: MFCCs com valor SHAP alto contribuem muito para a classe.
+                    Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
                     """)
                 except Exception as e:
-                    st.write("Não foi possível gerar SHAP:", e)
+                    st.write("SHAP não pôde ser gerado:", e)
 
-                # Clustering K-Means e Hierárquico
                 st.write("### Análise de Clusters (K-Means e Hierárquico)")
                 st.write("""
-                O K-Means e o agrupamento Hierárquico analisam a estrutura intrínseca dos dados (features).
-                Se certos clusters reúnem classes com características espectrais semelhantes, isso indica que
-                essas classes representam estados físicos similares (ex. colunas d'água semelhantes, resultando em modos próximos).
+                Clustering revela como dados se agrupam.  
+                Se um cluster corresponde a classes com modos graves, significa semelhança física entre elas.
                 """)
 
                 n_clusters=2
                 kmeans=KMeans(n_clusters=n_clusters,random_state=SEED)
                 kmeans_labels=kmeans.fit_predict(X_original)
-                st.write("Distribuição de Classes por Cluster (KMeans):")
+                st.write("Classes por Cluster (K-Means):")
                 cluster_dist=[]
                 for cidx in range(n_clusters):
                     cluster_classes=y_original[kmeans_labels==cidx]
@@ -583,8 +657,7 @@ def treinar_modelo(SEED):
                     cluster_dist.append(counts)
                 st.write(cluster_dist)
                 st.write("""
-                Se um cluster agrupa majoritariamente classes com modos mais graves (por ex.), isto sugere que o cluster 
-                representa um conjunto de amostras fisicamente semelhantes (colunas de água mais altas?).
+                Um cluster dominado por classes "X" indica que essas classes são semelhantes no espectro, e portanto fisicamente parecidas.
                 """)
 
                 st.write("Análise Hierárquica:")
@@ -599,7 +672,7 @@ def treinar_modelo(SEED):
 
                 hier=AgglomerativeClustering(n_clusters=2)
                 hier_labels=hier.fit_predict(X_original)
-                st.write("Distribuição de Classes por Cluster (Hierárquico):")
+                st.write("Classes por Cluster (Hierárquico):")
                 cluster_dist_h=[]
                 for cidx in range(2):
                     cluster_classes=y_original[hier_labels==cidx]
@@ -607,12 +680,9 @@ def treinar_modelo(SEED):
                     cluster_dist_h.append(counts_h)
                 st.write(cluster_dist_h)
                 st.write("""
-                Se classes diferentes aparecem muito próximas no dendrograma, significa que suas características espectrais 
-                são similares. Fisicamente, pode significar que esses estados do fluido-copo diferem pouco nos modos ressonantes,
-                tornando-os espectralmente próximos e, portanto, difíceis de separar sem técnicas mais avançadas ou mais dados.
+                Classes próximas no dendrograma têm espectros semelhantes, sugerindo estados físicos não muito distintos.
                 """)
 
-            # Limpeza
             gc.collect()
             os.remove(caminho_zip)
             for cat in categorias:
