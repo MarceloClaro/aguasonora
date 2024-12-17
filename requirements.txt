@@ -11,6 +11,7 @@ audiomentations
 soundfile
 torch
 torchvision
+torchaudio
 torchcam
 Pillow
 scikit-learn
