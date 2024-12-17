@@ -754,8 +754,11 @@ def treinar_modelo(SEED):
                     X_sample = X_test[:50]
 
                     try:
-                        # Inicializando o explainer usando shap.Explainer
-                        explainer = shap.Explainer(modelo, X_train_final[:100])
+                        # Renomear a variável para evitar conflitos
+                        shap_explainer = shap.Explainer(modelo, X_train_final[:100])
+
+                        # Verificar o tipo do explainer
+                        st.write(f"Tipo do explainer: {type(shap_explainer)}")
 
                         # Preparar as amostras de teste
                         # Dependendo do modelo, SHAP pode esperar (num_samples, num_features) ou (num_samples, num_features, 1)
@@ -766,7 +769,10 @@ def treinar_modelo(SEED):
                             X_sample_flat = X_sample
 
                         # Calculando shap_values
-                        shap_values = explainer(X_sample_flat)
+                        shap_values = shap_explainer(X_sample_flat)
+
+                        # Verificar o tipo dos shap_values
+                        st.write(f"Tipo de shap_values: {type(shap_values)}")
 
                         st.write("Plot SHAP Summary por Classe:")
 
