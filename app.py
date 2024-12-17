@@ -59,6 +59,7 @@ if 'stop_training' not in st.session_state:
     st.session_state.stop_training = False
 
 def set_seeds(seed):
+    """Define as sementes para reprodutibilidade."""
     random.seed(seed)
     np.random.seed(seed)
     tf.random.set_seed(seed)
@@ -67,6 +68,7 @@ def set_seeds(seed):
         torch.cuda.manual_seed_all(seed)
 
 def carregar_audio(caminho_arquivo, sr=None):
+    """Carrega o arquivo de áudio usando Librosa."""
     try:
         data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast')
         return data, sr
@@ -76,7 +78,7 @@ def carregar_audio(caminho_arquivo, sr=None):
 
 def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
     """
-    Extrai MFCCs e centróide. Normaliza. MFCCs = características do espectro. Centróide = freq média.
+    Extrai MFCCs e centróide espectral do áudio. Normaliza as features.
     """
     try:
         features_list = []
@@ -92,6 +94,7 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
             features_vector = np.concatenate(features_list, axis=0)
         else:
             features_vector = features_list[0]
+        # Normalização
         features_vector = (features_vector - np.mean(features_vector)) / (np.std(features_vector) + 1e-9)
         return features_vector
     except Exception as e:
@@ -99,6 +102,7 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
         return None
 
 def aumentar_audio(data, sr, augmentations):
+    """Aplica augmentations no áudio."""
     try:
         return augmentations(samples=data, sample_rate=sr)
     except Exception as e:
@@ -106,6 +110,7 @@ def aumentar_audio(data, sr, augmentations):
         return data
 
 def visualizar_audio(data, sr):
+    """Visualiza diferentes representações do áudio."""
     # Forma de onda
     fig_wave, ax_wave = plt.subplots(figsize=(8,4))
     librosa.display.waveplot(data, sr=sr, ax=ax_wave)
@@ -148,12 +153,12 @@ def visualizar_audio(data, sr):
 
 def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
     """
-    Visualizar 3 exemplos de cada classe do dataset original e, se augmentation=True,
-    também 3 exemplos aumentados.
+    Visualiza pelo menos um exemplo de cada classe original e, se augmentation=True,
+    também um exemplo aumentado.
     """
     classes_indices = {c: np.where(y == i)[0] for i, c in enumerate(classes)}
 
-    st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (3 de cada classe original e 3 de cada classe aumentada)")
+    st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 de cada classe aumentada)")
 
     transforms = Compose([
         AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
@@ -165,28 +170,34 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
     for c in classes:
         st.markdown(f"#### Classe: {c}")
         indices_classe = classes_indices[c]
-        if len(indices_classe) < 3:
-            st.warning(f"Menos de 3 exemplos para a classe {c}, mostrando {len(indices_classe)}")
-        qtd_exemplos = min(len(indices_classe), 3)
-        st.markdown("**Exemplos Originais:**")
-        for i in range(qtd_exemplos):
-            idx = indices_classe[i]
-            arquivo = df.iloc[idx]['caminho_arquivo']
-            data_ex, sr_ex = carregar_audio(arquivo, sr=None)
-            if data_ex is not None and sr_ex is not None:
-                st.markdown(f"Exemplo {i+1} da classe {c} (Original): {arquivo}")
-                visualizar_audio(data_ex, sr_ex)
+        if len(indices_classe) == 0:
+            st.warning(f"**Nenhum exemplo encontrado para a classe {c}.**")
+            continue
+        # Seleciona um exemplo aleatório
+        idx_original = random.choice(indices_classe)
+        arquivo_original = df.iloc[idx_original]['caminho_arquivo']
+        data_original, sr_original = carregar_audio(arquivo_original, sr=None)
+        if data_original is not None and sr_original is not None:
+            st.markdown(f"**Exemplo Original:** {os.path.basename(arquivo_original)}")
+            visualizar_audio(data_original, sr_original)
+        else:
+            st.warning(f"**Não foi possível carregar o áudio da classe {c}.**")
 
         if augmentation:
-            st.markdown("**Exemplos Aumentados:**")
-            for i in range(qtd_exemplos):
-                idx = indices_classe[i]
-                arquivo = df.iloc[idx]['caminho_arquivo']
-                data_ex, sr_ex = carregar_audio(arquivo, sr=None)
-                if data_ex is not None and sr_ex is not None:
-                    aug_data = transforms(samples=data_ex, sample_rate=sr_ex)
-                    st.markdown(f"Exemplo {i+1} da classe {c} (Aumentado) a partir de {arquivo}")
-                    visualizar_audio(aug_data, sr_ex)
+            try:
+                # Seleciona outro exemplo aleatório para augmentation
+                idx_aug = random.choice(indices_classe)
+                arquivo_aug = df.iloc[idx_aug]['caminho_arquivo']
+                data_aug, sr_aug = carregar_audio(arquivo_aug, sr=None)
+                if data_aug is not None and sr_aug is not None:
+                    aug_data = aumentar_audio(data_aug, sr_aug, transforms)
+                    st.markdown(f"**Exemplo Aumentado a partir de:** {os.path.basename(arquivo_aug)}")
+                    visualizar_audio(aug_data, sr_aug)
+                else:
+                    st.warning(f"**Não foi possível carregar o áudio para augmentation da classe {c}.**")
+            except Exception as e:
+                st.warning(f"**Erro ao aplicar augmentation na classe {c}: {e}**")
+                logging.error(f"Erro ao aplicar augmentation na classe {c}: {e}")
 
 def escolher_k_kmeans(X_original, max_k=10):
     """
@@ -262,19 +273,22 @@ def classificar_audio(SEED):
                             pred = modelo.predict(ftrs)
                             pred_class = np.argmax(pred, axis=1)
                             pred_label = classes[pred_class[0]]
-                            confidence = pred[0][pred_class[0]]*100
+                            confidence = pred[0][pred_class[0]] * 100
                             st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
 
+                            # Gráfico de Probabilidades
                             fig_prob, ax_prob = plt.subplots(figsize=(8,4))
-                            ax_prob.bar(classes, pred[0])
+                            ax_prob.bar(classes, pred[0], color='skyblue')
                             ax_prob.set_title("Probabilidades por Classe")
                             ax_prob.set_ylabel("Probabilidade")
                             plt.xticks(rotation=45)
                             st.pyplot(fig_prob)
                             plt.close(fig_prob)
 
+                            # Reprodução e Visualização do Áudio
                             st.audio(caminho_audio)
                             visualizar_audio(data, sr)
+
                         except Exception as e:
                             st.error(f"Erro na predição: {e}")
                             logging.error(f"Erro na predição: {e}")
@@ -294,6 +308,7 @@ def treinar_modelo(SEED):
             **Passo 5:** Veja o clustering e visualize espectros e MFCCs.
             """)
 
+        # Checkbox para permitir parar o treinamento
         stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False)
 
         if stop_training_choice:
@@ -374,7 +389,7 @@ def treinar_modelo(SEED):
 
                 treino_percentage = st.sidebar.slider("Treino (%)",50,90,70,5)
                 valid_percentage = st.sidebar.slider("Validação (%)",5,30,15,5)
-                test_percentage = 100-(treino_percentage+valid_percentage)
+                test_percentage = 100 - (treino_percentage + valid_percentage)
                 if test_percentage < 0:
                     st.sidebar.error("Treino + Validação > 100%")
                     st.stop()
@@ -442,11 +457,15 @@ def treinar_modelo(SEED):
                                         X_aug.append(ftrs)
                                         y_aug.append(y[i])
 
-                    X_aug = np.array(X_aug)
-                    y_aug = np.array(y_aug)
-                    st.write(f"Dados Aumentados: {X_aug.shape}")
-                    X_combined = np.concatenate((X, X_aug), axis=0)
-                    y_combined = np.concatenate((y_valid, y_aug), axis=0)
+                    if X_aug and y_aug:
+                        X_aug = np.array(X_aug)
+                        y_aug = np.array(y_aug)
+                        st.write(f"Dados Aumentados: {X_aug.shape}")
+                        X_combined = np.concatenate((X, X_aug), axis=0)
+                        y_combined = np.concatenate((y_valid, y_aug), axis=0)
+                    else:
+                        X_combined = X
+                        y_combined = y_valid
                 else:
                     X_combined = X
                     y_combined = y_valid
@@ -455,13 +474,13 @@ def treinar_modelo(SEED):
                 X_train, X_temp, y_train, y_temp = train_test_split(
                     X_combined, y_combined, 
                     test_size=(100 - treino_percentage)/100.0,
-                    random_state=default_seed, 
+                    random_state=SEED, 
                     stratify=y_combined
                 )
                 X_val, X_test, y_val, y_test = train_test_split(
                     X_temp, y_temp, 
                     test_size=test_percentage/(test_percentage + valid_percentage),
-                    random_state=default_seed, 
+                    random_state=SEED, 
                     stratify=y_temp
                 )
 
@@ -480,6 +499,7 @@ def treinar_modelo(SEED):
                 conv_filters = [int(f.strip()) for f in conv_filters_str.split(',')]
                 conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_str.split(',')]
 
+                # Ajusta o tamanho do kernel se necessário
                 input_length = X_train_final.shape[1]
                 for i in range(num_conv_layers):
                     if conv_kernel_size[i] > input_length:
@@ -699,7 +719,8 @@ def treinar_modelo(SEED):
                     """)
 
                     melhor_k = escolher_k_kmeans(X_original, max_k=10)
-                    st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={silhouette_score(X_original, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_original)):.2f})")
+                    sil_score = silhouette_score(X_original, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_original))
+                    st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
 
                     kmeans = KMeans(n_clusters=melhor_k, random_state=42)
                     kmeans_labels = kmeans.fit_predict(X_original)
@@ -735,7 +756,7 @@ def treinar_modelo(SEED):
                         st.write(f"**Cluster {idx+1}:**")
                         st.write(dist)
 
-                    # Visualizar 3 exemplos de cada classe original e 3 exemplos aumentados
+                    # Visualizar 1 exemplo de cada classe original e 1 exemplo aumentados
                     visualizar_exemplos_classe(df, y_original, classes, augmentation=enable_augmentation, sr=22050)
 
                 # Limpeza de memória e arquivos temporários
@@ -769,7 +790,7 @@ with st.expander("Contexto e Descrição Completa"):
        - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
        - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
        - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
-       - Mostra 3 exemplos de cada classe do dataset original e 3 exemplos aumentados, exibindo espectros, espectrogramas e MFCCs.
+       - Mostra 1 exemplo de cada classe do dataset original e 1 exemplo aumentado, exibindo espectros, espectrogramas e MFCCs.
 
     2. **Classificar Áudio com Modelo Treinado:**  
        - Você faz upload de um modelo já treinado (.keras) e do arquivo de classes (classes.txt).
