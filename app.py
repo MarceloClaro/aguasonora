@@ -1,14 +1,13 @@
-import random 
+import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import librosa
-import librosa.display
 import tensorflow as tf
-from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.utils import to_categorical, plot_model
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.cluster import KMeans, AgglomerativeClustering
@@ -27,9 +26,9 @@ import logging
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 import shap
-from lime import lime_tabular
+import librosa.display
 
-# Configuração de Logging
+# LOGGING
 logging.basicConfig(
     filename='experiment_logs.log',
     filemode='a',
@@ -60,7 +59,6 @@ if 'stop_training' not in st.session_state:
     st.session_state.stop_training = False
 
 def set_seeds(seed):
-    """Define as sementes para reprodutibilidade."""
     random.seed(seed)
     np.random.seed(seed)
     tf.random.set_seed(seed)
@@ -69,17 +67,15 @@ def set_seeds(seed):
         torch.cuda.manual_seed_all(seed)
 
 def carregar_audio(caminho_arquivo, sr=None):
-    """Carrega o arquivo de áudio usando Librosa."""
     try:
         data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast')
         return data, sr
-    except Exception as e:
-        logging.error(f"Erro ao carregar áudio: {e}")
+    except:
         return None, None
 
 def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
     """
-    Extrai MFCCs e centróide espectral do áudio. Normaliza as features.
+    Extrai MFCCs e centróide. Normaliza. MFCCs = características do espectro. Centróide = freq média.
     """
     try:
         features_list = []
@@ -95,75 +91,66 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
             features_vector = np.concatenate(features_list, axis=0)
         else:
             features_vector = features_list[0]
-        # Normalização
         features_vector = (features_vector - np.mean(features_vector)) / (np.std(features_vector) + 1e-9)
         return features_vector
-    except Exception as e:
-        logging.error(f"Erro ao extrair features: {e}")
+    except:
         return None
 
 def aumentar_audio(data, sr, augmentations):
-    """Aplica augmentations no áudio."""
     try:
         return augmentations(samples=data, sample_rate=sr)
-    except Exception as e:
-        logging.error(f"Erro ao aumentar áudio: {e}")
+    except:
         return data
 
 def visualizar_audio(data, sr):
-    """Visualiza diferentes representações do áudio."""
-    try:
-        # Forma de onda usando waveshow
-        fig_wave, ax_wave = plt.subplots(figsize=(8,4))
-        librosa.display.waveshow(data, sr=sr, ax=ax_wave)
-        ax_wave.set_title("Forma de Onda no Tempo")
-        ax_wave.set_xlabel("Tempo (s)")
-        ax_wave.set_ylabel("Amplitude")
-        st.pyplot(fig_wave)
-        plt.close(fig_wave)
+    # Forma de onda
+    fig_wave, ax_wave = plt.subplots(figsize=(8,4))
+    librosa.display.waveplot(data, sr=sr, ax=ax_wave)
+    ax_wave.set_title("Forma de Onda no Tempo")
+    ax_wave.set_xlabel("Tempo (s)")
+    ax_wave.set_ylabel("Amplitude")
+    st.pyplot(fig_wave)
+    plt.close(fig_wave)
 
-        # FFT (Espectro)
-        fft = np.fft.fft(data)
-        fft_abs = np.abs(fft[:len(fft)//2])
-        freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
-        fig_fft, ax_fft = plt.subplots(figsize=(8,4))
-        ax_fft.plot(freqs, fft_abs)
-        ax_fft.set_title("Espectro (Amplitude x Frequência)")
-        ax_fft.set_xlabel("Frequência (Hz)")
-        ax_fft.set_ylabel("Amplitude")
-        st.pyplot(fig_fft)
-        plt.close(fig_fft)
+    # FFT (Espectro)
+    fft = np.fft.fft(data)
+    fft_abs = np.abs(fft[:len(fft)//2])
+    freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
+    fig_fft, ax_fft = plt.subplots(figsize=(8,4))
+    ax_fft.plot(freqs, fft_abs)
+    ax_fft.set_title("Espectro (Amplitude x Frequência)")
+    ax_fft.set_xlabel("Frequência (Hz)")
+    ax_fft.set_ylabel("Amplitude")
+    st.pyplot(fig_fft)
+    plt.close(fig_fft)
 
-        # Espectrograma
-        D = np.abs(librosa.stft(data))**2
-        S = librosa.power_to_db(D, ref=np.max)
-        fig_spec, ax_spec = plt.subplots(figsize=(8,4))
-        img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='hz', ax=ax_spec)
-        ax_spec.set_title("Espectrograma")
-        fig_spec.colorbar(img_spec, ax=ax_spec, format='%+2.0f dB')
-        st.pyplot(fig_spec)
-        plt.close(fig_spec)
+    # Espectrograma
+    D = np.abs(librosa.stft(data))**2
+    S = librosa.power_to_db(D, ref=np.max)
+    fig_spec, ax_spec = plt.subplots(figsize=(8,4))
+    img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='hz', ax=ax_spec)
+    ax_spec.set_title("Espectrograma")
+    fig_spec.colorbar(img_spec, ax=ax_spec, format='%+2.0f dB')
+    st.pyplot(fig_spec)
+    plt.close(fig_spec)
 
-        # MFCCs Plot
-        mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
-        fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
-        img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
-        ax_mfcc.set_title("MFCCs")
-        fig_mfcc.colorbar(img_mfcc, ax=ax_mfcc)
-        st.pyplot(fig_mfcc)
-        plt.close(fig_mfcc)
-    except Exception as e:
-        st.error(f"Erro na visualização do áudio: {e}")
-        logging.error(f"Erro na visualização do áudio: {e}")
+    # MFCCs Plot
+    mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
+    fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
+    img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
+    ax_mfcc.set_title("MFCCs")
+    fig_mfcc.colorbar(img_mfcc, ax=ax_mfcc)
+    st.pyplot(fig_mfcc)
+    plt.close(fig_mfcc)
 
 def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
     """
-    Visualiza pelo menos um exemplo de cada classe original e, se augmentation=True,
-    também um exemplo aumentado.
+    Visualizar 3 exemplos de cada classe do dataset original e, se augmentation=True,
+    também 3 exemplos aumentados.
     """
     classes_indices = {c: np.where(y == i)[0] for i, c in enumerate(classes)}
 
-    st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 exemplo aumentado)")
+    st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (3 de cada classe original e 3 de cada classe aumentada)")
 
     transforms = Compose([
         AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
@@ -175,45 +162,28 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
     for c in classes:
         st.markdown(f"#### Classe: {c}")
         indices_classe = classes_indices[c]
-        st.write(f"Número de amostras para a classe '{c}': {len(indices_classe)}")
-        if len(indices_classe) == 0:
-            st.warning(f"**Nenhum exemplo encontrado para a classe {c}.**")
-            continue
-        # Seleciona um exemplo aleatório
-        idx_original = random.choice(indices_classe)
-        st.write(f"Selecionando índice original: {idx_original}")
-        if idx_original >= len(df):
-            st.error(f"Índice {idx_original} está fora do intervalo do DataFrame.")
-            logging.error(f"Índice {idx_original} está fora do intervalo do DataFrame.")
-            continue
-        arquivo_original = df.iloc[idx_original]['caminho_arquivo']
-        data_original, sr_original = carregar_audio(arquivo_original, sr=None)
-        if data_original is not None and sr_original is not None:
-            st.markdown(f"**Exemplo Original:** {os.path.basename(arquivo_original)}")
-            visualizar_audio(data_original, sr_original)
-        else:
-            st.warning(f"**Não foi possível carregar o áudio da classe {c}.**")
+        if len(indices_classe) < 3:
+            st.warning(f"Menos de 3 exemplos para a classe {c}, mostrando {len(indices_classe)}")
+        qtd_exemplos = min(len(indices_classe), 3)
+        st.markdown("**Exemplos Originais:**")
+        for i in range(qtd_exemplos):
+            idx = indices_classe[i]
+            arquivo = df.iloc[idx]['caminho_arquivo']
+            data_ex, sr_ex = carregar_audio(arquivo, sr=None)
+            if data_ex is not None and sr_ex is not None:
+                st.markdown(f"Exemplo {i+1} da classe {c} (Original): {arquivo}")
+                visualizar_audio(data_ex, sr_ex)
 
         if augmentation:
-            try:
-                # Seleciona outro exemplo aleatório para augmentation
-                idx_aug = random.choice(indices_classe)
-                st.write(f"Selecionando índice para augmentation: {idx_aug}")
-                if idx_aug >= len(df):
-                    st.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
-                    logging.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
-                    continue
-                arquivo_aug = df.iloc[idx_aug]['caminho_arquivo']
-                data_aug, sr_aug = carregar_audio(arquivo_aug, sr=None)
-                if data_aug is not None and sr_aug is not None:
-                    aug_data = aumentar_audio(data_aug, sr_aug, transforms)
-                    st.markdown(f"**Exemplo Aumentado a partir de:** {os.path.basename(arquivo_aug)}")
-                    visualizar_audio(aug_data, sr_aug)
-                else:
-                    st.warning(f"**Não foi possível carregar o áudio para augmentation da classe {c}.**")
-            except Exception as e:
-                st.warning(f"**Erro ao aplicar augmentation na classe {c}: {e}**")
-                logging.error(f"Erro ao aplicar augmentation na classe {c}: {e}")
+            st.markdown("**Exemplos Aumentados:**")
+            for i in range(qtd_exemplos):
+                idx = indices_classe[i]
+                arquivo = df.iloc[idx]['caminho_arquivo']
+                data_ex, sr_ex = carregar_audio(arquivo, sr=None)
+                if data_ex is not None and sr_ex is not None:
+                    aug_data = transforms(samples=data_ex, sample_rate=sr_ex)
+                    st.markdown(f"Exemplo {i+1} da classe {c} (Aumentado) a partir de {arquivo}")
+                    visualizar_audio(aug_data, sr_ex)
 
 def escolher_k_kmeans(X_original, max_k=10):
     """
@@ -236,109 +206,73 @@ def escolher_k_kmeans(X_original, max_k=10):
                 melhor_k = k
     return melhor_k
 
-# Decorador para garantir o reshape das entradas
-def ensure_3d_input(func):
-    def wrapper(x):
-        # Verifica se a entrada já possui a dimensão de canal
-        if x.ndim == 2:
-            x = x.reshape((x.shape[0], x.shape[1], 1))
-        elif x.ndim == 3 and x.shape[2] != 1:
-            x = x.reshape((x.shape[0], x.shape[1], 1))
-        return func(x)
-    return wrapper
+def classificar_audio(SEED):
+    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
+        with st.expander("Instruções para Classificar Áudio"):
+            st.markdown("""
+            **Passo 1:** Upload do modelo treinado (.keras) e classes (classes.txt).  
+            **Passo 2:** Upload do áudio a ser classificado.  
+            **Passo 3:** O app extrai features e prediz a classe.
+            """)
 
-@ensure_3d_input
-def model_predict(x):
-    """Função de predição ajustada para SHAP e LIME."""
-    if 'modelo' not in st.session_state:
-        raise ValueError("Modelo não está carregado na sessão.")
-    logging.info("Realizando predição com o modelo.")
-    prediction = st.session_state['modelo'].predict(x)
-    logging.info("Predição realizada com sucesso.")
-    return prediction
+        modelo_file = st.file_uploader("Upload do Modelo (.keras)", type=["keras","h5"])
+        classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
 
-def gerar_explicacoes_shap(modelo, X_train_final, X_sample_flat, classes):
-    """
-    Gera explicações SHAP usando DeepExplainer para modelos Keras.
-    """
-    try:
-        logging.info("Iniciando a criação do SHAP DeepExplainer.")
-        background = X_train_final[:100]
-        logging.info(f"Background shape: {background.shape}")
-        shap_explainer_instance = shap.DeepExplainer(modelo, background)
-        logging.info("DeepExplainer criado com sucesso.")
-        shap_values = shap_explainer_instance.shap_values(X_sample_flat)
-        logging.info("SHAP values calculados com sucesso.")
+        if modelo_file is not None and classes_file is not None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.keras') as tmp_model:
+                tmp_model.write(modelo_file.read())
+                caminho_modelo = tmp_model.name
 
-        st.write("Plot SHAP Summary por Classe:")
+            modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
+            classes = classes_file.read().decode("utf-8").splitlines()
 
-        # Verificar a estrutura dos shap_values
-        if isinstance(shap_values, list) and len(shap_values) == len(classes):
-            for class_idx, class_name in enumerate(classes):
-                st.write(f"**Classe: {class_name}**")
-                fig_shap = plt.figure()
-                shap.summary_plot(shap_values[class_idx], X_sample_flat, show=False)
-                st.pyplot(fig_shap)
-                plt.close(fig_shap)
-        elif isinstance(shap_values, np.ndarray) and len(classes) == 2:
-            # Para modelos binários com um único output
-            st.write(f"**Classe: {classes[1]}**")
-            fig_shap = plt.figure()
-            shap.summary_plot(shap_values, X_sample_flat, show=False)
-            st.pyplot(fig_shap)
-            plt.close(fig_shap)
-        else:
-            st.warning("Número de shap_values não corresponde ao número de classes.")
-            if isinstance(shap_values, list):
-                st.write(f"shap_values length: {len(shap_values)}, classes length: {len(classes)}")
-            else:
-                st.write(f"shap_values length: 1, classes length: {len(classes)}")
+            st.markdown("**Modelo e Classes Carregados!**")
+            st.markdown(f"**Classes:** {', '.join(classes)}")
 
-        st.write("""
-        **Interpretação SHAP:**  
-        MFCCs com valor SHAP alto contribuem significativamente para a classe.  
-        Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
-        """)
-    except Exception as e:
-        st.write("SHAP não pôde ser gerado:", e)
-        logging.error(f"Erro ao gerar SHAP: {e}")
+            audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
+            if audio_file is not None:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
+                    tmp_audio.write(audio_file.read())
+                    caminho_audio = tmp_audio.name
 
-def gerar_explicacoes_lime(modelo, X_train, X_sample_flat, classes):
-    """
-    Gera explicações LIME usando LIME Tabular.
-    """
-    try:
-        explainer = lime_tabular.LimeTabularExplainer(
-            training_data=X_train,
-            feature_names=[f"Feature {i}" for i in range(X_train.shape[1])],
-            class_names=classes,
-            mode='classification'
-        )
+                data, sr = carregar_audio(caminho_audio, sr=None)
+                if data is not None:
+                    ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+                    if ftrs is not None:
+                        ftrs = ftrs.reshape(1, -1, 1)
+                        pred = modelo.predict(ftrs)
+                        pred_class = np.argmax(pred, axis=1)
+                        pred_label = classes[pred_class[0]]
+                        confidence = pred[0][pred_class[0]]*100
+                        st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
 
-        idx = 0  # Índice da amostra a ser explicada
-        exp = explainer.explain_instance(X_sample_flat[idx], model_predict, num_features=10)
+                        fig_prob, ax_prob = plt.subplots(figsize=(8,4))
+                        ax_prob.bar(classes, pred[0])
+                        ax_prob.set_title("Probabilidades por Classe")
+                        ax_prob.set_ylabel("Probabilidade")
+                        plt.xticks(rotation=45)
+                        st.pyplot(fig_prob)
+                        plt.close(fig_prob)
 
-        st.write(f"**Explicação LIME para a classe: {classes[np.argmax(model_predict(X_sample_flat[idx].reshape(1, -1, 1)))]}**")
-        fig_lime = plt.figure()
-        exp.as_pyplot_figure()
-        st.pyplot(fig_lime)
-        plt.close(fig_lime)
-    except Exception as e:
-        st.write("LIME não pôde ser gerado:", e)
-        logging.error(f"Erro ao gerar LIME: {e}")
+                        st.audio(caminho_audio)
+                        visualizar_audio(data, sr)
+
+                    else:
+                        st.error("Não foi possível extrair features do áudio.")
+                else:
+                    st.error("Não foi possível carregar o áudio.")
 
 def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
-        st.markdown("### Instruções Passo a Passo")
-        st.markdown("""
-        **Passo 1:** Upload do dataset .zip (pastas=classes).  
-        **Passo 2:** Ajuste parâmetros no sidebar.  
-        **Passo 3:** Clique em 'Treinar Modelo'.  
-        **Passo 4:** Analise métricas, matriz de confusão, histórico, SHAP/LIME.  
-        **Passo 5:** Veja o clustering e visualize espectros e MFCCs.
-        """)
+        with st.expander("Instruções Passo a Passo"):
+            st.markdown("""
+            **Passo 1:** Upload do dataset .zip (pastas=classes).  
+            **Passo 2:** Ajuste parâmetros no sidebar.  
+            **Passo 3:** Clique em 'Treinar Modelo'.  
+            **Passo 4:** Analise métricas, matriz de confusão, histórico, SHAP.  
+            **Passo 5:** Veja o clustering e visualize espectros e MFCCs.
+            """)
 
-        # Checkbox para permitir parar o treinamento
         stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False)
 
         if stop_training_choice:
@@ -386,7 +320,7 @@ def treinar_modelo(SEED):
                 st.write("10 Primeiras Amostras do Dataset:")
                 st.dataframe(df.head(10))
 
-                if len(df) == 0:
+                if len(df)==0:
                     st.error("Nenhuma amostra encontrada no dataset.")
                     return
 
@@ -414,15 +348,14 @@ def treinar_modelo(SEED):
 
                 st.sidebar.markdown("**Configurações de Treinamento:**")
 
-                # Parâmetros de Treinamento
                 num_epochs = st.sidebar.slider("Número de Épocas:", 10, 500, 50, 10)
                 batch_size = st.sidebar.selectbox("Batch:", [8,16,32,64,128],0)
 
                 treino_percentage = st.sidebar.slider("Treino (%)",50,90,70,5)
                 valid_percentage = st.sidebar.slider("Validação (%)",5,30,15,5)
-                test_percentage = 100 - (treino_percentage + valid_percentage)
-                if test_percentage < 0:
-                    st.sidebar.error("Treino + Validação > 100%")
+                test_percentage = 100-(treino_percentage+valid_percentage)
+                if test_percentage<0:
+                    st.sidebar.error("Treino+Val>100%")
                     st.stop()
                 st.sidebar.write(f"Teste (%)={test_percentage}%")
 
@@ -430,307 +363,232 @@ def treinar_modelo(SEED):
                 dropout_rate = st.sidebar.slider("Dropout:",0.0,0.9,0.4,0.05)
 
                 regularization_type = st.sidebar.selectbox("Regularização:",["None","L1","L2","L1_L2"],0)
-                if regularization_type == "L1":
-                    l1_regularization = st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
-                    l2_regularization = 0.0
-                elif regularization_type == "L2":
-                    l2_regularization = st.sidebar.slider("L2:",0.0,0.1,0.001,0.001)
-                    l1_regularization = 0.0
-                elif regularization_type == "L1_L2":
-                    l1_regularization = st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
-                    l2_regularization = st.sidebar.slider("L2:",0.0,0.1,0.001,0.001)
+                if regularization_type=="L1":
+                    l1_regularization=st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
+                    l2_regularization=0.0
+                elif regularization_type=="L2":
+                    l2_regularization=st.sidebar.slider("L2:",0.0,0.1,0.001,0.001)
+                    l1_regularization=0.0
+                elif regularization_type=="L1_L2":
+                    l1_regularization=st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
+                    l2_regularization=st.sidebar.slider("L2:",0.0,0.1,0.001,0.001)
                 else:
-                    l1_regularization = 0.0
-                    l2_regularization = 0.0
+                    l1_regularization=0.0
+                    l2_regularization=0.0
 
-                # Opções de Fine-Tuning Adicionais
-                st.sidebar.markdown("**Fine-Tuning Adicional:**")
-                learning_rate = st.sidebar.slider("Taxa de Aprendizado:", 1e-5, 1e-2, 1e-3, step=1e-5, format="%.5f")
-                optimizer_choice = st.sidebar.selectbox("Otimização:", ["Adam", "SGD", "RMSprop"],0)
-
-                enable_augmentation = st.sidebar.checkbox("Data Augmentation", True)
+                enable_augmentation=st.sidebar.checkbox("Data Augmentation",True)
                 if enable_augmentation:
-                    adicionar_ruido = st.sidebar.checkbox("Ruído Gaussiano", True)
-                    estiramento_tempo = st.sidebar.checkbox("Time Stretch", True)
-                    alteracao_pitch = st.sidebar.checkbox("Pitch Shift", True)
-                    deslocamento = st.sidebar.checkbox("Deslocamento", True)
+                    adicionar_ruido=st.sidebar.checkbox("Ruído Gaussiano",True)
+                    estiramento_tempo=st.sidebar.checkbox("Time Stretch",True)
+                    alteracao_pitch=st.sidebar.checkbox("Pitch Shift",True)
+                    deslocamento=st.sidebar.checkbox("Deslocamento",True)
 
-                cross_validation = st.sidebar.checkbox("k-Fold?", False)
+                cross_validation=st.sidebar.checkbox("k-Fold?",False)
                 if cross_validation:
-                    k_folds = st.sidebar.number_input("Folds:",2,10,5,1)
+                    k_folds=st.sidebar.number_input("Folds:",2,10,5,1)
                 else:
-                    k_folds = 1
+                    k_folds=1
 
-                balance_classes = st.sidebar.selectbox("Balanceamento:",["Balanced","None"],0)
+                balance_classes=st.sidebar.selectbox("Balanceamento:",["Balanced","None"],0)
 
                 if enable_augmentation:
                     st.write("Aumentando Dados...")
-                    X_aug = []
-                    y_aug = []
-                    transforms = []
+                    X_aug=[]
+                    y_aug=[]
+                    transforms=[]
                     if adicionar_ruido:
-                        transforms.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
+                        transforms.append(AddGaussianNoise(min_amplitude=0.001,max_amplitude=0.015,p=1.0))
                     if estiramento_tempo:
-                        transforms.append(TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0))
+                        transforms.append(TimeStretch(min_rate=0.8,max_rate=1.25,p=1.0))
                     if alteracao_pitch:
-                        transforms.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
+                        transforms.append(PitchShift(min_semitones=-4,max_semitones=4,p=1.0))
                     if deslocamento:
-                        transforms.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))
+                        transforms.append(Shift(min_shift=-0.5,max_shift=0.5,p=1.0))
                     if transforms:
-                        aug = Compose(transforms)
+                        aug=Compose(transforms)
                         for i, row in df.iterrows():
                             if st.session_state.stop_training:
                                 break
                             arquivo = row['caminho_arquivo']
-                            data, sr = carregar_audio(arquivo, sr=None)
+                            data, sr=carregar_audio(arquivo,sr=None)
                             if data is not None:
                                 for _ in range(augment_factor):
                                     if st.session_state.stop_training:
                                         break
-                                    aug_data = aumentar_audio(data, sr, aug)
-                                    ftrs = extrair_features(aug_data, sr)
+                                    aug_data=aumentar_audio(data,sr,aug)
+                                    ftrs=extrair_features(aug_data,sr)
                                     if ftrs is not None:
                                         X_aug.append(ftrs)
                                         y_aug.append(y[i])
 
-                if enable_augmentation and X_aug and y_aug:
-                    X_aug = np.array(X_aug)
-                    y_aug = np.array(y_aug)
+                    X_aug=np.array(X_aug)
+                    y_aug=np.array(y_aug)
                     st.write(f"Dados Aumentados: {X_aug.shape}")
-                    X_combined = np.concatenate((X, X_aug), axis=0)
-                    y_combined = np.concatenate((y_valid, y_aug), axis=0)
+                    X_combined=np.concatenate((X,X_aug),axis=0)
+                    y_combined=np.concatenate((y_valid,y_aug),axis=0)
                 else:
-                    X_combined = X
-                    y_combined = y_valid
+                    X_combined=X
+                    y_combined=y_valid
 
                 st.write("Dividindo Dados...")
-                X_train, X_temp, y_train, y_temp = train_test_split(
-                    X_combined, y_combined, 
-                    test_size=(100 - treino_percentage)/100.0,
-                    random_state=SEED, 
-                    stratify=y_combined
-                )
-                X_val, X_test, y_val, y_test = train_test_split(
-                    X_temp, y_temp, 
-                    test_size=test_percentage/(test_percentage + valid_percentage),
-                    random_state=SEED, 
-                    stratify=y_temp
-                )
+                X_train,X_temp,y_train,y_temp=train_test_split(X_combined,y_combined,test_size=(100-treino_percentage)/100.0,
+                                                               random_state=default_seed,stratify=y_combined)
+                X_val,X_test,y_val,y_test=train_test_split(X_temp,y_temp,test_size=test_percentage/(test_percentage+valid_percentage),
+                                                           random_state=default_seed,stratify=y_temp)
 
-                st.write(f"Treino: {X_train.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+                st.write(f"Treino:{X_train.shape}, Val:{X_val.shape}, Teste:{X_test.shape}")
 
                 X_original = X_combined
                 y_original = y_combined
 
-                # Reconfigurar os dados para o modelo
-                X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
-                X_val_final = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
-                X_test_final = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
+                X_train_final = X_train.reshape((X_train.shape[0],X_train.shape[1],1))
+                X_val = X_val.reshape((X_val.shape[0],X_val.shape[1],1))
+                X_test = X_test.reshape((X_test.shape[0],X_test.shape[1],1))
 
-                num_conv_layers = st.sidebar.slider("Conv Layers",1,5,2,1)
-                conv_filters_str = st.sidebar.text_input("Filtros (vírgula):","64,128")
-                conv_kernel_size_str = st.sidebar.text_input("Kernel (vírgula):","10,10")
-                conv_filters = [int(f.strip()) for f in conv_filters_str.split(',')]
-                conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_str.split(',')]
+                num_conv_layers=st.sidebar.slider("Conv Layers",1,5,2,1)
+                conv_filters_str=st.sidebar.text_input("Filtros (vírgula):","64,128")
+                conv_kernel_size_str=st.sidebar.text_input("Kernel (vírgula):","10,10")
+                conv_filters=[int(f.strip()) for f in conv_filters_str.split(',')]
+                conv_kernel_size=[int(k.strip()) for k in conv_kernel_size_str.split(',')]
 
-                # Ajusta o tamanho do kernel se necessário
-                input_length = X_train_final.shape[1]
+                input_length=X_train_final.shape[1]
                 for i in range(num_conv_layers):
-                    if i >= len(conv_kernel_size):
-                        conv_kernel_size.append(10)  # Valor padrão se não houver suficiente
-                    if conv_kernel_size[i] > input_length:
-                        conv_kernel_size[i] = input_length
+                    if conv_kernel_size[i]>input_length:
+                        conv_kernel_size[i]=input_length
 
-                num_dense_layers = st.sidebar.slider("Dense Layers:",1,3,1,1)
-                dense_units_str = st.sidebar.text_input("Neurônios Dense (vírgula):","64")
-                dense_units = [int(u.strip()) for u in dense_units_str.split(',')]
-                if len(dense_units) != num_dense_layers:
-                    st.sidebar.error("Número de neurônios deve ser igual ao número de camadas Dense.")
+                num_dense_layers=st.sidebar.slider("Dense Layers:",1,3,1,1)
+                dense_units_str=st.sidebar.text_input("Neurônios Dense (vírgula):","64")
+                dense_units=[int(u.strip()) for u in dense_units_str.split(',')]
+                if len(dense_units)!=num_dense_layers:
+                    st.sidebar.error("Neurônios != Dense Layers.")
                     st.stop()
 
-                if regularization_type == "L1":
-                    reg = regularizers.l1(l1_regularization)
-                elif regularization_type == "L2":
-                    reg = regularizers.l2(l2_regularization)
-                elif regularization_type == "L1_L2":
-                    reg = regularizers.l1_l2(l1=l1_regularization, l2=l2_regularization)
+                if regularization_type=="L1":
+                    reg=regularizers.l1(l1_regularization)
+                elif regularization_type=="L2":
+                    reg=regularizers.l2(l2_regularization)
+                elif regularization_type=="L1_L2":
+                    reg=regularizers.l1_l2(l1=l1_regularization,l2=l2_regularization)
                 else:
-                    reg = None
+                    reg=None
 
                 from tensorflow.keras.models import Sequential
                 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
 
-                modelo = Sequential()
+                modelo=Sequential()
                 modelo.add(Input(shape=(X_train_final.shape[1],1)))
                 for i in range(num_conv_layers):
-                    modelo.add(Conv1D(
-                        filters=conv_filters[i],
-                        kernel_size=conv_kernel_size[i],
-                        activation='relu',
-                        kernel_regularizer=reg
-                    ))
+                    modelo.add(Conv1D(filters=conv_filters[i],kernel_size=conv_kernel_size[i],activation='relu',kernel_regularizer=reg))
                     modelo.add(Dropout(dropout_rate))
                     modelo.add(MaxPooling1D(pool_size=2))
 
                 modelo.add(Flatten())
                 for i in range(num_dense_layers):
-                    modelo.add(Dense(
-                        units=dense_units[i],
-                        activation='relu',
-                        kernel_regularizer=reg
-                    ))
+                    modelo.add(Dense(units=dense_units[i],activation='relu',kernel_regularizer=reg))
                     modelo.add(Dropout(dropout_rate))
-                modelo.add(Dense(len(classes), activation='softmax'))
+                modelo.add(Dense(len(classes),activation='softmax'))
+                modelo.compile(loss='categorical_crossentropy',optimizer='adam',metrics=['accuracy'])
 
-                # Configuração do Otimizador com Taxa de Aprendizado
-                if optimizer_choice == "Adam":
-                    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-                elif optimizer_choice == "SGD":
-                    optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
-                elif optimizer_choice == "RMSprop":
-                    optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
-                else:
-                    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)  # Default
-
-                modelo.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
-
-                diretorio_salvamento = 'modelos_salvos'
+                diretorio_salvamento='modelos_salvos'
                 if not os.path.exists(diretorio_salvamento):
                     os.makedirs(diretorio_salvamento)
 
-                es_monitor = st.sidebar.selectbox("Monitor (Early Stopping):", ["val_loss","val_accuracy"],0)
-                es_patience = st.sidebar.slider("Patience:",1,20,5,1)
-                es_mode = st.sidebar.selectbox("Mode:",["min","max"],0)
+                es_monitor=st.sidebar.selectbox("Monitor (ES):",["val_loss","val_accuracy"],0)
+                es_patience=st.sidebar.slider("Patience:",1,20,5,1)
+                es_mode=st.sidebar.selectbox("Mode:",["min","max"],0)
 
-                checkpointer = ModelCheckpoint(
-                    os.path.join(diretorio_salvamento,'modelo_agua_aumentado.keras'),
-                    monitor='val_loss',
-                    verbose=1,
-                    save_best_only=True
-                )
-                earlystop = EarlyStopping(
-                    monitor=es_monitor,
-                    patience=es_patience,
-                    restore_best_weights=True,
-                    mode=es_mode,
-                    verbose=1
-                )
-                lr_scheduler = ReduceLROnPlateau(
-                    monitor='val_loss', 
-                    factor=0.5, 
-                    patience=3, 
-                    verbose=1
-                )
+                checkpointer=ModelCheckpoint(os.path.join(diretorio_salvamento,'modelo_agua_aumentado.keras'),
+                                             monitor='val_loss',verbose=1,save_best_only=True)
+                earlystop=EarlyStopping(monitor=es_monitor,patience=es_patience,restore_best_weights=True,mode=es_mode)
+                lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=1)
 
-                callbacks = [checkpointer, earlystop, lr_scheduler]
+                callbacks=[checkpointer,earlystop,lr_scheduler]
 
-                if balance_classes == "Balanced":
-                    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
-                    class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
+                if balance_classes=="Balanced":
+                    class_weights=compute_class_weight('balanced',classes=np.unique(y_train),y=y_train)
+                    class_weight_dict={i: class_weights[i] for i in range(len(class_weights))}
                 else:
-                    class_weight_dict = None
+                    class_weight_dict=None
 
                 st.write("Treinando...")
                 with st.spinner('Treinando...'):
-                    if cross_validation and k_folds > 1:
-                        kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
-                        fold_no = 1
-                        val_scores = []
-                        for train_index, val_index in kf.split(X_train_final):
+                    if cross_validation and k_folds>1:
+                        kf=KFold(n_splits=k_folds,shuffle=True,random_state=42)
+                        fold_no=1
+                        val_scores=[]
+                        for train_index,val_index in kf.split(X_train_final):
                             if st.session_state.stop_training:
                                 st.warning("Treinamento Parado pelo Usuário!")
                                 break
                             st.write(f"Fold {fold_no}")
-                            X_train_cv, X_val_cv = X_train_final[train_index], X_train_final[val_index]
-                            y_train_cv, y_val_cv = y_train[train_index], y_train[val_index]
-                            historico = modelo.fit(
-                                X_train_cv, to_categorical(y_train_cv),
-                                epochs=num_epochs,
-                                batch_size=batch_size,
-                                validation_data=(X_val_cv, to_categorical(y_val_cv)),
-                                callbacks=callbacks,
-                                class_weight=class_weight_dict,
-                                verbose=1
-                            )
-                            score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
+                            X_train_cv,X_val_cv=X_train_final[train_index],X_train_final[val_index]
+                            y_train_cv,y_val_cv=y_train[train_index],y_train[val_index]
+                            historico=modelo.fit(X_train_cv,to_categorical(y_train_cv),
+                                                 epochs=num_epochs,batch_size=batch_size,
+                                                 validation_data=(X_val_cv,to_categorical(y_val_cv)),
+                                                 callbacks=callbacks,class_weight=class_weight_dict,verbose=1)
+                            score=modelo.evaluate(X_val_cv,to_categorical(y_val_cv),verbose=0)
                             val_scores.append(score[1]*100)
-                            fold_no += 1
+                            fold_no+=1
                         if not st.session_state.stop_training:
                             st.write(f"Acurácia Média CV: {np.mean(val_scores):.2f}%")
                     else:
-                        historico = modelo.fit(
-                            X_train_final, to_categorical(y_train),
-                            epochs=num_epochs,
-                            batch_size=batch_size,
-                            validation_data=(X_val_final, to_categorical(y_val)),
-                            callbacks=callbacks,
-                            class_weight=class_weight_dict,
-                            verbose=1
-                        )
+                        historico=modelo.fit(X_train_final,to_categorical(y_train),
+                                             epochs=num_epochs,batch_size=batch_size,
+                                             validation_data=(X_val,to_categorical(y_val)),
+                                             callbacks=callbacks,class_weight=class_weight_dict,verbose=1)
                         if st.session_state.stop_training:
                             st.warning("Treinamento Parado pelo Usuário!")
                         else:
                             st.success("Treino concluído!")
-                            st.session_state['modelo'] = modelo  # Armazena o modelo no session_state
 
-                # Salvando o modelo
-                try:
-                    with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model_file:
-                        modelo.save(tmp_model_file.name)
-                        caminho_tmp_model = tmp_model_file.name
-                    with open(caminho_tmp_model, 'rb') as f:
-                        modelo_bytes = f.read()
-                    buffer = io.BytesIO(modelo_bytes)
-                    st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
-                    os.remove(caminho_tmp_model)
-                except Exception as e:
-                    st.error(f"Erro ao salvar o modelo: {e}")
-                    logging.error(f"Erro ao salvar o modelo: {e}")
+                with tempfile.NamedTemporaryFile(suffix='.keras',delete=False) as tmp_model:
+                    modelo.save(tmp_model.name)
+                    caminho_tmp_model=tmp_model.name
+                with open(caminho_tmp_model,'rb') as f:
+                    modelo_bytes=f.read()
+                buffer=io.BytesIO(modelo_bytes)
+                st.download_button("Download Modelo (.keras)",data=buffer,file_name="modelo_agua_aumentado.keras")
+                os.remove(caminho_tmp_model)
 
-                # Salvando as classes
-                try:
-                    classes_str = "\n".join(classes)
-                    st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
-                except Exception as e:
-                    st.error(f"Erro ao salvar as classes: {e}")
-                    logging.error(f"Erro ao salvar as classes: {e}")
+                classes_str="\n".join(classes)
+                st.download_button("Download Classes (classes.txt)",data=classes_str,file_name="classes.txt")
 
                 if not st.session_state.stop_training:
                     st.markdown("### Avaliação do Modelo")
-                    score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=0)
-                    score_val = modelo.evaluate(X_val_final, to_categorical(y_val), verbose=0)
-                    score_test = modelo.evaluate(X_test_final, to_categorical(y_test), verbose=0)
+                    score_train=modelo.evaluate(X_train_final,to_categorical(y_train),verbose=0)
+                    score_val=modelo.evaluate(X_val,to_categorical(y_val),verbose=0)
+                    score_test=modelo.evaluate(X_test,to_categorical(y_test),verbose=0)
 
                     st.write(f"Acurácia Treino: {score_train[1]*100:.2f}%")
                     st.write(f"Acurácia Validação: {score_val[1]*100:.2f}%")
                     st.write(f"Acurácia Teste: {score_test[1]*100:.2f}%")
 
-                    y_pred = modelo.predict(X_test_final)
-                    y_pred_classes = y_pred.argmax(axis=1)
-                    f1_val = f1_score(y_test, y_pred_classes, average='weighted', zero_division=0)
-                    prec = precision_score(y_test, y_pred_classes, average='weighted', zero_division=0)
-                    rec = recall_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+                    y_pred=modelo.predict(X_test)
+                    y_pred_classes=y_pred.argmax(axis=1)
+                    f1_val=f1_score(y_test,y_pred_classes,average='weighted')
+                    prec=precision_score(y_test,y_pred_classes,average='weighted')
+                    rec=recall_score(y_test,y_pred_classes,average='weighted')
 
                     st.write(f"F1-score: {f1_val*100:.2f}%")
                     st.write(f"Precisão: {prec*100:.2f}%")
                     st.write(f"Recall: {rec*100:.2f}%")
 
                     st.markdown("### Matriz de Confusão")
-                    cm = confusion_matrix(y_test, y_pred_classes, labels=range(len(classes)))
-                    cm_df = pd.DataFrame(cm, index=classes, columns=classes)
-                    fig_cm, ax_cm = plt.subplots(figsize=(12,8))
-                    sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-                    ax_cm.set_title("Matriz de Confusão", fontsize=16)
-                    ax_cm.set_xlabel("Classe Prevista", fontsize=14)
-                    ax_cm.set_ylabel("Classe Real", fontsize=14)
+                    cm=confusion_matrix(y_test,y_pred_classes,labels=range(len(classes)))
+                    cm_df=pd.DataFrame(cm,index=classes,columns=classes)
+                    fig_cm,ax_cm=plt.subplots(figsize=(12,8))
+                    sns.heatmap(cm_df,annot=True,fmt='d',cmap='Blues',ax=ax_cm)
+                    ax_cm.set_title("Matriz de Confusão",fontsize=16)
+                    ax_cm.set_xlabel("Classe Prevista",fontsize=14)
+                    ax_cm.set_ylabel("Classe Real",fontsize=14)
                     st.pyplot(fig_cm)
                     plt.close(fig_cm)
 
                     st.markdown("### Histórico de Treinamento")
-                    hist_df = pd.DataFrame(historico.history)
+                    hist_df=pd.DataFrame(historico.history)
                     st.dataframe(hist_df)
 
-                    # Plot das curvas de treinamento
                     fig_hist, (ax_loss, ax_acc) = plt.subplots(1,2, figsize=(12,4))
                     ax_loss.plot(hist_df.index, hist_df['loss'], label='Treino')
                     ax_loss.plot(hist_df.index, hist_df['val_loss'], label='Validação')
@@ -749,18 +607,23 @@ def treinar_modelo(SEED):
                     st.pyplot(fig_hist)
                     plt.close(fig_hist)
 
-                    st.markdown("### Explicabilidade")
-                    explicabilidade_option = st.selectbox(
-                        "Escolha a Ferramenta de Explicabilidade:",
-                        ["SHAP", "LIME"]
-                    )
-
-                    st.write("Selecionando amostras de teste para análise de explicabilidade.")
-                    X_sample = X_test_final[:50]
-                    if explicabilidade_option == "SHAP":
-                        gerar_explicacoes_shap(modelo, X_train_final, X_sample, classes)
-                    elif explicabilidade_option == "LIME":
-                        gerar_explicacoes_lime(modelo, X_train, X_sample, classes)
+                    st.markdown("### Explicabilidade com SHAP")
+                    st.write("Selecionando amostras de teste para análise SHAP.")
+                    X_sample = X_test[:50]
+                    try:
+                        explainer = shap.DeepExplainer(modelo, X_train_final[:100])
+                        shap_values = explainer.shap_values(X_sample)
+                        st.write("Plot SHAP Summary:")
+                        fig_shap = plt.figure()
+                        shap.summary_plot(shap_values, X_sample.reshape((X_sample.shape[0],X_sample.shape[1])), show=False)
+                        st.pyplot(fig_shap)
+                        plt.close(fig_shap)
+                        st.write("""
+                        Interpretação SHAP: MFCCs com valor SHAP alto contribuem muito para a classe.
+                        Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
+                        """)
+                    except Exception as e:
+                        st.write("SHAP não pôde ser gerado:", e)
 
                     st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
                     st.write("""
@@ -768,164 +631,68 @@ def treinar_modelo(SEED):
                     Determinaremos k automaticamente usando o coeficiente de silhueta.
                     """)
 
-                    melhor_k = escolher_k_kmeans(X_original, max_k=10)
-                    sil_score = silhouette_score(X_original, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_original))
-                    st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
+                    max_k = min(10, X_original.shape[0]-1, len(classes)*2) if len(classes) > 1 else 2
+                    if max_k < 2:
+                        max_k = 2
+                    melhor_k = 2
+                    melhor_sil = -1
+                    for k in range(2, max_k+1):
+                        kmeans_test = KMeans(n_clusters=k, random_state=42)
+                        labels_test = kmeans_test.fit_predict(X_original)
+                        if len(np.unique(labels_test)) > 1:
+                            sil = silhouette_score(X_original, labels_test)
+                            if sil > melhor_sil:
+                                melhor_sil = sil
+                                melhor_k = k
 
-                    kmeans = KMeans(n_clusters=melhor_k, random_state=42)
-                    kmeans_labels = kmeans.fit_predict(X_original)
+                    st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={melhor_sil:.2f})")
+
+                    kmeans=KMeans(n_clusters=melhor_k,random_state=42)
+                    kmeans_labels=kmeans.fit_predict(X_original)
                     st.write("Classes por Cluster (K-Means):")
-                    cluster_dist = []
+                    cluster_dist=[]
                     for cidx in range(melhor_k):
-                        cluster_classes = y_original[kmeans_labels == cidx]
-                        counts = pd.Series(cluster_classes).value_counts()
+                        cluster_classes=y_original[kmeans_labels==cidx]
+                        counts=pd.value_counts(cluster_classes)
                         cluster_dist.append(counts)
-                    for idx, dist in enumerate(cluster_dist):
-                        st.write(f"**Cluster {idx+1}:**")
-                        st.write(dist)
+                    st.write(cluster_dist)
 
                     st.write("Análise Hierárquica:")
-                    Z = linkage(X_original, 'ward')
-                    fig_dend, ax_dend = plt.subplots(figsize=(10,5))
-                    dendrogram(Z, ax=ax_dend, truncate_mode='level', p=5)
+                    Z=linkage(X_original,'ward')
+                    fig_dend,ax_dend=plt.subplots(figsize=(10,5))
+                    dendrogram(Z,ax=ax_dend)
                     ax_dend.set_title("Dendrograma Hierárquico")
                     ax_dend.set_xlabel("Amostras")
                     ax_dend.set_ylabel("Distância")
                     st.pyplot(fig_dend)
                     plt.close(fig_dend)
 
-                    hier = AgglomerativeClustering(n_clusters=2)
-                    hier_labels = hier.fit_predict(X_original)
+                    hier=AgglomerativeClustering(n_clusters=2)
+                    hier_labels=hier.fit_predict(X_original)
                     st.write("Classes por Cluster (Hierárquico):")
-                    cluster_dist_h = []
+                    cluster_dist_h=[]
                     for cidx in range(2):
-                        cluster_classes = y_original[hier_labels == cidx]
-                        counts_h = pd.Series(cluster_classes).value_counts()
+                        cluster_classes=y_original[hier_labels==cidx]
+                        counts_h=pd.value_counts(cluster_classes)
                         cluster_dist_h.append(counts_h)
-                    for idx, dist in enumerate(cluster_dist_h):
-                        st.write(f"**Cluster {idx+1}:**")
-                        st.write(dist)
+                    st.write(cluster_dist_h)
 
-                    visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050)
+                    # Visualizar 3 exemplos de cada classe original e 3 exemplos aumentados
+                    visualizar_exemplos_classe(df, y_original, classes, augmentation=enable_augmentation, sr=22050)
 
-            # Limpeza de memória e arquivos temporários
-            try:
                 gc.collect()
                 os.remove(caminho_zip)
                 for cat in categorias:
-                    caminho_cat = os.path.join(diretorio_extracao, cat)
+                    caminho_cat=os.path.join(caminho_base,cat)
                     for arquivo in os.listdir(caminho_cat):
-                        os.remove(os.path.join(caminho_cat, arquivo))
+                        os.remove(os.path.join(caminho_cat,arquivo))
                     os.rmdir(caminho_cat)
-                os.rmdir(diretorio_extracao)
+                os.rmdir(caminho_base)
                 logging.info("Processo concluído.")
+
             except Exception as e:
-                st.error(f"Erro na limpeza de arquivos temporários: {e}")
-                logging.error(f"Erro na limpeza de arquivos temporários: {e}")
-
-def classificar_audio(SEED):
-    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
-        st.markdown("### Instruções para Classificar Áudio")
-        st.markdown("""
-        **Passo 1:** Upload do modelo treinado (.keras ou .h5) e classes (classes.txt).  
-        **Passo 2:** Upload do áudio a ser classificado.  
-        **Passo 3:** O app extrai features e prediz a classe.
-        """)
-
-        modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
-        classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
-
-        if modelo_file is not None and classes_file is not None:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(modelo_file.name)[1]) as tmp_model:
-                tmp_model.write(modelo_file.read())
-                caminho_modelo = tmp_model.name
-
-            try:
-                modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
-                logging.info("Modelo carregado com sucesso.")
-                st.success("Modelo carregado com sucesso!")
-                # Verificar a saída do modelo
-                st.write(f"Modelo carregado com saída: {modelo.output_shape}")
-                st.session_state['modelo'] = modelo  # Armazena o modelo no session_state
-            except Exception as e:
-                st.error(f"Erro ao carregar o modelo: {e}")
-                logging.error(f"Erro ao carregar o modelo: {e}")
-                return
-
-            try:
-                classes = classes_file.read().decode("utf-8").splitlines()
-                if not classes:
-                    st.error("O arquivo de classes está vazio.")
-                    return
-                logging.info("Arquivo de classes carregado com sucesso.")
-            except Exception as e:
-                st.error(f"Erro ao ler o arquivo de classes: {e}")
-                logging.error(f"Erro ao ler o arquivo de classes: {e}")
-                return
-
-            # Verificar se o número de classes corresponde ao número de saídas do modelo
-            num_classes_model = modelo.output_shape[-1]
-            num_classes_file = len(classes)
-            st.write(f"Número de classes no arquivo: {num_classes_file}")
-            st.write(f"Número de saídas no modelo: {num_classes_model}")
-            if num_classes_file != num_classes_model:
-                st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
-                logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
-                return
-
-            st.markdown("**Modelo e Classes Carregados!**")
-            st.markdown(f"**Classes:** {', '.join(classes)}")
-
-            audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
-            if audio_file is not None:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
-                    tmp_audio.write(audio_file.read())
-                    caminho_audio = tmp_audio.name
-
-                data, sr = carregar_audio(caminho_audio, sr=None)
-                if data is not None:
-                    ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
-                    if ftrs is not None:
-                        # Dependendo da arquitetura do modelo, reshape pode variar
-                        if num_classes_model == 1:
-                            ftrs = ftrs.reshape(1, -1, 1)
-                        else:
-                            ftrs = ftrs.reshape(1, -1, 1)
-                        try:
-                            pred = modelo.predict(ftrs)
-                            if num_classes_model == 1:
-                                # Modelo com sigmoid
-                                pred_class = int(pred[0][0] > 0.5)
-                                pred_label = classes[pred_class]
-                                confidence = pred[0][0] * 100
-                            else:
-                                # Modelo com softmax
-                                pred_class = np.argmax(pred, axis=1)
-                                pred_label = classes[pred_class[0]]
-                                confidence = pred[0][pred_class[0]] * 100
-                            st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
-
-                            # Gráfico de Probabilidades
-                            fig_prob, ax_prob = plt.subplots(figsize=(8,4))
-                            ax_prob.bar(classes, pred[0], color='skyblue')
-                            ax_prob.set_title("Probabilidades por Classe")
-                            ax_prob.set_ylabel("Probabilidade")
-                            plt.xticks(rotation=45)
-                            st.pyplot(fig_prob)
-                            plt.close(fig_prob)
-
-                            # Reprodução e Visualização do Áudio
-                            st.audio(caminho_audio)
-                            visualizar_audio(data, sr)
-                        except Exception as e:
-                            st.error(f"Erro na predição: {e}")
-                            logging.error(f"Erro na predição: {e}")
-                    else:
-                        st.error("Não foi possível extrair features do áudio.")
-                        logging.warning("Não foi possível extrair features do áudio.")
-                else:
-                    st.error("Não foi possível carregar o áudio.")
-                    logging.warning("Não foi possível carregar o áudio.")
+                st.error(f"Erro: {e}")
+                logging.error(f"Erro: {e}")
 
 with st.expander("Contexto e Descrição Completa"):
     st.markdown("""
@@ -939,14 +706,14 @@ with st.expander("Contexto e Descrição Completa"):
        - Treina uma CNN (rede neural convolucional) para classificar os sons.
        - Mostra métricas (acurácia, F1, precisão, recall) e histórico de treinamento, bem como gráficos das curvas de perda e acurácia.
        - Plota a Matriz de Confusão, permitindo visualizar onde o modelo se confunde.
-       - Usa SHAP e LIME para interpretar quais frequências (MFCCs) são mais importantes, mostrando gráficos summary plot das ferramentas escolhidas.
+       - Usa SHAP para interpretar quais frequências (MFCCs) são mais importantes, mostrando gráficos summary plot do SHAP.
        - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
        - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
        - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
-       - Mostra 1 exemplo de cada classe do dataset original e 1 exemplo aumentado, exibindo espectros, espectrogramas e MFCCs.
+       - Mostra 3 exemplos de cada classe do dataset original e 3 exemplos aumentados, exibindo espectros, espectrogramas e MFCCs.
 
     2. **Classificar Áudio com Modelo Treinado:**  
-       - Você faz upload de um modelo já treinado (.keras ou .h5) e do arquivo de classes (classes.txt).
+       - Você faz upload de um modelo já treinado (.keras) e do arquivo de classes (classes.txt).
        - Envia um arquivo de áudio para classificação.
        - O app extrai as mesmas features e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
        - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs do áudio.
@@ -955,14 +722,14 @@ with st.expander("Contexto e Descrição Completa"):
     Ao perturbar um copo com água, surgem modos ressonantes. A temperatura e propriedades do fluido alteram ligeiramente as frequências ressonantes. As MFCCs e centróide refletem a distribuição espectral, e a CNN aprende padrões ligados ao estado do fluido-copo.
 
     **Explicação para Leigos:**
-    Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide), a CNN aprende a relacioná-los à quantidade de água. SHAP e LIME explicam quais frequências importam, clustering mostra agrupamentos de sons. Visualizações (espectros, espectrogramas, MFCCs, histórico) tornam tudo compreensível.
+    Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide), a CNN aprende a relacioná-los à quantidade de água. SHAP explica quais frequências importam, clustering mostra agrupamentos de sons. Visualizações (espectros, espectrogramas, MFCCs, histórico) tornam tudo compreensível.
 
     Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, valendo 10/10.
     """)
 
 st.sidebar.header("Configurações Gerais")
 with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
-    st.markdown("**SEED** garante resultados reproduzíveis.")
+    st.markdown("SEED garante resultados reproduzíveis.")
 
 seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
@@ -974,9 +741,7 @@ SEED = seed_selection
 set_seeds(SEED)
 
 with st.sidebar.expander("Sobre o SEED"):
-    st.markdown("""
-    **SEED** garante replicabilidade de resultados, permitindo que os experimentos sejam reproduzidos com os mesmos dados e parâmetros.
-    """)
+    st.markdown("Garante replicabilidade de resultados.")
 
 eu_icon_path = "eu.ico"
 if os.path.exists(eu_icon_path):
@@ -991,7 +756,7 @@ st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
 
 app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
 
-if app_mode == "Classificar Áudio":
+if app_mode=="Classificar Áudio":
     classificar_audio(SEED)
-elif app_mode == "Treinar Modelo":
+elif app_mode=="Treinar Modelo":
     treinar_modelo(SEED)
