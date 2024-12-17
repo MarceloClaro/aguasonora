@@ -17,3 +17,5 @@ Pillow
 scikit-learn
 shap
 scipy>=1.10.0
+lime
+interpret
