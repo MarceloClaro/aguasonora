@@ -752,45 +752,54 @@ def treinar_modelo(SEED):
                     st.markdown("### Explicabilidade com SHAP")
                     st.write("Selecionando amostras de teste para análise SHAP.")
                     X_sample = X_test[:50]
-                    try:
-                        # Inicializando o explainer corretamente
-                        if isinstance(modelo, tf.keras.Model):
-                            explainer = shap.GradientExplainer(modelo, X_train_final[:100])
-                        else:
-                            explainer = shap.KernelExplainer(modelo.predict, X_train_final[:100])
 
-                        shap_values = explainer.shap_values(X_sample)
+                    try:
+                        # Inicializando o explainer usando shap.Explainer
+                        explainer = shap.Explainer(modelo, X_train_final[:100])
+
+                        # Preparar as amostras de teste
+                        # Dependendo do modelo, SHAP pode esperar (num_samples, num_features) ou (num_samples, num_features, 1)
+                        # Vamos flatten as amostras se necessário
+                        if X_sample.ndim == 3 and X_sample.shape[2] == 1:
+                            X_sample_flat = X_sample.reshape((X_sample.shape[0], X_sample.shape[1]))
+                        else:
+                            X_sample_flat = X_sample
+
+                        # Calculando shap_values
+                        shap_values = explainer(X_sample_flat)
 
                         st.write("Plot SHAP Summary por Classe:")
 
-                        # Debugging: Verificar o número de shap_values e classes
-                        if isinstance(shap_values, list):
-                            num_shap_values = len(shap_values)
+                        # Verificar a estrutura dos shap_values
+                        if isinstance(shap_values.values, list):
+                            num_shap_values = len(shap_values.values)
                         else:
                             num_shap_values = 1  # Para modelos binários com um único output
+
                         num_classes = len(classes)
                         st.write(f"Número de shap_values: {num_shap_values}, Número de classes: {num_classes}")
 
-                        if isinstance(shap_values, list) and num_shap_values == num_classes:
+                        if isinstance(shap_values.values, list) and num_shap_values == num_classes:
                             for class_idx, class_name in enumerate(classes):
                                 st.write(f"**Classe: {class_name}**")
                                 fig_shap = plt.figure()
-                                shap.summary_plot(shap_values[class_idx], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
+                                shap.summary_plot(shap_values.values[class_idx], X_sample_flat, show=False)
                                 st.pyplot(fig_shap)
                                 plt.close(fig_shap)
                         elif num_shap_values == 1 and num_classes == 2:
-                            # Classificação binária, shap_values corresponde a uma classe
+                            # Para modelos binários com um único output
                             st.write(f"**Classe: {classes[1]}**")
                             fig_shap = plt.figure()
-                            shap.summary_plot(shap_values, X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
+                            shap.summary_plot(shap_values.values, X_sample_flat, show=False)
                             st.pyplot(fig_shap)
                             plt.close(fig_shap)
                         else:
                             st.warning("Número de shap_values não corresponde ao número de classes.")
-                            if isinstance(shap_values, list):
-                                st.write(f"shap_values length: {len(shap_values)}, classes length: {num_classes}")
+                            if isinstance(shap_values.values, list):
+                                st.write(f"shap_values length: {len(shap_values.values)}, classes length: {num_classes}")
                             else:
                                 st.write(f"shap_values length: 1, classes length: {num_classes}")
+
                         st.write("""
                         **Interpretação SHAP:**  
                         MFCCs com valor SHAP alto contribuem significativamente para a classe.  
