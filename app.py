@@ -823,109 +823,109 @@ def treinar_modelo(SEED):
                 st.error(f"Erro na limpeza de arquivos temporários: {e}")
                 logging.error(f"Erro na limpeza de arquivos temporários: {e}")
 
-    def classificar_audio(SEED):
-        with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
-            st.markdown("### Instruções para Classificar Áudio")
-            st.markdown("""
-            **Passo 1:** Upload do modelo treinado (.keras ou .h5) e classes (classes.txt).  
-            **Passo 2:** Upload do áudio a ser classificado.  
-            **Passo 3:** O app extrai features e prediz a classe.
-            """)
+def classificar_audio(SEED):
+    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
+        st.markdown("### Instruções para Classificar Áudio")
+        st.markdown("""
+        **Passo 1:** Upload do modelo treinado (.keras ou .h5) e classes (classes.txt).  
+        **Passo 2:** Upload do áudio a ser classificado.  
+        **Passo 3:** O app extrai features e prediz a classe.
+        """)
 
-            modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
-            classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
+        modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
+        classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
 
-            if modelo_file is not None and classes_file is not None:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(modelo_file.name)[1]) as tmp_model:
-                    tmp_model.write(modelo_file.read())
-                    caminho_modelo = tmp_model.name
+        if modelo_file is not None and classes_file is not None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(modelo_file.name)[1]) as tmp_model:
+                tmp_model.write(modelo_file.read())
+                caminho_modelo = tmp_model.name
 
-                try:
-                    modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
-                    logging.info("Modelo carregado com sucesso.")
-                    st.success("Modelo carregado com sucesso!")
-                    # Verificar a saída do modelo
-                    st.write(f"Modelo carregado com saída: {modelo.output_shape}")
-                    st.session_state['modelo'] = modelo  # Armazena o modelo no session_state
-                except Exception as e:
-                    st.error(f"Erro ao carregar o modelo: {e}")
-                    logging.error(f"Erro ao carregar o modelo: {e}")
+            try:
+                modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
+                logging.info("Modelo carregado com sucesso.")
+                st.success("Modelo carregado com sucesso!")
+                # Verificar a saída do modelo
+                st.write(f"Modelo carregado com saída: {modelo.output_shape}")
+                st.session_state['modelo'] = modelo  # Armazena o modelo no session_state
+            except Exception as e:
+                st.error(f"Erro ao carregar o modelo: {e}")
+                logging.error(f"Erro ao carregar o modelo: {e}")
+                return
+
+            try:
+                classes = classes_file.read().decode("utf-8").splitlines()
+                if not classes:
+                    st.error("O arquivo de classes está vazio.")
                     return
+                logging.info("Arquivo de classes carregado com sucesso.")
+            except Exception as e:
+                st.error(f"Erro ao ler o arquivo de classes: {e}")
+                logging.error(f"Erro ao ler o arquivo de classes: {e}")
+                return
 
-                try:
-                    classes = classes_file.read().decode("utf-8").splitlines()
-                    if not classes:
-                        st.error("O arquivo de classes está vazio.")
-                        return
-                    logging.info("Arquivo de classes carregado com sucesso.")
-                except Exception as e:
-                    st.error(f"Erro ao ler o arquivo de classes: {e}")
-                    logging.error(f"Erro ao ler o arquivo de classes: {e}")
-                    return
+            # Verificar se o número de classes corresponde ao número de saídas do modelo
+            num_classes_model = modelo.output_shape[-1]
+            num_classes_file = len(classes)
+            st.write(f"Número de classes no arquivo: {num_classes_file}")
+            st.write(f"Número de saídas no modelo: {num_classes_model}")
+            if num_classes_file != num_classes_model:
+                st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                return
 
-                # Verificar se o número de classes corresponde ao número de saídas do modelo
-                num_classes_model = modelo.output_shape[-1]
-                num_classes_file = len(classes)
-                st.write(f"Número de classes no arquivo: {num_classes_file}")
-                st.write(f"Número de saídas no modelo: {num_classes_model}")
-                if num_classes_file != num_classes_model:
-                    st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
-                    logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
-                    return
+            st.markdown("**Modelo e Classes Carregados!**")
+            st.markdown(f"**Classes:** {', '.join(classes)}")
 
-                st.markdown("**Modelo e Classes Carregados!**")
-                st.markdown(f"**Classes:** {', '.join(classes)}")
+            audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
+            if audio_file is not None:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
+                    tmp_audio.write(audio_file.read())
+                    caminho_audio = tmp_audio.name
 
-                audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
-                if audio_file is not None:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
-                        tmp_audio.write(audio_file.read())
-                        caminho_audio = tmp_audio.name
-
-                    data, sr = carregar_audio(caminho_audio, sr=None)
-                    if data is not None:
-                        ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
-                        if ftrs is not None:
-                            # Dependendo da arquitetura do modelo, reshape pode variar
-                            if num_classes_model == 1:
-                                ftrs = ftrs.reshape(1, -1, 1)
-                            else:
-                                ftrs = ftrs.reshape(1, -1, 1)
-                            try:
-                                pred = modelo.predict(ftrs)
-                                if num_classes_model == 1:
-                                    # Modelo com sigmoid
-                                    pred_class = int(pred[0][0] > 0.5)
-                                    pred_label = classes[pred_class]
-                                    confidence = pred[0][0] * 100
-                                else:
-                                    # Modelo com softmax
-                                    pred_class = np.argmax(pred, axis=1)
-                                    pred_label = classes[pred_class[0]]
-                                    confidence = pred[0][pred_class[0]] * 100
-                                st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
-
-                                # Gráfico de Probabilidades
-                                fig_prob, ax_prob = plt.subplots(figsize=(8,4))
-                                ax_prob.bar(classes, pred[0], color='skyblue')
-                                ax_prob.set_title("Probabilidades por Classe")
-                                ax_prob.set_ylabel("Probabilidade")
-                                plt.xticks(rotation=45)
-                                st.pyplot(fig_prob)
-                                plt.close(fig_prob)
-
-                                # Reprodução e Visualização do Áudio
-                                st.audio(caminho_audio)
-                                visualizar_audio(data, sr)
-                            except Exception as e:
-                                st.error(f"Erro na predição: {e}")
-                                logging.error(f"Erro na predição: {e}")
+                data, sr = carregar_audio(caminho_audio, sr=None)
+                if data is not None:
+                    ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+                    if ftrs is not None:
+                        # Dependendo da arquitetura do modelo, reshape pode variar
+                        if num_classes_model == 1:
+                            ftrs = ftrs.reshape(1, -1, 1)
                         else:
-                            st.error("Não foi possível extrair features do áudio.")
-                            logging.warning("Não foi possível extrair features do áudio.")
+                            ftrs = ftrs.reshape(1, -1, 1)
+                        try:
+                            pred = modelo.predict(ftrs)
+                            if num_classes_model == 1:
+                                # Modelo com sigmoid
+                                pred_class = int(pred[0][0] > 0.5)
+                                pred_label = classes[pred_class]
+                                confidence = pred[0][0] * 100
+                            else:
+                                # Modelo com softmax
+                                pred_class = np.argmax(pred, axis=1)
+                                pred_label = classes[pred_class[0]]
+                                confidence = pred[0][pred_class[0]] * 100
+                            st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
+
+                            # Gráfico de Probabilidades
+                            fig_prob, ax_prob = plt.subplots(figsize=(8,4))
+                            ax_prob.bar(classes, pred[0], color='skyblue')
+                            ax_prob.set_title("Probabilidades por Classe")
+                            ax_prob.set_ylabel("Probabilidade")
+                            plt.xticks(rotation=45)
+                            st.pyplot(fig_prob)
+                            plt.close(fig_prob)
+
+                            # Reprodução e Visualização do Áudio
+                            st.audio(caminho_audio)
+                            visualizar_audio(data, sr)
+                        except Exception as e:
+                            st.error(f"Erro na predição: {e}")
+                            logging.error(f"Erro na predição: {e}")
                     else:
-                        st.error("Não foi possível carregar o áudio.")
-                        logging.warning("Não foi possível carregar o áudio.")
+                        st.error("Não foi possível extrair features do áudio.")
+                        logging.warning("Não foi possível extrair features do áudio.")
+                else:
+                    st.error("Não foi possível carregar o áudio.")
+                    logging.warning("Não foi possível carregar o áudio.")
 
 with st.expander("Contexto e Descrição Completa"):
     st.markdown("""
