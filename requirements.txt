@@ -15,4 +15,4 @@ torchcam
 Pillow
 scikit-learn
 shap
-scipy
+scipy>=1.10.0
