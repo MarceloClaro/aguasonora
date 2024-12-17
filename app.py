@@ -111,45 +111,49 @@ def aumentar_audio(data, sr, augmentations):
 
 def visualizar_audio(data, sr):
     """Visualiza diferentes representações do áudio."""
-    # Forma de onda
-    fig_wave, ax_wave = plt.subplots(figsize=(8,4))
-    librosa.display.waveplot(data, sr=sr, ax=ax_wave)
-    ax_wave.set_title("Forma de Onda no Tempo")
-    ax_wave.set_xlabel("Tempo (s)")
-    ax_wave.set_ylabel("Amplitude")
-    st.pyplot(fig_wave)
-    plt.close(fig_wave)
+    try:
+        # Forma de onda usando waveshow
+        fig_wave, ax_wave = plt.subplots(figsize=(8,4))
+        librosa.display.waveshow(data, sr=sr, ax=ax_wave)
+        ax_wave.set_title("Forma de Onda no Tempo")
+        ax_wave.set_xlabel("Tempo (s)")
+        ax_wave.set_ylabel("Amplitude")
+        st.pyplot(fig_wave)
+        plt.close(fig_wave)
 
-    # FFT (Espectro)
-    fft = np.fft.fft(data)
-    fft_abs = np.abs(fft[:len(fft)//2])
-    freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
-    fig_fft, ax_fft = plt.subplots(figsize=(8,4))
-    ax_fft.plot(freqs, fft_abs)
-    ax_fft.set_title("Espectro (Amplitude x Frequência)")
-    ax_fft.set_xlabel("Frequência (Hz)")
-    ax_fft.set_ylabel("Amplitude")
-    st.pyplot(fig_fft)
-    plt.close(fig_fft)
+        # FFT (Espectro)
+        fft = np.fft.fft(data)
+        fft_abs = np.abs(fft[:len(fft)//2])
+        freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
+        fig_fft, ax_fft = plt.subplots(figsize=(8,4))
+        ax_fft.plot(freqs, fft_abs)
+        ax_fft.set_title("Espectro (Amplitude x Frequência)")
+        ax_fft.set_xlabel("Frequência (Hz)")
+        ax_fft.set_ylabel("Amplitude")
+        st.pyplot(fig_fft)
+        plt.close(fig_fft)
 
-    # Espectrograma
-    D = np.abs(librosa.stft(data))**2
-    S = librosa.power_to_db(D, ref=np.max)
-    fig_spec, ax_spec = plt.subplots(figsize=(8,4))
-    img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='hz', ax=ax_spec)
-    ax_spec.set_title("Espectrograma")
-    fig_spec.colorbar(img_spec, ax=ax_spec, format='%+2.0f dB')
-    st.pyplot(fig_spec)
-    plt.close(fig_spec)
+        # Espectrograma
+        D = np.abs(librosa.stft(data))**2
+        S = librosa.power_to_db(D, ref=np.max)
+        fig_spec, ax_spec = plt.subplots(figsize=(8,4))
+        img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='hz', ax=ax_spec)
+        ax_spec.set_title("Espectrograma")
+        fig_spec.colorbar(img_spec, ax=ax_spec, format='%+2.0f dB')
+        st.pyplot(fig_spec)
+        plt.close(fig_spec)
 
-    # MFCCs Plot
-    mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
-    fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
-    img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
-    ax_mfcc.set_title("MFCCs")
-    fig_mfcc.colorbar(img_mfcc, ax=ax_mfcc)
-    st.pyplot(fig_mfcc)
-    plt.close(fig_mfcc)
+        # MFCCs Plot
+        mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
+        fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
+        img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
+        ax_mfcc.set_title("MFCCs")
+        fig_mfcc.colorbar(img_mfcc, ax=ax_mfcc)
+        st.pyplot(fig_mfcc)
+        plt.close(fig_mfcc)
+    except Exception as e:
+        st.error(f"Erro na visualização do áudio: {e}")
+        logging.error(f"Erro na visualização do áudio: {e}")
 
 def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
     """
@@ -193,7 +197,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
             try:
                 # Seleciona outro exemplo aleatório para augmentation
                 idx_aug = random.choice(indices_classe)
-                st.write(f"Selecionando índice aumentado: {idx_aug}")
+                st.write(f"Selecionando índice para augmentation: {idx_aug}")
                 if idx_aug >= len(df):
                     st.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
                     logging.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
@@ -233,19 +237,18 @@ def escolher_k_kmeans(X_original, max_k=10):
 
 def classificar_audio(SEED):
     with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
-        # Removido o expander aninhado para evitar erro
         st.markdown("### Instruções para Classificar Áudio")
         st.markdown("""
-        **Passo 1:** Upload do modelo treinado (.keras) e classes (classes.txt).  
+        **Passo 1:** Upload do modelo treinado (.keras ou .h5) e classes (classes.txt).  
         **Passo 2:** Upload do áudio a ser classificado.  
         **Passo 3:** O app extrai features e prediz a classe.
         """)
 
-        modelo_file = st.file_uploader("Upload do Modelo (.keras)", type=["keras","h5"])
+        modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
         classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
 
         if modelo_file is not None and classes_file is not None:
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.keras') as tmp_model:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(modelo_file.name)[1]) as tmp_model:
                 tmp_model.write(modelo_file.read())
                 caminho_modelo = tmp_model.name
 
@@ -274,8 +277,8 @@ def classificar_audio(SEED):
             # Verificar se o número de classes corresponde ao número de saídas do modelo
             num_classes_model = modelo.output_shape[-1]
             num_classes_file = len(classes)
-            st.write(f"Numero de classes no arquivo: {num_classes_file}")
-            st.write(f"Numero de saídas no modelo: {num_classes_model}")
+            st.write(f"Número de classes no arquivo: {num_classes_file}")
+            st.write(f"Número de saídas no modelo: {num_classes_model}")
             if num_classes_file != num_classes_model:
                 st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
                 logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
@@ -326,7 +329,6 @@ def classificar_audio(SEED):
 
 def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
-        # Removido o expander aninhado para evitar erro
         st.markdown("### Instruções Passo a Passo")
         st.markdown("""
         **Passo 1:** Upload do dataset .zip (pastas=classes).  
@@ -412,6 +414,7 @@ def treinar_modelo(SEED):
 
                 st.sidebar.markdown("**Configurações de Treinamento:**")
 
+                # Parâmetros de Treinamento
                 num_epochs = st.sidebar.slider("Número de Épocas:", 10, 500, 50, 10)
                 batch_size = st.sidebar.selectbox("Batch:", [8,16,32,64,128],0)
 
@@ -439,6 +442,11 @@ def treinar_modelo(SEED):
                 else:
                     l1_regularization = 0.0
                     l2_regularization = 0.0
+
+                # Opções de Fine-Tuning Adicionais
+                st.sidebar.markdown("**Fine-Tuning Adicional:**")
+                learning_rate = st.sidebar.slider("Taxa de Aprendizado:", 1e-5, 1e-2, 1e-3, step=1e-5, format="%.5f")
+                optimizer_choice = st.sidebar.selectbox("Otimização:", ["Adam", "SGD", "RMSprop"],0)
 
                 enable_augmentation = st.sidebar.checkbox("Data Augmentation", True)
                 if enable_augmentation:
@@ -571,7 +579,18 @@ def treinar_modelo(SEED):
                     ))
                     modelo.add(Dropout(dropout_rate))
                 modelo.add(Dense(len(classes), activation='softmax'))
-                modelo.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+                # Configuração do Otimizador com Taxa de Aprendizado
+                if optimizer_choice == "Adam":
+                    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+                elif optimizer_choice == "SGD":
+                    optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
+                elif optimizer_choice == "RMSprop":
+                    optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
+                else:
+                    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)  # Default
+
+                modelo.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
                 diretorio_salvamento = 'modelos_salvos'
                 if not os.path.exists(diretorio_salvamento):
@@ -584,20 +603,21 @@ def treinar_modelo(SEED):
                 checkpointer = ModelCheckpoint(
                     os.path.join(diretorio_salvamento,'modelo_agua_aumentado.keras'),
                     monitor='val_loss',
-                    verbose=3,
+                    verbose=1,
                     save_best_only=True
                 )
                 earlystop = EarlyStopping(
                     monitor=es_monitor,
                     patience=es_patience,
                     restore_best_weights=True,
-                    mode=es_mode
+                    mode=es_mode,
+                    verbose=1
                 )
                 lr_scheduler = ReduceLROnPlateau(
                     monitor='val_loss', 
                     factor=0.5, 
                     patience=3, 
-                    verbose=3
+                    verbose=1
                 )
 
                 callbacks = [checkpointer, earlystop, lr_scheduler]
@@ -628,9 +648,9 @@ def treinar_modelo(SEED):
                                 validation_data=(X_val_cv, to_categorical(y_val_cv)),
                                 callbacks=callbacks,
                                 class_weight=class_weight_dict,
-                                verbose=3
+                                verbose=1
                             )
-                            score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=3)
+                            score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
                             val_scores.append(score[1]*100)
                             fold_no += 1
                         if not st.session_state.stop_training:
@@ -643,7 +663,7 @@ def treinar_modelo(SEED):
                             validation_data=(X_val, to_categorical(y_val)),
                             callbacks=callbacks,
                             class_weight=class_weight_dict,
-                            verbose=3
+                            verbose=1
                         )
                         if st.session_state.stop_training:
                             st.warning("Treinamento Parado pelo Usuário!")
@@ -666,9 +686,9 @@ def treinar_modelo(SEED):
 
                 if not st.session_state.stop_training:
                     st.markdown("### Avaliação do Modelo")
-                    score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=3)
-                    score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=3)
-                    score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=3)
+                    score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=0)
+                    score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
+                    score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
 
                     st.write(f"Acurácia Treino: {score_train[1]*100:.2f}%")
                     st.write(f"Acurácia Validação: {score_val[1]*100:.2f}%")
@@ -802,7 +822,6 @@ def treinar_modelo(SEED):
                         st.write(f"**Cluster {idx+1}:**")
                         st.write(dist)
 
-                    # **Alteração Principal: Passar y_valid em vez de y_original**
                     visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050)
 
                 # Limpeza de memória e arquivos temporários
@@ -839,7 +858,7 @@ with st.expander("Contexto e Descrição Completa"):
        - Mostra 1 exemplo de cada classe do dataset original e 1 exemplo aumentado, exibindo espectros, espectrogramas e MFCCs.
 
     2. **Classificar Áudio com Modelo Treinado:**  
-       - Você faz upload de um modelo já treinado (.keras) e do arquivo de classes (classes.txt).
+       - Você faz upload de um modelo já treinado (.keras ou .h5) e do arquivo de classes (classes.txt).
        - Envia um arquivo de áudio para classificação.
        - O app extrai as mesmas features e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
        - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs do áudio.
