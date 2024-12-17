@@ -871,6 +871,96 @@ with st.expander("Contexto e Descrição Completa"):
     Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide), a CNN aprende a relacioná-los à quantidade de água. SHAP explica quais frequências importam, clustering mostra agrupamentos de sons. Visualizações (espectros, espectrogramas, MFCCs, histórico) tornam tudo compreensível.
 
     Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, valendo 10/10.
+    
+    ---
+    
+    ## Explicação para Especialistas (Física, Acústica, Fluidodinâmica, Machine Learning)
+    
+    Quando o usuário faz o **upload do dataset** (um arquivo .zip contendo subpastas, cada qual representando uma classe de condição física do fluido-copo), o código executa uma série de processos técnicos e físicos, desde a análise do sinal acústico até a classificação via rede neural convolucional.
+    
+    1. **Contexto Físico do Problema:**
+       O copo com água, quando excitado mecanicamente (por exemplo, batendo suavemente na borda), produz oscilações internas no fluido. Essas oscilações correspondem a modos ressonantes, soluções da equação de onda no interior do líquido confinado. A frequência de cada modo depende de:
+       - Geometria do recipiente (raio, altura do copo).
+       - Altura da coluna de água.
+       - Propriedades termofísicas do líquido (densidade, compressibilidade, viscosidade).
+       - Efeitos térmicos (temperatura alterando a velocidade do som no fluido).
+    
+       Assim, se a coluna de água é mais alta, os modos ressonantes tendem a apresentar frequências fundamentais mais baixas (sons mais graves). Se a água é mais rasa, surgem frequências mais altas (som mais agudo). Se a temperatura do fluido varia, a velocidade do som muda, deslocando ligeiramente as frequências ressonantes.
+    
+       Ao carregar o dataset (conjunto de áudios), cada classe do dataset pode representar um estado físico distinto do fluido-copo (diferente altura da coluna de água, variação de temperatura, etc.).
+    
+    2. **Processamento de Sinal:**
+       O código lê cada arquivo de áudio e o converte em uma série temporal (amostras do sinal sonoro). Em seguida, extrai **features** que condensam informações físicas relevantes do espectro de frequências. São extraídas as seguintes principais características:
+       - **MFCCs (Mel-Frequency Cepstral Coefficients):** Transformam o espectro de frequências em uma escala próxima da percepção humana. Porém, fisicamente, os MFCCs também podem ser interpretados como vetores que destacam a distribuição de energia em bandas de frequência específicas. Como os modos ressonantes determinam quais frequências têm mais energia, os MFCCs capturam, indiretamente, quais modos estão ativos.
+       - **Centróide Espectral:** É a frequência média ponderada pela intensidade do espectro. Se o centróide é mais alto, significa que há mais energia em frequências agudas (modos associados a colunas líquidas mais rasas ou condições que elevam a frequência). Caso seja mais baixo, o som é mais grave, indicando colunas mais altas ou condições que reduzem a frequência ressonante.
+    
+       O dataset, após ter seus áudios lidos, é transformado em um conjunto de vetores numéricos (matrizes de features). Esse é o “link físico” do problema: estamos mapeando um fenômeno acústico, determinado por equações de onda e propriedades termodinâmicas do fluido, em vetores numéricos (MFCCs, centróide) que preservam as assinaturas das condições físicas.
+    
+    3. **Data Augmentation (Aumento de Dados):**
+       Para tornar o modelo mais robusto, o código pode aplicar aumentos de dados, simulando:
+       - Ruído Gaussiano: Imita condições experimentais mais ruidosas.
+       - Time Stretch: Aumenta ou diminui a velocidade do áudio sem mudar o tom, testando a robustez contra variações temporais.
+       - Pitch Shift: Altera a frequência global do som, simulando leves variações no modo ressonante.
+       - Shift (Deslocamento temporal): Adiciona silêncio no início ou no fim, testando a invariância temporal.
+    
+       Do ponto de vista físico, esses aumentos criam variações plausíveis do sinal para que o modelo não fique “especializado” demais em um único conjunto de condições experimentais, aprendendo assim uma representação mais genérica e robusta.
+    
+    4. **Balanceamento e Classes Desbalanceadas:**
+       Caso o dataset tenha classes com diferentes quantidades de exemplos (por exemplo, mais gravações com água gelada do que com água quente), o código pode aplicar pesos (class_weight) ao treinamento. Isso garante que a classe menos representada (por exemplo, um estado térmico raro) não seja ignorada. Assim, o modelo mantém a capacidade de reconhecer todos os estados físicos do fluido-copo.
+    
+    5. **Treinamento da CNN:**
+       A CNN (rede neural convolucional) recebe, como entrada, os vetores de features (MFCCs, centróide). Essas camadas convolucionais, max-pooling e densas extraem padrões complexos e não-lineares que correlacionam diretamente com as condições físicas do fluido. Por exemplo, a CNN aprenderá que determinados arranjos de frequências (um certo conjunto de MFCCs mais elevados em certas bandas) correspondem a um estado físico específico.
+    
+       O LR Scheduler (ReduceLROnPlateau) ajusta a taxa de aprendizado conforme o treinamento estagna, refinando o ajuste dos pesos da rede para capturar até sutis diferenças espectrais.
+    
+       Early Stopping interrompe o treinamento se o modelo parar de melhorar, evitando overfitting e assegurando que o modelo final seja mais generalista.
+    
+    6. **Métricas, SHAP e Clustering:**
+       Após o treinamento, o código avalia métricas (acurácia, F1, precisão, recall) que, fisicamente, dizem quão bem o modelo distingue os diferentes estados físicos do fluido-copo.
+    
+       O SHAP (uma ferramenta de interpretabilidade) mostra quais MFCCs (quais partes do espectro) mais influenciam a classificação. Se o SHAP indica que frequências mais altas são muito importantes para determinada classe, isso sugere que aquele estado físico do fluido-copo aumenta a energia em frequências ressonantes mais elevadas.
+    
+       Clustering (K-Means, Hierárquico) analisa a distribuição interna dos dados. Se classes similares fisicamente (por exemplo, água levemente mais quente vs. temperatura ambiente) estiverem próximas em um cluster, isso confirma coerência física: espectros semelhantes resultam em clusters semelhantes. O dendrograma hierárquico mostra a “árvore de similaridade” entre amostras, relacionando-se à proximidade física dos modos ressonantes.
+    
+    ---
+    
+    ## Explicação para Leigos (Autodidata)
+    
+    Imagine que você tem um copo com água. Quando você bate nele, ele faz um som. Esse som depende de quanta água tem dentro e da temperatura da água. Por exemplo:
+    - Pouca água -> Som mais agudo.
+    - Muita água -> Som mais grave.
+    - Água mais quente -> Pode alterar um pouquinho as frequências, mudando ligeiramente o tom.
+    
+    No código, quando você **envia o dataset**, está mandando vários arquivos de áudio, cada um representando um estado diferente do copo (mais água, menos água, temperatura diferente, etc.).
+    
+    1. **Transformando Som em Números (Features):**
+       O computador pega cada áudio e extrai características (chamadas MFCCs e centróide). Pense nelas como “descrições numéricas” da música:
+       - MFCCs: Dividem o som em várias faixas de frequência e veem quanta energia tem em cada uma.
+       - Centróide: Diz se o som puxa mais para o agudo ou para o grave.
+    
+       Dessa forma, o computador entende o som não como “barulho”, mas como um conjunto de números que representam o padrão das frequências.
+    
+    2. **Aumento de Dados (Data Augmentation):**
+       Para o computador não ficar “mal acostumado” com um só tipo de som, o código cria variações: adiciona ruído, muda um pouquinho a velocidade, o tom, ou desloca o áudio no tempo. Isso faz a “audição” do computador ficar mais esperta, pois ele aprende a reconhecer a classe mesmo com variações.
+    
+    3. **Balanciando as Classes:**
+       Se você tiver mais gravações de “água fria” do que “água morna”, o computador pode acabar só aprendendo a reconhecer “água fria”. O código ajusta o “peso” (importância) de cada classe, garantindo que todas tenham importância igual, mesmo que algumas apareçam menos vezes.
+    
+    4. **Treinando a Rede Neural:**
+       Depois dessas preparações, o código treina uma “rede neural convolucional”. Essa rede aprende quais padrões nos números (MFCCs, centróide) correspondem a cada classe (estado do copo). Com o tempo, ela fica boa em “ouvir” o som e identificar a classe correta.
+    
+       Se o treinamento para de melhorar, o código para o treino (Early Stopping) para não exagerar. Se a taxa de aprendizado estiver alta demais, o código diminui (LR Scheduler), para refinar o aprendizado.
+    
+    5. **Resultados e Interpretação:**
+       Depois do treino, o código mostra quantos acertos o modelo teve (acurácia), se ele sabe evitar erros graves (precisão, recall, F1).
+    
+       O SHAP é como uma lupa: ele mostra quais frequências mais ajudaram o computador a adivinhar a classe. Se o SHAP mostra que frequências agudas são importantes para detectar “pouca água”, isso faz sentido fisicamente, porque menos água gera som mais agudo.
+    
+       O clustering agrupa sons parecidos. Se sons de “água gelada” formam um grupo e “água quente” outro, é sinal de que o computador vê diferença nítida nos números (frequências) que correspondem a essas condições. O dendrograma é um “mapa” que mostra quais áudios são mais parecidos entre si.
+    
+    ---
+    
+    Em resumo, ao enviar o dataset, você fornece ao computador “amostras sonoras” que, graças a técnicas de análise de sinal, teoria de ondas em fluidos e machine learning, são convertidas em informações numericamente tratáveis. Essas informações, analisadas por uma rede neural, permitem reconhecer diferentes estados físicos do fluido-copo (altura da coluna de água, temperatura, etc.) de forma coerente tanto com a física do problema quanto com o ponto de vista prático da classificação.
     """)
 
 st.sidebar.header("Configurações Gerais")
