@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import librosa
 import tensorflow as tf
-from tensorflow.keras.utils import to_categorical, plot_model
+from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
 from sklearn.utils.class_weight import compute_class_weight
@@ -221,16 +221,15 @@ def escolher_k_kmeans(X_original, max_k=10):
     return melhor_k
 
 def classificar_audio(SEED):
-    # Instruções para Classificação de Áudio (separadas do expander principal)
-    with st.expander("Instruções para Classificar Áudio"):
+    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
+        st.markdown("### Instruções para Classificar Áudio")
         st.markdown("""
-        **Passo 1:** Faça upload do modelo treinado (.keras ou .h5) e do arquivo de classes (classes.txt).  
-        **Passo 2:** Faça upload do áudio que deseja classificar.  
-        **Passo 3:** O aplicativo extrai as features do áudio e realiza a predição, exibindo a classe prevista e a confiança.
+        **Passo 1:** Upload do modelo treinado (.keras) e classes (classes.txt).  
+        **Passo 2:** Upload do áudio a ser classificado.  
+        **Passo 3:** O app extrai features e prediz a classe.
         """)
 
-    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
-        modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
+        modelo_file = st.file_uploader("Upload do Modelo (.keras)", type=["keras","h5"])
         classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
 
         if modelo_file is not None and classes_file is not None:
@@ -303,13 +302,14 @@ def classificar_audio(SEED):
 
 def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
-        with st.expander("Instruções Passo a Passo"):
-            st.markdown("""
-            **Passo 1:** Faça upload do dataset .zip (pastas=classes).  
-            **Passo 2:** Ajuste os parâmetros de treinamento no sidebar.  
-            **Passo 3:** Clique em 'Treinar Modelo'.  
-            **Passo 4:** Analise métricas, matriz de confusão, histórico de treinamento, SHAP e clustering.
-            """)
+        st.markdown("### Instruções Passo a Passo")
+        st.markdown("""
+        **Passo 1:** Upload do dataset .zip (pastas=classes).  
+        **Passo 2:** Ajuste parâmetros no sidebar.  
+        **Passo 3:** Clique em 'Treinar Modelo'.  
+        **Passo 4:** Analise métricas, matriz de confusão, histórico, SHAP.  
+        **Passo 5:** Veja o clustering e visualize espectros e MFCCs.
+        """)
 
         # Checkbox para permitir parar o treinamento
         stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False)
@@ -795,7 +795,7 @@ with st.expander("Contexto e Descrição Completa"):
        - Mostra 1 exemplo de cada classe do dataset original e 1 exemplo aumentado, exibindo espectros, espectrogramas e MFCCs.
 
     2. **Classificar Áudio com Modelo Treinado:**  
-       - Você faz upload de um modelo já treinado (.keras ou .h5) e do arquivo de classes (classes.txt).
+       - Você faz upload de um modelo já treinado (.keras) e do arquivo de classes (classes.txt).
        - Envia um arquivo de áudio para classificação.
        - O app extrai as mesmas features e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
        - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs do áudio.
