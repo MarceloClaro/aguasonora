@@ -255,10 +255,7 @@ def model_predict(x):
     """Função de predição ajustada para SHAP e LIME."""
     if 'modelo' not in st.session_state:
         raise ValueError("Modelo não está carregado na sessão.")
-    logging.info("Realizando predição com o modelo.")
-    prediction = st.session_state['modelo'].predict(x)
-    logging.info("Predição realizada com sucesso.")
-    return prediction
+    return st.session_state['modelo'].predict(x)
 
 def gerar_explicacoes_shap(modelo, X_train_final, X_sample_flat, classes):
     """
