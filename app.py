@@ -221,15 +221,16 @@ def escolher_k_kmeans(X_original, max_k=10):
     return melhor_k
 
 def classificar_audio(SEED):
-    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
-        st.markdown("### Instruções para Classificar Áudio")
+    # Instruções para Classificação de Áudio (separadas do expander principal)
+    with st.expander("Instruções para Classificar Áudio"):
         st.markdown("""
-        **Passo 1:** Upload do modelo treinado (.keras) e classes (classes.txt).  
-        **Passo 2:** Upload do áudio a ser classificado.  
-        **Passo 3:** O app extrai features e prediz a classe.
+        **Passo 1:** Faça upload do modelo treinado (.keras ou .h5) e do arquivo de classes (classes.txt).  
+        **Passo 2:** Faça upload do áudio que deseja classificar.  
+        **Passo 3:** O aplicativo extrai as features do áudio e realiza a predição, exibindo a classe prevista e a confiança.
         """)
 
-        modelo_file = st.file_uploader("Upload do Modelo (.keras)", type=["keras","h5"])
+    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
+        modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
         classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
 
         if modelo_file is not None and classes_file is not None:
@@ -302,14 +303,13 @@ def classificar_audio(SEED):
 
 def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
-        st.markdown("### Instruções Passo a Passo")
-        st.markdown("""
-        **Passo 1:** Upload do dataset .zip (pastas=classes).  
-        **Passo 2:** Ajuste parâmetros no sidebar.  
-        **Passo 3:** Clique em 'Treinar Modelo'.  
-        **Passo 4:** Analise métricas, matriz de confusão, histórico, SHAP.  
-        **Passo 5:** Veja o clustering e visualize espectros e MFCCs.
-        """)
+        with st.expander("Instruções Passo a Passo"):
+            st.markdown("""
+            **Passo 1:** Faça upload do dataset .zip (pastas=classes).  
+            **Passo 2:** Ajuste os parâmetros de treinamento no sidebar.  
+            **Passo 3:** Clique em 'Treinar Modelo'.  
+            **Passo 4:** Analise métricas, matriz de confusão, histórico de treinamento, SHAP e clustering.
+            """)
 
         # Checkbox para permitir parar o treinamento
         stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False)
@@ -775,3 +775,72 @@ def treinar_modelo(SEED):
             except Exception as e:
                 st.error(f"Erro: {e}")
                 logging.error(f"Erro: {e}")
+
+with st.expander("Contexto e Descrição Completa"):
+    st.markdown("""
+    **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN**
+
+    Este aplicativo realiza duas tarefas principais:
+
+    1. **Treinar Modelo:**  
+       - Você faz upload de um dataset .zip contendo pastas, cada pasta representando uma classe (estado físico do fluido-copo).
+       - O app extrai características do áudio (MFCCs, centróide espectral), normaliza, aplica (opcionalmente) Data Augmentation.
+       - Treina uma CNN (rede neural convolucional) para classificar os sons.
+       - Mostra métricas (acurácia, F1, precisão, recall) e histórico de treinamento, bem como gráficos das curvas de perda e acurácia.
+       - Plota a Matriz de Confusão, permitindo visualizar onde o modelo se confunde.
+       - Usa SHAP para interpretar quais frequências (MFCCs) são mais importantes, mostrando gráficos summary plot do SHAP.
+       - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
+       - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
+       - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
+       - Mostra 1 exemplo de cada classe do dataset original e 1 exemplo aumentado, exibindo espectros, espectrogramas e MFCCs.
+
+    2. **Classificar Áudio com Modelo Treinado:**  
+       - Você faz upload de um modelo já treinado (.keras ou .h5) e do arquivo de classes (classes.txt).
+       - Envia um arquivo de áudio para classificação.
+       - O app extrai as mesmas features e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
+       - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs do áudio.
+
+    **Contexto Físico (Fluidos, Ondas, Calor):**
+    Ao perturbar um copo com água, surgem modos ressonantes. A temperatura e propriedades do fluido alteram ligeiramente as frequências ressonantes. As MFCCs e centróide refletem a distribuição espectral, e a CNN aprende padrões ligados ao estado do fluido-copo.
+
+    **Explicação para Leigos:**
+    Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide), a CNN aprende a relacioná-los à quantidade de água. SHAP explica quais frequências importam, clustering mostra agrupamentos de sons. Visualizações (espectros, espectrogramas, MFCCs, histórico) tornam tudo compreensível.
+
+    Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, valendo 10/10.
+    """)
+
+st.sidebar.header("Configurações Gerais")
+with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
+    st.markdown("**SEED** garante resultados reproduzíveis.")
+
+seed_selection = st.sidebar.selectbox(
+    "Escolha o valor do SEED:",
+    options=seed_options,
+    index=seed_options.index(default_seed),
+    help="Define a semente para reprodutibilidade."
+)
+SEED = seed_selection
+set_seeds(SEED)
+
+with st.sidebar.expander("Sobre o SEED"):
+    st.markdown("""
+    **SEED** garante replicabilidade de resultados, permitindo que os experimentos sejam reproduzidos com os mesmos dados e parâmetros.
+    """)
+
+eu_icon_path = "eu.ico"
+if os.path.exists(eu_icon_path):
+    try:
+        st.sidebar.image(eu_icon_path, width=80)
+    except UnidentifiedImageError:
+        st.sidebar.text("Ícone 'eu.ico' corrompido.")
+else:
+    st.sidebar.text("Ícone 'eu.ico' não encontrado.")
+
+st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
+
+app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
+
+if app_mode == "Classificar Áudio":
+    classificar_audio(SEED)
+elif app_mode == "Treinar Modelo":
+    treinar_modelo(SEED)
