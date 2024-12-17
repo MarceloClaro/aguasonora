@@ -584,7 +584,7 @@ def treinar_modelo(SEED):
                 checkpointer = ModelCheckpoint(
                     os.path.join(diretorio_salvamento,'modelo_agua_aumentado.keras'),
                     monitor='val_loss',
-                    verbose=1,
+                    verbose=3,
                     save_best_only=True
                 )
                 earlystop = EarlyStopping(
@@ -597,7 +597,7 @@ def treinar_modelo(SEED):
                     monitor='val_loss', 
                     factor=0.5, 
                     patience=3, 
-                    verbose=1
+                    verbose=3
                 )
 
                 callbacks = [checkpointer, earlystop, lr_scheduler]
@@ -628,9 +628,9 @@ def treinar_modelo(SEED):
                                 validation_data=(X_val_cv, to_categorical(y_val_cv)),
                                 callbacks=callbacks,
                                 class_weight=class_weight_dict,
-                                verbose=1
+                                verbose=3
                             )
-                            score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
+                            score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=3)
                             val_scores.append(score[1]*100)
                             fold_no += 1
                         if not st.session_state.stop_training:
@@ -643,7 +643,7 @@ def treinar_modelo(SEED):
                             validation_data=(X_val, to_categorical(y_val)),
                             callbacks=callbacks,
                             class_weight=class_weight_dict,
-                            verbose=1
+                            verbose=3
                         )
                         if st.session_state.stop_training:
                             st.warning("Treinamento Parado pelo Usuário!")
@@ -666,9 +666,9 @@ def treinar_modelo(SEED):
 
                 if not st.session_state.stop_training:
                     st.markdown("### Avaliação do Modelo")
-                    score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=0)
-                    score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
-                    score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
+                    score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=3)
+                    score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=3)
+                    score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=3)
 
                     st.write(f"Acurácia Treino: {score_train[1]*100:.2f}%")
                     st.write(f"Acurácia Validação: {score_val[1]*100:.2f}%")
