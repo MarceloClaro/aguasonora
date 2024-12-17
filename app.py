@@ -297,12 +297,23 @@ def classificar_audio(SEED):
                 if data is not None:
                     ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
                     if ftrs is not None:
-                        ftrs = ftrs.reshape(1, -1, 1)
+                        # Dependendo da arquitetura do modelo, reshape pode variar
+                        if num_classes_model == 1:
+                            ftrs = ftrs.reshape(1, -1, 1)
+                        else:
+                            ftrs = ftrs.reshape(1, -1, 1)
                         try:
                             pred = modelo.predict(ftrs)
-                            pred_class = np.argmax(pred, axis=1)
-                            pred_label = classes[pred_class[0]]
-                            confidence = pred[0][pred_class[0]] * 100
+                            if num_classes_model == 1:
+                                # Modelo com sigmoid
+                                pred_class = int(pred[0][0] > 0.5)
+                                pred_label = classes[pred_class]
+                                confidence = pred[0][0] * 100
+                            else:
+                                # Modelo com softmax
+                                pred_class = np.argmax(pred, axis=1)
+                                pred_label = classes[pred_class[0]]
+                                confidence = pred[0][pred_class[0]] * 100
                             st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
 
                             # Gráfico de Probabilidades
@@ -671,9 +682,9 @@ def treinar_modelo(SEED):
                             st.success("Treino concluído!")
 
                 # Salvando o modelo
-                with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
-                    modelo.save(tmp_model.name)
-                    caminho_tmp_model = tmp_model.name
+                with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model_file:
+                    modelo.save(tmp_model_file.name)
+                    caminho_tmp_model = tmp_model_file.name
                 with open(caminho_tmp_model, 'rb') as f:
                     modelo_bytes = f.read()
                 buffer = io.BytesIO(modelo_bytes)
@@ -742,18 +753,25 @@ def treinar_modelo(SEED):
                     st.write("Selecionando amostras de teste para análise SHAP.")
                     X_sample = X_test[:50]
                     try:
-                        # Atualize para usar um explainer compatível ou atualize o SHAP
-                        explainer = shap.DeepExplainer(modelo, X_train_final[:100])
+                        # Inicializando o explainer corretamente
+                        if isinstance(modelo, tf.keras.Model):
+                            explainer = shap.GradientExplainer(modelo, X_train_final[:100])
+                        else:
+                            explainer = shap.KernelExplainer(modelo.predict, X_train_final[:100])
+
                         shap_values = explainer.shap_values(X_sample)
 
                         st.write("Plot SHAP Summary por Classe:")
 
                         # Debugging: Verificar o número de shap_values e classes
-                        num_shap_values = len(shap_values)
+                        if isinstance(shap_values, list):
+                            num_shap_values = len(shap_values)
+                        else:
+                            num_shap_values = 1  # Para modelos binários com um único output
                         num_classes = len(classes)
                         st.write(f"Número de shap_values: {num_shap_values}, Número de classes: {num_classes}")
 
-                        if num_shap_values == num_classes:
+                        if isinstance(shap_values, list) and num_shap_values == num_classes:
                             for class_idx, class_name in enumerate(classes):
                                 st.write(f"**Classe: {class_name}**")
                                 fig_shap = plt.figure()
@@ -761,15 +779,18 @@ def treinar_modelo(SEED):
                                 st.pyplot(fig_shap)
                                 plt.close(fig_shap)
                         elif num_shap_values == 1 and num_classes == 2:
-                            # Classificação binária, shap_values[0] corresponde à classe positiva
+                            # Classificação binária, shap_values corresponde a uma classe
                             st.write(f"**Classe: {classes[1]}**")
                             fig_shap = plt.figure()
-                            shap.summary_plot(shap_values[0], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
+                            shap.summary_plot(shap_values, X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
                             st.pyplot(fig_shap)
                             plt.close(fig_shap)
                         else:
                             st.warning("Número de shap_values não corresponde ao número de classes.")
-                            st.write(f"shap_values length: {num_shap_values}, classes length: {num_classes}")
+                            if isinstance(shap_values, list):
+                                st.write(f"shap_values length: {len(shap_values)}, classes length: {num_classes}")
+                            else:
+                                st.write(f"shap_values length: 1, classes length: {num_classes}")
                         st.write("""
                         **Interpretação SHAP:**  
                         MFCCs com valor SHAP alto contribuem significativamente para a classe.  
@@ -829,11 +850,11 @@ def treinar_modelo(SEED):
                 gc.collect()
                 os.remove(caminho_zip)
                 for cat in categorias:
-                    caminho_cat = os.path.join(caminho_base, cat)
+                    caminho_cat = os.path.join(diretorio_extracao, cat)
                     for arquivo in os.listdir(caminho_cat):
                         os.remove(os.path.join(caminho_cat, arquivo))
                     os.rmdir(caminho_cat)
-                os.rmdir(caminho_base)
+                os.rmdir(diretorio_extracao)
                 logging.info("Processo concluído.")
 
             except Exception as e:
