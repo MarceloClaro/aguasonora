@@ -242,6 +242,8 @@ def classificar_audio(SEED):
                 modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
+                # Verificar a saída do modelo
+                st.write(f"Modelo carregado com saída: {modelo.output_shape}")
             except Exception as e:
                 st.error(f"Erro ao carregar o modelo: {e}")
                 logging.error(f"Erro ao carregar o modelo: {e}")
@@ -256,6 +258,16 @@ def classificar_audio(SEED):
             except Exception as e:
                 st.error(f"Erro ao ler o arquivo de classes: {e}")
                 logging.error(f"Erro ao ler o arquivo de classes: {e}")
+                return
+
+            # Verificar se o número de classes corresponde ao número de saídas do modelo
+            num_classes_model = modelo.output_shape[-1]
+            num_classes_file = len(classes)
+            st.write(f"Numero de classes no arquivo: {num_classes_file}")
+            st.write(f"Numero de saídas no modelo: {num_classes_model}")
+            if num_classes_file != num_classes_model:
+                st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
                 return
 
             st.markdown("**Modelo e Classes Carregados!**")
@@ -702,15 +714,20 @@ def treinar_modelo(SEED):
                         shap_values = explainer.shap_values(X_sample)
 
                         st.write("Plot SHAP Summary por Classe:")
-                        # Verifica se é classificação binária ou multi-classe
-                        if len(shap_values) == len(classes):
+
+                        # Debugging: Verificar o número de shap_values e classes
+                        num_shap_values = len(shap_values)
+                        num_classes = len(classes)
+                        st.write(f"Número de shap_values: {num_shap_values}, Número de classes: {num_classes}")
+
+                        if num_shap_values == num_classes:
                             for class_idx, class_name in enumerate(classes):
                                 st.write(f"**Classe: {class_name}**")
                                 fig_shap = plt.figure()
                                 shap.summary_plot(shap_values[class_idx], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
                                 st.pyplot(fig_shap)
                                 plt.close(fig_shap)
-                        elif len(shap_values) == 1 and len(classes) == 2:
+                        elif num_shap_values == 1 and num_classes == 2:
                             # Classificação binária, shap_values[0] corresponde à classe positiva
                             st.write(f"**Classe: {classes[1]}**")
                             fig_shap = plt.figure()
@@ -719,6 +736,7 @@ def treinar_modelo(SEED):
                             plt.close(fig_shap)
                         else:
                             st.warning("Número de shap_values não corresponde ao número de classes.")
+                            st.write(f"shap_values length: {num_shap_values}, classes length: {num_classes}")
                         st.write("""
                         **Interpretação SHAP:**  
                         MFCCs com valor SHAP alto contribuem significativamente para a classe.  
