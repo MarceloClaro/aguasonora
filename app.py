@@ -8,7 +8,7 @@ import librosa.display
 import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
+from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.cluster import KMeans, AgglomerativeClustering
@@ -29,8 +29,8 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLRO
 import shap
 from lime import lime_tabular
 from interpret import show
-from interpret.blackbox import ExplainableBoostingClassifier
-from interpret.perf import roc_auc_score
+from interpret.glassbox import ExplainableBoostingClassifier  # Correção aqui
+from sklearn.metrics import roc_auc_score  # Importado de sklearn.metrics
 
 # Configuração de Logging
 logging.basicConfig(
