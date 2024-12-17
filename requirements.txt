@@ -15,5 +15,5 @@ torchaudio
 torchcam
 Pillow
 scikit-learn
-shap>=0.40.0
+shap
 scipy>=1.10.0
