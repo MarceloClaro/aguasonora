@@ -222,6 +222,7 @@ def escolher_k_kmeans(X_original, max_k=10):
 
 def classificar_audio(SEED):
     with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
+        # Removido o expander aninhado para evitar erro
         st.markdown("### Instruções para Classificar Áudio")
         st.markdown("""
         **Passo 1:** Upload do modelo treinado (.keras) e classes (classes.txt).  
@@ -302,6 +303,7 @@ def classificar_audio(SEED):
 
 def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
+        # Removido o expander aninhado para evitar erro
         st.markdown("### Instruções Passo a Passo")
         st.markdown("""
         **Passo 1:** Upload do dataset .zip (pastas=classes).  
@@ -698,13 +700,25 @@ def treinar_modelo(SEED):
                     try:
                         explainer = shap.DeepExplainer(modelo, X_train_final[:100])
                         shap_values = explainer.shap_values(X_sample)
+
                         st.write("Plot SHAP Summary por Classe:")
-                        for class_idx, class_name in enumerate(classes):
-                            st.write(f"**Classe: {class_name}**")
+                        # Verifica se é classificação binária ou multi-classe
+                        if len(shap_values) == len(classes):
+                            for class_idx, class_name in enumerate(classes):
+                                st.write(f"**Classe: {class_name}**")
+                                fig_shap = plt.figure()
+                                shap.summary_plot(shap_values[class_idx], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
+                                st.pyplot(fig_shap)
+                                plt.close(fig_shap)
+                        elif len(shap_values) == 1 and len(classes) == 2:
+                            # Classificação binária, shap_values[0] corresponde à classe positiva
+                            st.write(f"**Classe: {classes[1]}**")
                             fig_shap = plt.figure()
-                            shap.summary_plot(shap_values[class_idx], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
+                            shap.summary_plot(shap_values[0], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
                             st.pyplot(fig_shap)
                             plt.close(fig_shap)
+                        else:
+                            st.warning("Número de shap_values não corresponde ao número de classes.")
                         st.write("""
                         **Interpretação SHAP:**  
                         MFCCs com valor SHAP alto contribuem significativamente para a classe.  
