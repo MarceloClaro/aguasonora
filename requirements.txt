@@ -20,4 +20,5 @@ scipy>=1.10.0
 lime
 flake8
 pylint
+interpret>=0.13.0
 interpret
