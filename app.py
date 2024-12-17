@@ -30,7 +30,7 @@ import shap
 from lime import lime_tabular
 from interpret import show
 from interpret.glassbox import ExplainableBoostingClassifier  # Correção aqui
-from sklearn.metrics import roc_auc_score  # Importado de sklearn.metrics
+# from interpret.perf import roc_auc_score  # Removido para usar sklearn.metrics
 
 # Configuração de Logging
 logging.basicConfig(
@@ -253,15 +253,25 @@ def ensure_3d_input(func):
 @ensure_3d_input
 def model_predict(x):
     """Função de predição ajustada para SHAP e LIME."""
-    return modelo.predict(x)
+    if 'modelo' not in st.session_state:
+        raise ValueError("Modelo não está carregado na sessão.")
+    logging.info("Realizando predição com o modelo.")
+    prediction = st.session_state['modelo'].predict(x)
+    logging.info("Predição realizada com sucesso.")
+    return prediction
 
 def gerar_explicacoes_shap(modelo, X_train_final, X_sample_flat, classes):
     """
-    Gera explicações SHAP usando KernelExplainer.
+    Gera explicações SHAP usando DeepExplainer para modelos Keras.
     """
     try:
-        shap_explainer_instance = shap.KernelExplainer(model_predict, X_train_final[:100])
-        shap_values = shap_explainer_instance.shap_values(X_sample_flat, nsamples=100)
+        logging.info("Iniciando a criação do SHAP DeepExplainer.")
+        background = X_train_final[:100]
+        logging.info(f"Background shape: {background.shape}")
+        shap_explainer_instance = shap.DeepExplainer(modelo, background)
+        logging.info("DeepExplainer criado com sucesso.")
+        shap_values = shap_explainer_instance.shap_values(X_sample_flat)
+        logging.info("SHAP values calculados com sucesso.")
 
         st.write("Plot SHAP Summary por Classe:")
 
@@ -664,6 +674,7 @@ def treinar_modelo(SEED):
                             st.warning("Treinamento Parado pelo Usuário!")
                         else:
                             st.success("Treino concluído!")
+                            st.session_state['modelo'] = modelo  # Armazena o modelo no session_state
 
                 # Salvando o modelo
                 try:
@@ -750,7 +761,7 @@ def treinar_modelo(SEED):
                     st.write("Selecionando amostras de teste para análise de explicabilidade.")
                     X_sample = X_test_final[:50]
                     if explicabilidade_option == "SHAP":
-                        shap_values = gerar_explicacoes_shap(modelo, X_train_final, X_sample, classes)
+                        gerar_explicacoes_shap(modelo, X_train_final, X_sample, classes)
                     elif explicabilidade_option == "LIME":
                         gerar_explicacoes_lime(modelo, X_train, X_sample, classes)
                     elif explicabilidade_option == "InterpretML":
@@ -816,24 +827,24 @@ def treinar_modelo(SEED):
 
                     visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050)
 
-                # Limpeza de memória e arquivos temporários
-                try:
-                    gc.collect()
-                    os.remove(caminho_zip)
-                    for cat in categorias:
-                        caminho_cat = os.path.join(diretorio_extracao, cat)
-                        for arquivo in os.listdir(caminho_cat):
-                            os.remove(os.path.join(caminho_cat, arquivo))
-                        os.rmdir(caminho_cat)
-                    os.rmdir(diretorio_extracao)
-                    logging.info("Processo concluído.")
-                except Exception as e:
-                    st.error(f"Erro na limpeza de arquivos temporários: {e}")
-                    logging.error(f"Erro na limpeza de arquivos temporários: {e}")
-
+            # Limpeza de memória e arquivos temporários
+            try:
+                gc.collect()
+                os.remove(caminho_zip)
+                for cat in categorias:
+                    caminho_cat = os.path.join(diretorio_extracao, cat)
+                    for arquivo in os.listdir(caminho_cat):
+                        os.remove(os.path.join(caminho_cat, arquivo))
+                    os.rmdir(caminho_cat)
+                os.rmdir(diretorio_extracao)
+                logging.info("Processo concluído.")
             except Exception as e:
-                st.error(f"Erro ao processar o dataset: {e}")
-                logging.error(f"Erro ao processar o dataset: {e}")
+                st.error(f"Erro na limpeza de arquivos temporários: {e}")
+                logging.error(f"Erro na limpeza de arquivos temporários: {e}")
+
+    except Exception as e:
+        st.error(f"Erro ao processar o dataset: {e}")
+        logging.error(f"Erro ao processar o dataset: {e}")
 
 def classificar_audio(SEED):
     with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
@@ -858,6 +869,7 @@ def classificar_audio(SEED):
                 st.success("Modelo carregado com sucesso!")
                 # Verificar a saída do modelo
                 st.write(f"Modelo carregado com saída: {modelo.output_shape}")
+                st.session_state['modelo'] = modelo  # Armazena o modelo no session_state
             except Exception as e:
                 st.error(f"Erro ao carregar o modelo: {e}")
                 logging.error(f"Erro ao carregar o modelo: {e}")
