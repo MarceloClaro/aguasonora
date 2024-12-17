@@ -260,11 +260,7 @@ def gerar_explicacoes_shap(modelo, X_train_final, X_sample, classes):
     Gera explicações SHAP usando KernelExplainer.
     """
     try:
-        # Definir uma função de predição que já inclui o reshape
-        def model_predict_shap(x):
-            return modelo.predict(x)
-
-        shap_explainer_instance = shap.KernelExplainer(model_predict_shap, X_train_final[:100])
+        shap_explainer_instance = shap.KernelExplainer(model_predict, X_train_final[:100])
         shap_values = shap_explainer_instance.shap_values(X_sample, nsamples=100)
 
         st.write("Plot SHAP Summary por Classe:")
@@ -296,7 +292,6 @@ def gerar_explicacoes_shap(modelo, X_train_final, X_sample, classes):
         MFCCs com valor SHAP alto contribuem significativamente para a classe.  
         Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
         """)
-
     except Exception as e:
         st.write("SHAP não pôde ser gerado:", e)
         logging.error(f"Erro ao gerar SHAP: {e}")
@@ -306,28 +301,142 @@ def gerar_explicacoes_lime(modelo, X_train, X_sample, classes):
     Gera explicações LIME usando LIME Tabular.
     """
     try:
-        # LIME espera dados no formato (n_samples, n_features)
-        X_train_flat = X_train.reshape((X_train.shape[0], X_train.shape[1]))
-        X_sample_flat = X_sample.reshape((X_sample.shape[0], X_sample.shape[1]))
-
         explainer = lime_tabular.LimeTabularExplainer(
-            training_data=X_train_flat,
-            feature_names=[f"Feature {i}" for i in range(X_train_flat.shape[1])],
+            training_data=X_train,
+            feature_names=[f"Feature {i}" for i in range(X_train.shape[1])],
             class_names=classes,
             mode='classification'
         )
 
         idx = 0  # Índice da amostra a ser explicada
-        exp = explainer.explain_instance(X_sample_flat[idx], modelo.predict, num_features=10)
+        exp = explainer.explain_instance(X_sample[idx], modelo.predict, num_features=10)
 
-        pred_class = np.argmax(modelo.predict(X_sample[idx].reshape(1, -1, 1)), axis=1)[0]
-        st.write(f"**Explicação LIME para a classe: {classes[pred_class]}**")
+        st.write(f"**Explicação LIME para a classe: {classes[np.argmax(modelo.predict(X_sample[idx].reshape(1, -1, 1)))]}**")
         fig_lime = exp.as_pyplot_figure()
         st.pyplot(fig_lime)
         plt.close(fig_lime)
     except Exception as e:
         st.write("LIME não pôde ser gerado:", e)
         logging.error(f"Erro ao gerar LIME: {e}")
+
+def gerar_explicacoes_interpretml(modelo, X_train_final, X_sample_final, classes, y_train):
+    """
+    Gera explicações usando InterpretML.
+    """
+    try:
+        st.markdown("#### Explicabilidade com InterpretML")
+        # Para InterpretML, precisamos treinar um modelo explicável separado
+        interpretable_model = ExplainableBoostingClassifier(random_state=SEED)
+        # Reshape para InterpretML (flat)
+        X_train_flat = X_train_final.reshape((X_train_final.shape[0], X_train_final.shape[1]))
+        interpretable_model.fit(X_train_flat, y_train)
+        # Selecionar uma amostra para explicação
+        X_sample_flat_iml = X_sample_final.reshape((X_sample_final.shape[0], X_sample_final.shape[1]))
+        explanations = interpretable_model.explain(X_sample_flat_iml)
+        st.pyplot(show(explanations))
+    except Exception as e:
+        st.write("InterpretML não pôde ser gerado:", e)
+        logging.error(f"Erro ao gerar InterpretML: {e}")
+
+def classificar_audio(SEED):
+    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
+        st.markdown("### Instruções para Classificar Áudio")
+        st.markdown("""
+        **Passo 1:** Upload do modelo treinado (.keras ou .h5) e classes (classes.txt).  
+        **Passo 2:** Upload do áudio a ser classificado.  
+        **Passo 3:** O app extrai features e prediz a classe do áudio.
+        """)
+
+        modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
+        classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
+
+        if modelo_file is not None and classes_file is not None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(modelo_file.name)[1]) as tmp_model:
+                tmp_model.write(modelo_file.read())
+                caminho_modelo = tmp_model.name
+
+            try:
+                modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
+                logging.info("Modelo carregado com sucesso.")
+                st.success("Modelo carregado com sucesso!")
+                # Verificar a saída do modelo
+                st.write(f"Modelo carregado com saída: {modelo.output_shape}")
+            except Exception as e:
+                st.error(f"Erro ao carregar o modelo: {e}")
+                logging.error(f"Erro ao carregar o modelo: {e}")
+                return
+
+            try:
+                classes = classes_file.read().decode("utf-8").splitlines()
+                if not classes:
+                    st.error("O arquivo de classes está vazio.")
+                    return
+                logging.info("Arquivo de classes carregado com sucesso.")
+            except Exception as e:
+                st.error(f"Erro ao ler o arquivo de classes: {e}")
+                logging.error(f"Erro ao ler o arquivo de classes: {e}")
+                return
+
+            # Verificar se o número de classes corresponde ao número de saídas do modelo
+            num_classes_model = modelo.output_shape[-1]
+            num_classes_file = len(classes)
+            st.write(f"Número de classes no arquivo: {num_classes_file}")
+            st.write(f"Número de saídas no modelo: {num_classes_model}")
+            if num_classes_file != num_classes_model:
+                st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                return
+
+            st.markdown("**Modelo e Classes Carregados!**")
+            st.markdown(f"**Classes:** {', '.join(classes)}")
+
+            audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
+            if audio_file is not None:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
+                    tmp_audio.write(audio_file.read())
+                    caminho_audio = tmp_audio.name
+
+                data, sr = carregar_audio(caminho_audio, sr=None)
+                if data is not None:
+                    ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+                    if ftrs is not None:
+                        # Dependendo da arquitetura do modelo, reshape pode variar
+                        ftrs = ftrs.reshape(1, -1, 1)
+                        try:
+                            pred = modelo.predict(ftrs)
+                            if num_classes_model == 1:
+                                # Modelo com sigmoid
+                                pred_class = int(pred[0][0] > 0.5)
+                                pred_label = classes[pred_class]
+                                confidence = pred[0][0] * 100
+                            else:
+                                # Modelo com softmax
+                                pred_class = np.argmax(pred, axis=1)
+                                pred_label = classes[pred_class[0]]
+                                confidence = pred[0][pred_class[0]] * 100
+                            st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
+
+                            # Gráfico de Probabilidades
+                            fig_prob, ax_prob = plt.subplots(figsize=(8,4))
+                            ax_prob.bar(classes, pred[0], color='skyblue')
+                            ax_prob.set_title("Probabilidades por Classe")
+                            ax_prob.set_ylabel("Probabilidade")
+                            plt.xticks(rotation=45)
+                            st.pyplot(fig_prob)
+                            plt.close(fig_prob)
+
+                            # Reprodução e Visualização do Áudio
+                            st.audio(caminho_audio)
+                            visualizar_audio(data, sr)
+                        except Exception as e:
+                            st.error(f"Erro na predição: {e}")
+                            logging.error(f"Erro na predição: {e}")
+                    else:
+                        st.error("Não foi possível extrair features do áudio.")
+                        logging.warning("Não foi possível extrair features do áudio.")
+                else:
+                    st.error("Não foi possível carregar o áudio.")
+                    logging.warning("Não foi possível carregar o áudio.")
 
 def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
@@ -632,8 +741,8 @@ def treinar_modelo(SEED):
                 else:
                     class_weight_dict = None
 
-                st.write("Treinando...")
                 try:
+                    st.write("Treinando...")
                     with st.spinner('Treinando...'):
                         if cross_validation and k_folds > 1:
                             kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
@@ -675,21 +784,21 @@ def treinar_modelo(SEED):
                             else:
                                 st.success("Treino concluído!")
 
-                    # Salvando o modelo
-                    with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model_file:
-                        modelo.save(tmp_model_file.name)
-                        caminho_tmp_model = tmp_model_file.name
-                    with open(caminho_tmp_model, 'rb') as f:
-                        modelo_bytes = f.read()
-                    buffer = io.BytesIO(modelo_bytes)
-                    st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
-                    os.remove(caminho_tmp_model)
+                        # Salvando o modelo
+                        with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model_file:
+                            modelo.save(tmp_model_file.name)
+                            caminho_tmp_model = tmp_model_file.name
+                        with open(caminho_tmp_model, 'rb') as f:
+                            modelo_bytes = f.read()
+                        buffer = io.BytesIO(modelo_bytes)
+                        st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
+                        os.remove(caminho_tmp_model)
 
-                    # Salvando as classes
-                    classes_str = "\n".join(classes)
-                    st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
+                        # Salvando as classes
+                        classes_str = "\n".join(classes)
+                        st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
 
-                    if not st.session_state.stop_training:
+                        # Avaliação do Modelo
                         st.markdown("### Avaliação do Modelo")
                         score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=0)
                         score_val = modelo.evaluate(X_val_final, to_categorical(y_val), verbose=0)
@@ -743,6 +852,7 @@ def treinar_modelo(SEED):
                         st.pyplot(fig_hist)
                         plt.close(fig_hist)
 
+                        # Explicabilidade
                         st.markdown("### Explicabilidade")
                         explicabilidade_option = st.selectbox(
                             "Escolha a Ferramenta de Explicabilidade:",
@@ -751,27 +861,14 @@ def treinar_modelo(SEED):
 
                         st.write("Selecionando amostras de teste para análise de explicabilidade.")
                         X_sample = X_test_final[:50]
-
                         if explicabilidade_option == "SHAP":
                             gerar_explicacoes_shap(modelo, X_train_final, X_sample, classes)
                         elif explicabilidade_option == "LIME":
-                            gerar_explicacoes_lime(modelo, X_train_final, X_sample, classes)
+                            gerar_explicacoes_lime(modelo, X_train, X_sample, classes)
                         elif explicabilidade_option == "InterpretML":
-                            try:
-                                st.markdown("#### Explicabilidade com InterpretML")
-                                # Para InterpretML, precisamos treinar um modelo explicável separado
-                                interpretable_model = ExplainableBoostingClassifier(random_state=SEED)
-                                # Reshape para InterpretML (flat)
-                                X_train_flat = X_train_final.reshape((X_train_final.shape[0], X_train_final.shape[1]))
-                                interpretable_model.fit(X_train_flat, y_train)
-                                # Selecionar uma amostra para explicação
-                                X_sample_flat_iml = X_sample.reshape((X_sample.shape[0], X_sample.shape[1]))
-                                explanations = interpretable_model.explain(X_sample_flat_iml)
-                                st.pyplot(show(explanations))
-                            except Exception as e:
-                                st.write("InterpretML não pôde ser gerado:", e)
-                                logging.error(f"Erro ao gerar InterpretML: {e}")
+                            gerar_explicacoes_interpretml(modelo, X_train_final, X_sample, classes, y_train)
 
+                        # Análise de Clusters
                         st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
                         st.write("""
                         Clustering revela como dados se agrupam.  
@@ -788,7 +885,7 @@ def treinar_modelo(SEED):
                         cluster_dist = []
                         for cidx in range(melhor_k):
                             cluster_classes = y_original[kmeans_labels == cidx]
-                            counts = pd.Series(cluster_classes).value_counts()
+                            counts = pd.Series(cluster_classes).value_counts()  # Ajuste aqui
                             cluster_dist.append(counts)
                         for idx, dist in enumerate(cluster_dist):
                             st.write(f"**Cluster {idx+1}:**")
@@ -810,7 +907,7 @@ def treinar_modelo(SEED):
                         cluster_dist_h = []
                         for cidx in range(2):
                             cluster_classes = y_original[hier_labels == cidx]
-                            counts_h = pd.Series(cluster_classes).value_counts()
+                            counts_h = pd.Series(cluster_classes).value_counts()  # Ajuste aqui
                             cluster_dist_h.append(counts_h)
                         for idx, dist in enumerate(cluster_dist_h):
                             st.write(f"**Cluster {idx+1}:**")
@@ -819,8 +916,8 @@ def treinar_modelo(SEED):
                         visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050)
 
                 except Exception as e:
-                    st.error(f"Erro: {e}")
-                    logging.error(f"Erro: {e}")
+                    st.error(f"Erro durante o treinamento: {e}")
+                    logging.error(f"Erro durante o treinamento: {e}")
                 finally:
                     # Limpeza de memória e arquivos temporários
                     try:
@@ -832,9 +929,9 @@ def treinar_modelo(SEED):
                                 os.remove(os.path.join(caminho_cat, arquivo))
                             os.rmdir(caminho_cat)
                         os.rmdir(diretorio_extracao)
-                        logging.info("Processo concluído.")
+                        logging.info("Processo concluído e arquivos temporários removidos.")
                     except Exception as e:
-                        logging.error(f"Erro durante a limpeza: {e}")
+                        logging.error(f"Erro na limpeza de arquivos temporários: {e}")
 
 def classificar_audio(SEED):
     with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
@@ -842,7 +939,7 @@ def classificar_audio(SEED):
         st.markdown("""
         **Passo 1:** Upload do modelo treinado (.keras ou .h5) e classes (classes.txt).  
         **Passo 2:** Upload do áudio a ser classificado.  
-        **Passo 3:** O app extrai features e prediz a classe.
+        **Passo 3:** O app extrai features e prediz a classe do áudio.
         """)
 
         modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
@@ -899,9 +996,9 @@ def classificar_audio(SEED):
                     ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
                     if ftrs is not None:
                         # Dependendo da arquitetura do modelo, reshape pode variar
-                        ftrs_reshaped = ftrs.reshape(1, -1, 1)
+                        ftrs = ftrs.reshape(1, -1, 1)
                         try:
-                            pred = modelo.predict(ftrs_reshaped)
+                            pred = modelo.predict(ftrs)
                             if num_classes_model == 1:
                                 # Modelo com sigmoid
                                 pred_class = int(pred[0][0] > 0.5)
