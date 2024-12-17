@@ -754,11 +754,12 @@ def treinar_modelo(SEED):
                     X_sample = X_test[:50]
 
                     try:
-                        # Renomear a variável para evitar conflitos
-                        shap_explainer = shap.Explainer(modelo, X_train_final[:100])
+                        # Definir uma função de predição que retorna probabilidades
+                        def model_predict(x):
+                            return modelo.predict(x)
 
-                        # Verificar o tipo do explainer
-                        st.write(f"Tipo do explainer: {type(shap_explainer)}")
+                        # Inicializar o explainer específico
+                        shap_explainer_instance = shap.KernelExplainer(model_predict, X_train_final[:100])
 
                         # Preparar as amostras de teste
                         # Dependendo do modelo, SHAP pode esperar (num_samples, num_features) ou (num_samples, num_features, 1)
@@ -769,40 +770,37 @@ def treinar_modelo(SEED):
                             X_sample_flat = X_sample
 
                         # Calculando shap_values
-                        shap_values = shap_explainer(X_sample_flat)
-
-                        # Verificar o tipo dos shap_values
-                        st.write(f"Tipo de shap_values: {type(shap_values)}")
+                        shap_values = shap_explainer_instance.shap_values(X_sample_flat, nsamples=100)
 
                         st.write("Plot SHAP Summary por Classe:")
 
                         # Verificar a estrutura dos shap_values
-                        if isinstance(shap_values.values, list):
-                            num_shap_values = len(shap_values.values)
+                        if isinstance(shap_values, list):
+                            num_shap_values = len(shap_values)
                         else:
                             num_shap_values = 1  # Para modelos binários com um único output
 
                         num_classes = len(classes)
                         st.write(f"Número de shap_values: {num_shap_values}, Número de classes: {num_classes}")
 
-                        if isinstance(shap_values.values, list) and num_shap_values == num_classes:
+                        if isinstance(shap_values, list) and num_shap_values == num_classes:
                             for class_idx, class_name in enumerate(classes):
                                 st.write(f"**Classe: {class_name}**")
                                 fig_shap = plt.figure()
-                                shap.summary_plot(shap_values.values[class_idx], X_sample_flat, show=False)
+                                shap.summary_plot(shap_values[class_idx], X_sample_flat, show=False)
                                 st.pyplot(fig_shap)
                                 plt.close(fig_shap)
                         elif num_shap_values == 1 and num_classes == 2:
                             # Para modelos binários com um único output
                             st.write(f"**Classe: {classes[1]}**")
                             fig_shap = plt.figure()
-                            shap.summary_plot(shap_values.values, X_sample_flat, show=False)
+                            shap.summary_plot(shap_values, X_sample_flat, show=False)
                             st.pyplot(fig_shap)
                             plt.close(fig_shap)
                         else:
                             st.warning("Número de shap_values não corresponde ao número de classes.")
-                            if isinstance(shap_values.values, list):
-                                st.write(f"shap_values length: {len(shap_values.values)}, classes length: {num_classes}")
+                            if isinstance(shap_values, list):
+                                st.write(f"shap_values length: {len(shap_values)}, classes length: {num_classes}")
                             else:
                                 st.write(f"shap_values length: 1, classes length: {num_classes}")
 
