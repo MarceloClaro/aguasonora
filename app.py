@@ -240,6 +240,7 @@ def classificar_audio(SEED):
             try:
                 modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 logging.info("Modelo carregado com sucesso.")
+                st.success("Modelo carregado com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao carregar o modelo: {e}")
                 logging.error(f"Erro ao carregar o modelo: {e}")
@@ -250,6 +251,7 @@ def classificar_audio(SEED):
                 if not classes:
                     st.error("O arquivo de classes está vazio.")
                     return
+                logging.info("Arquivo de classes carregado com sucesso.")
             except Exception as e:
                 st.error(f"Erro ao ler o arquivo de classes: {e}")
                 logging.error(f"Erro ao ler o arquivo de classes: {e}")
@@ -288,14 +290,15 @@ def classificar_audio(SEED):
                             # Reprodução e Visualização do Áudio
                             st.audio(caminho_audio)
                             visualizar_audio(data, sr)
-
                         except Exception as e:
                             st.error(f"Erro na predição: {e}")
                             logging.error(f"Erro na predição: {e}")
                     else:
                         st.error("Não foi possível extrair features do áudio.")
+                        logging.warning("Não foi possível extrair features do áudio.")
                 else:
                     st.error("Não foi possível carregar o áudio.")
+                    logging.warning("Não foi possível carregar o áudio.")
 
 def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
@@ -457,15 +460,12 @@ def treinar_modelo(SEED):
                                         X_aug.append(ftrs)
                                         y_aug.append(y[i])
 
-                    if X_aug and y_aug:
-                        X_aug = np.array(X_aug)
-                        y_aug = np.array(y_aug)
-                        st.write(f"Dados Aumentados: {X_aug.shape}")
-                        X_combined = np.concatenate((X, X_aug), axis=0)
-                        y_combined = np.concatenate((y_valid, y_aug), axis=0)
-                    else:
-                        X_combined = X
-                        y_combined = y_valid
+                if enable_augmentation and X_aug and y_aug:
+                    X_aug = np.array(X_aug)
+                    y_aug = np.array(y_aug)
+                    st.write(f"Dados Aumentados: {X_aug.shape}")
+                    X_combined = np.concatenate((X, X_aug), axis=0)
+                    y_combined = np.concatenate((y_valid, y_aug), axis=0)
                 else:
                     X_combined = X
                     y_combined = y_valid
@@ -698,11 +698,13 @@ def treinar_modelo(SEED):
                     try:
                         explainer = shap.DeepExplainer(modelo, X_train_final[:100])
                         shap_values = explainer.shap_values(X_sample)
-                        st.write("Plot SHAP Summary:")
-                        fig_shap = plt.figure()
-                        shap.summary_plot(shap_values, X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
-                        st.pyplot(fig_shap)
-                        plt.close(fig_shap)
+                        st.write("Plot SHAP Summary por Classe:")
+                        for class_idx, class_name in enumerate(classes):
+                            st.write(f"**Classe: {class_name}**")
+                            fig_shap = plt.figure()
+                            shap.summary_plot(shap_values[class_idx], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
+                            st.pyplot(fig_shap)
+                            plt.close(fig_shap)
                         st.write("""
                         **Interpretação SHAP:**  
                         MFCCs com valor SHAP alto contribuem significativamente para a classe.  
