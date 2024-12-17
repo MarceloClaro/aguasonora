@@ -28,7 +28,7 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLRO
 import shap
 import librosa.display
 
-# LOGGING
+# Configuração de Logging
 logging.basicConfig(
     filename='experiment_logs.log',
     filemode='a',
@@ -170,11 +170,17 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
     for c in classes:
         st.markdown(f"#### Classe: {c}")
         indices_classe = classes_indices[c]
+        st.write(f"Número de amostras para a classe '{c}': {len(indices_classe)}")
         if len(indices_classe) == 0:
             st.warning(f"**Nenhum exemplo encontrado para a classe {c}.**")
             continue
         # Seleciona um exemplo aleatório
         idx_original = random.choice(indices_classe)
+        st.write(f"Selecionando índice original: {idx_original}")
+        if idx_original >= len(df):
+            st.error(f"Índice {idx_original} está fora do intervalo do DataFrame.")
+            logging.error(f"Índice {idx_original} está fora do intervalo do DataFrame.")
+            continue
         arquivo_original = df.iloc[idx_original]['caminho_arquivo']
         data_original, sr_original = carregar_audio(arquivo_original, sr=None)
         if data_original is not None and sr_original is not None:
@@ -187,6 +193,11 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
             try:
                 # Seleciona outro exemplo aleatório para augmentation
                 idx_aug = random.choice(indices_classe)
+                st.write(f"Selecionando índice aumentado: {idx_aug}")
+                if idx_aug >= len(df):
+                    st.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
+                    logging.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
+                    continue
                 arquivo_aug = df.iloc[idx_aug]['caminho_arquivo']
                 data_aug, sr_aug = carregar_audio(arquivo_aug, sr=None)
                 if data_aug is not None and sr_aug is not None:
@@ -503,6 +514,7 @@ def treinar_modelo(SEED):
                 X_original = X_combined
                 y_original = y_combined
 
+                # Reconfigurar os dados para o modelo
                 X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
                 X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
                 X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
@@ -790,8 +802,8 @@ def treinar_modelo(SEED):
                         st.write(f"**Cluster {idx+1}:**")
                         st.write(dist)
 
-                    # Visualizar 1 exemplo de cada classe original e 1 exemplo aumentados
-                    visualizar_exemplos_classe(df, y_original, classes, augmentation=enable_augmentation, sr=22050)
+                    # **Alteração Principal: Passar y_valid em vez de y_original**
+                    visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050)
 
                 # Limpeza de memória e arquivos temporários
                 gc.collect()
