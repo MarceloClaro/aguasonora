@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import librosa
+import librosa.display
 import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
@@ -26,7 +27,6 @@ import logging
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 import shap
-import librosa.display
 
 # Configuração de Logging
 logging.basicConfig(
