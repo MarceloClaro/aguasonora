@@ -975,9 +975,9 @@ with st.expander("Contexto e Descrição Completa"):
         
         Matematicamente, a frequência dos modos ressonantes pode ser aproximada pela fórmula para um cilindro acústico com fluido, similar à determinação das frequências naturais em sistemas oscilatórios:
         
-        \[
+        $$
         f_n = \frac{v}{2L} \sqrt{n^2 + \left(\frac{R}{L}\right)^2}
-        \]
+        $$
         
         Onde:
         - \( f_n \) é a frequência do n-ésimo modo.
