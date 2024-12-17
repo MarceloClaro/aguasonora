@@ -696,9 +696,9 @@ def treinar_modelo(SEED):
 
                     y_pred = modelo.predict(X_test)
                     y_pred_classes = y_pred.argmax(axis=1)
-                    f1_val = f1_score(y_test, y_pred_classes, average='weighted')
-                    prec = precision_score(y_test, y_pred_classes, average='weighted')
-                    rec = recall_score(y_test, y_pred_classes, average='weighted')
+                    f1_val = f1_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+                    prec = precision_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+                    rec = recall_score(y_test, y_pred_classes, average='weighted', zero_division=0)
 
                     st.write(f"F1-score: {f1_val*100:.2f}%")
                     st.write(f"Precisão: {prec*100:.2f}%")
@@ -742,6 +742,7 @@ def treinar_modelo(SEED):
                     st.write("Selecionando amostras de teste para análise SHAP.")
                     X_sample = X_test[:50]
                     try:
+                        # Atualize para usar um explainer compatível ou atualize o SHAP
                         explainer = shap.DeepExplainer(modelo, X_train_final[:100])
                         shap_values = explainer.shap_values(X_sample)
 
@@ -794,7 +795,7 @@ def treinar_modelo(SEED):
                     cluster_dist = []
                     for cidx in range(melhor_k):
                         cluster_classes = y_original[kmeans_labels == cidx]
-                        counts = pd.value_counts(cluster_classes)
+                        counts = pd.Series(cluster_classes).value_counts()  # Ajuste aqui
                         cluster_dist.append(counts)
                     for idx, dist in enumerate(cluster_dist):
                         st.write(f"**Cluster {idx+1}:**")
@@ -816,7 +817,7 @@ def treinar_modelo(SEED):
                     cluster_dist_h = []
                     for cidx in range(2):
                         cluster_classes = y_original[hier_labels == cidx]
-                        counts_h = pd.value_counts(cluster_classes)
+                        counts_h = pd.Series(cluster_classes).value_counts()  # Ajuste aqui
                         cluster_dist_h.append(counts_h)
                     for idx, dist in enumerate(cluster_dist_h):
                         st.write(f"**Cluster {idx+1}:**")
