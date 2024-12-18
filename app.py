@@ -1,5 +1,3 @@
-# Parte 1: Importações e Configurações Iniciais
-
 import random 
 import numpy as np
 import pandas as pd
@@ -56,11 +54,7 @@ def set_seeds(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-
-#==================================================================
-
-# Parte 2: Funções Auxiliares
-
+# Funções Auxiliares
 def carregar_audio(caminho_arquivo, sr=None):
     """
     Carrega um arquivo de áudio usando Librosa com logs detalhados.
@@ -234,10 +228,8 @@ def visualizar_audio(data, sr):
         error_msg = f"Erro ao visualizar áudio: {e}"
         logging.error(error_msg)
         st.warning(error_msg)
-#===================================================================================
 
-# Parte 3: Classe de Dataset Personalizado e Outras Funções
-
+# Classe de Dataset Personalizado e Outras Funções
 class AudioSpectrogramDataset(Dataset):
     """
     Dataset personalizado para espectrogramas de áudio.
@@ -254,7 +246,7 @@ class AudioSpectrogramDataset(Dataset):
         self.label_encoder = LabelEncoder()
         self.label_encoder.fit(classes)
         self.indices_validos = self._filtrar_amostras_validas()
-    
+
     def _filtrar_amostras_validas(self):
         """Filtra amostras válidas antes de criar o dataset."""
         indices_validos = []
@@ -271,10 +263,10 @@ class AudioSpectrogramDataset(Dataset):
                 continue
             indices_validos.append(idx)
         return indices_validos
-    
+
     def __len__(self):
         return len(self.indices_validos)
-    
+
     def __getitem__(self, idx):
         real_idx = self.indices_validos[idx]
         try:
@@ -385,9 +377,40 @@ def escolher_k_kmeans(X_original, y, max_k=10):
                 melhor_sil = sil
                 melhor_k = k
     return melhor_k
-#================================================================================
-# Parte 4: Função para Classificar Áudio
 
+def visualizar_exemplos_classe(df, y_valid, classes, augmentation=False, sr=22050, metodo="CNN Personalizada"):
+    """
+    Visualiza exemplos de cada classe do dataset.
+
+    Args:
+        df (pd.DataFrame): DataFrame com caminhos dos arquivos e classes.
+        y_valid (np.array): Labels válidos.
+        classes (list): Lista de classes.
+        augmentation (bool, optional): Se True, mostra exemplos aumentados.
+        sr (int, optional): Taxa de amostragem para visualização.
+        metodo (str, optional): Método de treinamento utilizado.
+    """
+    try:
+        st.markdown("### Exemplos por Classe")
+        for cls in classes:
+            st.subheader(f"Classe: {cls}")
+            indices = np.where(y_valid == np.where(classes == cls)[0][0])[0]
+            if len(indices) == 0:
+                st.write("Nenhum exemplo disponível.")
+                continue
+            selecionados = np.random.choice(indices, min(5, len(indices)), replace=False)
+            for idx in selecionados:
+                arquivo = df.iloc[idx]['caminho_arquivo']
+                data, sr = carregar_audio(arquivo, sr=sr)
+                if data is not None:
+                    st.audio(arquivo)
+                    visualizar_audio(data, sr)
+    except Exception as e:
+        error_msg = f"Erro ao visualizar exemplos por classe: {e}"
+        st.error(error_msg)
+        logging.error(error_msg)
+
+# Função para Classificar Áudio
 def classificar_audio(SEED):
     """
     Função para classificar novos áudios usando um modelo treinado.
@@ -550,9 +573,8 @@ def classificar_audio(SEED):
                     error_msg = f"Erro ao processar o áudio: {e}"
                     st.error(error_msg)
                     logging.error(error_msg)
-#==================================================================================================
-# Parte 5: Função para Treinar o Modelo
 
+# Função para Treinar o Modelo
 def treinar_modelo(SEED):
     """
     Função para treinar o modelo CNN ou ResNet-18.
@@ -1367,9 +1389,8 @@ def treinar_modelo(SEED):
                 error_msg = f"Erro ao limpar arquivos temporários: {e}"
                 logging.error(error_msg)
                 st.warning(error_msg)
-#=============================================================================================
-# Parte 6: Função Principal e Interface do Streamlit
 
+# Função Principal e Interface do Streamlit
 def main_app():
     """
     Função principal que define a interface do Streamlit.
@@ -1449,8 +1470,7 @@ def main_app():
 
         Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, proporcionando uma ferramenta poderosa e intuitiva para classificação de sons de água em copos de vidro.
         """)
-#==============================================================================================
-# Parte 7: Execução da Aplicação
 
+# Execução da Aplicação
 if __name__ == "__main__":
     main_app()
