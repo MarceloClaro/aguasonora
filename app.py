@@ -57,7 +57,7 @@ def set_seeds(seed):
 # Funções auxiliares
 def carregar_audio(caminho_arquivo, sr=None):
     """
-    Carrega um arquivo de áudio usando Librosa.
+    Carrega um arquivo de áudio usando Librosa com logs detalhados.
 
     Args:
         caminho_arquivo (str): Caminho para o arquivo de áudio.
@@ -66,11 +66,23 @@ def carregar_audio(caminho_arquivo, sr=None):
     Returns:
         tuple: Dados de áudio e taxa de amostragem.
     """
+    if not os.path.exists(caminho_arquivo):
+        error_msg = f"Arquivo de áudio não encontrado: {caminho_arquivo}"
+        logging.error(error_msg)
+        st.error(error_msg)
+        return None, None
     try:
         data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast', backend='soundfile')
+        if len(data) == 0:
+            error_msg = f"Arquivo de áudio vazio: {caminho_arquivo}"
+            logging.error(error_msg)
+            st.error(error_msg)
+            return None, None
         return data, sr
     except Exception as e:
-        logging.error(f"Erro ao carregar áudio {caminho_arquivo}: {e}")
+        error_msg = f"Erro ao carregar áudio {caminho_arquivo}: {e}"
+        logging.error(error_msg)
+        st.error(error_msg)
         return None, None
 
 def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
@@ -105,6 +117,7 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
         return features_vector
     except Exception as e:
         logging.error(f"Erro ao extrair features: {e}")
+        st.error(f"Erro ao extrair features: {e}")
         return None
 
 def aumentar_audio(data, sr, augmentations):
@@ -123,6 +136,7 @@ def aumentar_audio(data, sr, augmentations):
         return augmentations(samples=data, sample_rate=sr)
     except Exception as e:
         logging.error(f"Erro ao aumentar áudio: {e}")
+        st.warning(f"Erro ao aumentar áudio: {e}")
         return data
 
 def gerar_espectrograma(data, sr):
@@ -139,12 +153,13 @@ def gerar_espectrograma(data, sr):
     try:
         if len(data) == 0:
             logging.warning("Dados de áudio vazios.")
+            st.warning("Dados de áudio vazios.")
             return None
 
         S = librosa.stft(data, n_fft=1024, hop_length=512)
         S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
 
-        plt.figure(figsize=(10, 4), dpi=100)  # Aumentando o tamanho para melhor visualização
+        plt.figure(figsize=(10, 4), dpi=100)
         librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='log', cmap='gray')
         plt.axis('off')
         buf = io.BytesIO()
@@ -155,7 +170,9 @@ def gerar_espectrograma(data, sr):
         logging.info("Espectrograma gerado com sucesso.")
         return img
     except Exception as e:
-        logging.error(f"Erro ao gerar espectrograma: {e}")
+        error_msg = f"Erro ao gerar espectrograma: {e}"
+        logging.error(error_msg)
+        st.warning(error_msg)
         return None
 
 def visualizar_audio(data, sr):
@@ -207,7 +224,9 @@ def visualizar_audio(data, sr):
         st.pyplot(fig_mfcc)
         plt.close(fig_mfcc)
     except Exception as e:
-        logging.error(f"Erro ao visualizar áudio: {e}")
+        error_msg = f"Erro ao visualizar áudio: {e}"
+        logging.error(error_msg)
+        st.warning(error_msg)
 
 def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, metodo='CNN'):
     """
@@ -238,6 +257,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
         indices_classe = classes_indices[c]
         if len(indices_classe) == 0:
             logging.warning(f"Nenhuma amostra encontrada para a classe: {c}")
+            st.write(f"Nenhuma amostra encontrada para a classe: {c}")
             continue
         idx_original = random.choice(indices_classe)
         arquivo_original = df.iloc[idx_original]['caminho_arquivo']
@@ -251,6 +271,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                     st.image(espectrograma, caption="Espectrograma Original", use_column_width=True)
         else:
             logging.warning(f"Dados inválidos para a amostra original da classe: {c}")
+            st.write(f"Dados inválidos para a amostra original da classe: {c}")
         
         if augmentation and transforms_aug is not None:
             try:
@@ -269,7 +290,9 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                         if espectrograma_aug:
                             st.image(espectrograma_aug, caption="Espectrograma Aumentado", use_column_width=True)
             except Exception as e:
-                logging.error(f"Erro ao aumentar áudio para a classe {c}: {e}")
+                error_msg = f"Erro ao aumentar áudio para a classe {c}: {e}"
+                logging.error(error_msg)
+                st.warning(error_msg)
 
 def escolher_k_kmeans(X_original, y, max_k=10):
     """
@@ -357,7 +380,9 @@ class AudioSpectrogramDataset(Dataset):
             label = self.label_encoder.transform([classe])[0]
             return espectrograma, label
         except Exception as e:
-            logging.error(f"Erro em __getitem__ para o índice {real_idx}: {e}")
+            error_msg = f"Erro em __getitem__ para o índice {real_idx}: {e}"
+            logging.error(error_msg)
+            st.warning(error_msg)
             # Em vez de retornar None, levanta a exceção para que possa ser capturada no treinamento
             raise e
 
@@ -412,8 +437,9 @@ def carregar_dados(zip_path):
         logging.info(f"ZIP extraído para {diretorio_extracao} com categorias: {categorias}")
         return diretorio_extracao, categorias
     except Exception as e:
-        st.error(f"Erro ao extrair o ZIP: {e}")
-        logging.error(f"Erro ao extrair o ZIP: {e}")
+        error_msg = f"Erro ao extrair o ZIP: {e}"
+        logging.error(error_msg)
+        st.error(error_msg)
         return None, None
 
 # Funções principais
@@ -448,8 +474,9 @@ def classificar_audio(SEED):
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
-                st.error(f"Erro ao carregar o modelo: {e}")
-                logging.error(f"Erro ao carregar o modelo: {e}")
+                error_msg = f"Erro ao carregar o modelo: {e}"
+                st.error(error_msg)
+                logging.error(error_msg)
                 return
 
             try:
@@ -460,8 +487,9 @@ def classificar_audio(SEED):
                     return
                 logging.info("Arquivo de classes carregado com sucesso.")
             except Exception as e:
-                st.error(f"Erro ao ler o arquivo de classes: {e}")
-                logging.error(f"Erro ao ler o arquivo de classes: {e}")
+                error_msg = f"Erro ao ler o arquivo de classes: {e}"
+                st.error(error_msg)
+                logging.error(error_msg)
                 return
 
             if metodo_classificacao == "CNN Personalizada":
@@ -469,12 +497,14 @@ def classificar_audio(SEED):
                     num_classes_model = modelo.output_shape[-1]
                     num_classes_file = len(classes)
                     if num_classes_file != num_classes_model:
-                        st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
-                        logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                        error_msg = f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model})."
+                        st.error(error_msg)
+                        logging.error(error_msg)
                         return
                 except AttributeError as e:
-                    st.error(f"Erro ao verificar a saída do modelo: {e}")
-                    logging.error(f"Erro ao verificar a saída do modelo: {e}")
+                    error_msg = f"Erro ao verificar a saída do modelo: {e}"
+                    st.error(error_msg)
+                    logging.error(error_msg)
                     return
             elif metodo_classificacao == "ResNet-18":
                 try:
@@ -483,8 +513,9 @@ def classificar_audio(SEED):
                     logging.info("Última camada da ResNet-18 ajustada para o número de classes.")
                     st.success("Última camada da ResNet-18 ajustada para o número de classes.")
                 except Exception as e:
-                    st.error(f"Erro ao ajustar a ResNet-18: {e}")
-                    logging.error(f"Erro ao ajustar a ResNet-18: {e}")
+                    error_msg = f"Erro ao ajustar a ResNet-18: {e}"
+                    st.error(error_msg)
+                    logging.error(error_msg)
                     return
 
             st.markdown("**Modelo e Classes Carregados!**")
@@ -561,14 +592,16 @@ def classificar_audio(SEED):
                                         espectrograma_img = np.clip(espectrograma_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406]), 0, 1)
                                         st.image(espectrograma_img, caption="Espectrograma Classificado", use_column_width=True)
                             except Exception as e:
-                                st.error(f"Erro na predição ResNet-18: {e}")
-                                logging.error(f"Erro na predição ResNet-18: {e}")
+                                error_msg = f"Erro na predição ResNet-18: {e}"
+                                st.error(error_msg)
+                                logging.error(error_msg)
                     else:
                         st.error("Não foi possível carregar o áudio.")
                         logging.warning("Não foi possível carregar o áudio.")
                 except Exception as e:
-                    st.error(f"Erro ao processar o áudio: {e}")
-                    logging.error(f"Erro ao processar o áudio: {e}")
+                    error_msg = f"Erro ao processar o áudio: {e}"
+                    st.error(error_msg)
+                    logging.error(error_msg)
 
 def treinar_modelo(SEED):
     """
@@ -685,8 +718,9 @@ def treinar_modelo(SEED):
                                     y_valid.append(y[i])
                                     logging.info(f"Espectrograma gerado para: {arquivo}, salvo em: {img_path}")
                                 except Exception as e:
-                                    logging.error(f"Erro ao salvar espectrograma para {arquivo}: {e}")
-                                    st.warning(f"Erro ao salvar espectrograma para {arquivo}: {e}")
+                                    error_msg = f"Erro ao salvar espectrograma para {arquivo}: {e}"
+                                    logging.error(error_msg)
+                                    st.warning(error_msg)
                             else:
                                 logging.warning(f"Espectrograma não gerado para: {arquivo}")
                                 st.warning(f"Espectrograma não gerado para: {arquivo}")
@@ -869,8 +903,9 @@ def treinar_modelo(SEED):
                                     y_aug.append(y[i])
                                     logging.info(f"Espectrograma aumentado gerado para: {arquivo}, salvo em: {img_path}")
                                 except Exception as e:
-                                    logging.error(f"Erro ao salvar espectrograma aumentado para {arquivo}: {e}")
-                                    st.warning(f"Erro ao salvar espectrograma aumentado para {arquivo}: {e}")
+                                    error_msg = f"Erro ao salvar espectrograma aumentado para {arquivo}: {e}"
+                                    logging.error(error_msg)
+                                    st.warning(error_msg)
                             else:
                                 logging.warning(f"Espectrograma aumentado não gerado para: {arquivo}")
                                 st.warning(f"Espectrograma aumentado não gerado para: {arquivo}")
@@ -1127,8 +1162,9 @@ def treinar_modelo(SEED):
                         )
                         callbacks = [checkpointer, earlystop, lr_scheduler]
                     except Exception as e:
-                        st.error(f"Erro ao configurar callbacks: {e}")
-                        logging.error(f"Erro ao configurar callbacks: {e}")
+                        error_msg = f"Erro ao configurar callbacks: {e}"
+                        st.error(error_msg)
+                        logging.error(error_msg)
                         return
                 elif metodo_treinamento == "ResNet-18":
                     # PyTorch não usa callbacks da mesma forma que Keras, mas você pode implementar funcionalidades similares
@@ -1178,8 +1214,9 @@ def treinar_modelo(SEED):
                                 else:
                                     st.success("Treino concluído!")
                         except Exception as e:
-                            st.error(f"Erro durante o treinamento da CNN: {e}")
-                            logging.error(f"Erro durante o treinamento da CNN: {e}")
+                            error_msg = f"Erro durante o treinamento da CNN: {e}"
+                            st.error(error_msg)
+                            logging.error(error_msg)
 
                         try:
                             with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
@@ -1191,15 +1228,17 @@ def treinar_modelo(SEED):
                             st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
                             os.remove(caminho_tmp_model)
                         except Exception as e:
-                            st.error(f"Erro ao salvar o modelo: {e}")
-                            logging.error(f"Erro ao salvar o modelo: {e}")
+                            error_msg = f"Erro ao salvar o modelo: {e}"
+                            st.error(error_msg)
+                            logging.error(error_msg)
 
                         try:
                             classes_str = "\n".join(classes)
                             st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
                         except Exception as e:
-                            st.error(f"Erro ao salvar o arquivo de classes: {e}")
-                            logging.error(f"Erro ao salvar o arquivo de classes: {e}")
+                            error_msg = f"Erro ao salvar o arquivo de classes: {e}"
+                            st.error(error_msg)
+                            logging.error(error_msg)
 
                         if not st.session_state.stop_training:
                             try:
@@ -1289,8 +1328,9 @@ def treinar_modelo(SEED):
                                     Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
                                     """)
                                 except Exception as e:
-                                    st.write("SHAP não pôde ser gerado:", e)
-                                    logging.error(f"Erro ao gerar SHAP: {e}")
+                                    error_msg = f"SHAP não pôde ser gerado: {e}"
+                                    st.write(error_msg)
+                                    logging.error(error_msg)
 
                                 st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
                                 st.write("""
@@ -1339,94 +1379,19 @@ def treinar_modelo(SEED):
                                 st.markdown("### Visualização de Exemplos")
                                 visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050, metodo=metodo_treinamento)
                             except Exception as e:
-                                st.error(f"Erro durante a avaliação do modelo: {e}")
-                                logging.error(f"Erro durante a avaliação do modelo: {e}")
+                                error_msg = f"Erro durante a avaliação do modelo: {e}"
+                                st.error(error_msg)
+                                logging.error(error_msg)
 
-                    elif metodo_treinamento == "ResNet-18":
-                        # Implementação semelhante para ResNet-18
-                        try:
-                            # Treinamento usando PyTorch
-                            modelo.train()
-                            for epoch in range(num_epochs):
-                                if st.session_state.stop_training:
-                                    st.warning("Treinamento Parado pelo Usuário!")
-                                    break
-                                running_loss = 0.0
-                                for inputs, labels in loader_train:
-                                    if inputs is None or labels is None:
-                                        continue
-                                    inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                    optimizer.zero_grad()
-                                    outputs = modelo(inputs)
-                                    loss = criterion(outputs, labels)
-                                    loss.backward()
-                                    optimizer.step()
-                                    running_loss += loss.item()
-                                if len(loader_train) > 0:
-                                    avg_loss = running_loss / len(loader_train)
-                                else:
-                                    avg_loss = 0.0
-                                st.write(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
-
-                                # Validação
-                                modelo.eval()
-                                val_loss = 0.0
-                                correct = 0
-                                total = 0
-                                with torch.no_grad():
-                                    for inputs, labels in loader_val:
-                                        if inputs is None or labels is None:
-                                            continue
-                                        inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                        outputs = modelo(inputs)
-                                        loss = criterion(outputs, labels)
-                                        val_loss += loss.item()
-                                        _, predicted = torch.max(outputs.data, 1)
-                                        total += labels.size(0)
-                                        correct += (predicted == labels).sum().item()
-                                if len(loader_val) > 0:
-                                    avg_val_loss = val_loss / len(loader_val)
-                                else:
-                                    avg_val_loss = 0.0
-                                val_accuracy = 100 * correct / total if total > 0 else 0.0
-                                st.write(f"Val Loss: {avg_val_loss:.4f}, Val Accuracy: {val_accuracy:.2f}%")
-                                modelo.train()
-
-                                if st.session_state.stop_training:
-                                    st.warning("Treinamento Parado pelo Usuário!")
-                                    break
-
-                            st.success("Treino concluído!")
-
-                            # Avaliação no Teste
-                            modelo.eval()
-                            test_loss = 0.0
-                            correct = 0
-                            total = 0
-                            with torch.no_grad():
-                                for inputs, labels in loader_test:
-                                    if inputs is None or labels is None:
-                                        continue
-                                    inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                    outputs = modelo(inputs)
-                                    loss = criterion(outputs, labels)
-                                    test_loss += loss.item()
-                                    _, predicted = torch.max(outputs.data, 1)
-                                    total += labels.size(0)
-                                    correct += (predicted == labels).sum().item()
-                            if len(loader_test) > 0:
-                                avg_test_loss = test_loss / len(loader_test)
-                            else:
-                                avg_test_loss = 0.0
-                            test_accuracy = 100 * correct / total if total > 0 else 0.0
-                            st.write(f"Acurácia Teste: {test_accuracy:.2f}%")
-                        except Exception as e:
-                            st.error(f"Erro durante o treinamento da ResNet-18: {e}")
-                            logging.error(f"Erro durante o treinamento da ResNet-18: {e}")
+                    except Exception as e:
+                        error_msg = f"Erro durante o treinamento da ResNet-18: {e}"
+                        st.error(error_msg)
+                        logging.error(error_msg)
 
             except Exception as e:
-                st.error(f"Erro ao treinar o modelo: {e}")
-                logging.error(f"Erro ao treinar o modelo: {e}")
+                error_msg = f"Erro ao treinar o modelo: {e}"
+                st.error(error_msg)
+                logging.error(error_msg)
 
             # Limpeza de arquivos temporários
             try:
@@ -1440,7 +1405,9 @@ def treinar_modelo(SEED):
                 os.rmdir(diretorio_extracao)
                 logging.info("Processo concluído.")
             except Exception as e:
-                logging.error(f"Erro ao limpar arquivos temporários: {e}")
+                error_msg = f"Erro ao limpar arquivos temporários: {e}"
+                logging.error(error_msg)
+                st.warning(error_msg)
 
 # Interface do Streamlit
 def main():
@@ -1456,7 +1423,7 @@ def main():
     st.sidebar.header("Configurações Gerais")
     with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
         st.markdown("**SEED** garante resultados reproduzíveis.")
-    
+
     seed_selection = st.sidebar.selectbox(
         "Escolha o valor do SEED:",
         options=list(range(0, 61, 2)),
