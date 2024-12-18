@@ -187,7 +187,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
 
     st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 de cada classe aumentada)")
 
-    if metodo == 'CNN' or metodo == 'ResNet18':
+    if metodo in ['CNN', 'ResNet18', 'ResNet-18']:
         transforms_aug = Compose([
             AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
             TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0),
@@ -216,7 +216,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
         if data_original is not None and sr_original is not None:
             st.markdown(f"**Exemplo Original:** {os.path.basename(arquivo_original)}")
             visualizar_audio(data_original, sr_original)
-            if metodo == 'ResNet18' or metodo == 'ResNet-18':
+            if metodo in ['ResNet18', 'ResNet-18']:
                 # Gerar e exibir espectrograma
                 espectrograma = gerar_espectrograma(data_original, sr_original)
                 if espectrograma:
@@ -239,7 +239,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                     aug_data = aumentar_audio(data_aug, sr_aug, transforms_aug)
                     st.markdown(f"**Exemplo Aumentado a partir de:** {os.path.basename(arquivo_aug)}")
                     visualizar_audio(aug_data, sr_aug)
-                    if metodo == 'ResNet18' or metodo == 'ResNet-18':
+                    if metodo in ['ResNet18', 'ResNet-18']:
                         # Gerar e exibir espectrograma aumentado
                         espectrograma_aug = gerar_espectrograma(aug_data, sr_aug)
                         if espectrograma_aug:
@@ -313,7 +313,7 @@ def classificar_audio(SEED):
             help="Selecione entre a CNN personalizada ou a ResNet-18 pré-treinada para classificação."
         )
 
-        modelo_file = st.file_uploader("Upload do Modelo (.keras, .h5, .pt)", type=["keras","h5","pth"])
+        modelo_file = st.file_uploader("Upload do Modelo (.keras, .h5, .pth)", type=["keras","h5","pth"])
         classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
 
         if modelo_file is not None and classes_file is not None:
@@ -326,7 +326,7 @@ def classificar_audio(SEED):
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
                     # Carregar modelo ResNet-18 pré-treinado e ajustar
-                    num_classes_placeholder = 1  # Placeholder, será ajustado após carregar classes
+                    num_classes_placeholder = 1  # Placeholder, será ajustado após carregar as classes
                     modelo = models.resnet18(pretrained=False)
                     # A última camada será ajustada após carregar as classes
                 logging.info("Modelo carregado com sucesso.")
@@ -420,53 +420,54 @@ def classificar_audio(SEED):
                             st.error("Não foi possível extrair features do áudio.")
                             logging.warning("Não foi possível extrair features do áudio.")
                     elif metodo_classificacao == "ResNet-18":
-                        # Gerar espectrograma
-                        espectrograma = gerar_espectrograma(data, sr)
-                        if espectrograma:
-                            # Transformações para ResNet-18
-                            transform = transforms.Compose([
-                                transforms.Resize((224, 224)),
-                                transforms.ToTensor(),
-                                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                     std=[0.229, 0.224, 0.225])
-                            ])
-                            espectrograma = transform(espectrograma).unsqueeze(0)  # Adiciona batch dimension
+                        try:
+                            # Gerar espectrograma
+                            espectrograma = gerar_espectrograma(data, sr)
+                            if espectrograma:
+                                # Transformações para ResNet-18
+                                transform = transforms.Compose([
+                                    transforms.Resize((224, 224)),
+                                    transforms.ToTensor(),
+                                    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                         std=[0.229, 0.224, 0.225])
+                                ])
+                                espectrograma = transform(espectrograma).unsqueeze(0)  # Adiciona batch dimension
 
-                            # Carregar o modelo (já ajustado anteriormente)
-                            modelo.eval()
-                            modelo = modelo.to('cuda' if torch.cuda.is_available() else 'cpu')
+                                # Carregar o modelo (já ajustado anteriormente)
+                                modelo.eval()
+                                modelo = modelo.to('cuda' if torch.cuda.is_available() else 'cpu')
 
-                            with torch.no_grad():
-                                espectrograma = espectrograma.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                pred = modelo(espectrograma)
-                                probs = torch.nn.functional.softmax(pred, dim=1)
-                                confidence, pred_class = torch.max(probs, dim=1)
-                                pred_label = classes[pred_class.item()]
-                                confidence = confidence.item() * 100
-                                st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
+                                with torch.no_grad():
+                                    espectrograma = espectrograma.to('cuda' if torch.cuda.is_available() else 'cpu')
+                                    pred = modelo(espectrograma)
+                                    probs = torch.nn.functional.softmax(pred, dim=1)
+                                    confidence, pred_class = torch.max(probs, dim=1)
+                                    pred_label = classes[pred_class.item()]
+                                    confidence = confidence.item() * 100
+                                    st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
 
-                                # Gráfico de Probabilidades
-                                fig_prob, ax_prob = plt.subplots(figsize=(8,4))
-                                ax_prob.bar(classes, probs.cpu().numpy()[0], color='skyblue')
-                                ax_prob.set_title("Probabilidades por Classe")
-                                ax_prob.set_ylabel("Probabilidade")
-                                plt.xticks(rotation=45)
-                                st.pyplot(fig_prob)
-                                plt.close(fig_prob)
+                                    # Gráfico de Probabilidades
+                                    fig_prob, ax_prob = plt.subplots(figsize=(8,4))
+                                    ax_prob.bar(classes, probs.cpu().numpy()[0], color='skyblue')
+                                    ax_prob.set_title("Probabilidades por Classe")
+                                    ax_prob.set_ylabel("Probabilidade")
+                                    plt.xticks(rotation=45)
+                                    st.pyplot(fig_prob)
+                                    plt.close(fig_prob)
 
-                                # Reprodução e Visualização do Áudio
-                                st.audio(caminho_audio)
-                                visualizar_audio(data, sr)
+                                    # Reprodução e Visualização do Áudio
+                                    st.audio(caminho_audio)
+                                    visualizar_audio(data, sr)
 
-                                # Exibir espectrograma
-                                # Converter tensor para imagem para exibição
-                                espectrograma_img = espectrograma.cpu().squeeze().permute(1,2,0).numpy()
-                                # Desnormalizar para visualização
-                                espectrograma_img = np.clip(espectrograma_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406]), 0, 1)
-                                st.image(espectrograma_img, caption="Espectrograma Classificado", use_column_width=True)
-                        else:
-                            st.error("Não foi possível gerar o espectrograma do áudio.")
-                            logging.warning("Não foi possível gerar o espectrograma do áudio.")
+                                    # Exibir espectrograma
+                                    # Converter tensor para imagem para exibição
+                                    espectrograma_img = espectrograma.cpu().squeeze().permute(1,2,0).numpy()
+                                    # Desnormalizar para visualização
+                                    espectrograma_img = np.clip(espectrograma_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406]), 0, 1)
+                                    st.image(espectrograma_img, caption="Espectrograma Classificado", use_column_width=True)
+                        except Exception as e:
+                            st.error(f"Erro na predição ResNet-18: {e}")
+                            logging.error(f"Erro na predição ResNet-18: {e}")
                 else:
                     st.error("Não foi possível carregar o áudio.")
                     logging.warning("Não foi possível carregar o áudio.")
@@ -1346,21 +1347,91 @@ def treinar_modelo(SEED):
                                 st.error(f"Erro durante a avaliação do modelo ResNet-18: {e}")
                                 logging.error(f"Erro durante a avaliação do modelo ResNet-18: {e}")
 
-                except Exception as e:
-                    st.error(f"Erro: {e}")
-                    logging.error(f"Erro: {e}")
+            except Exception as e:
+                st.error(f"Erro: {e}")
+                logging.error(f"Erro: {e}")
 
-                # Limpeza de memória e arquivos temporários
-                try:
-                    gc.collect()
-                    os.remove(caminho_zip)
-                    for cat in categorias:
-                        caminho_cat = os.path.join(caminho_base, cat)
-                        for arquivo in os.listdir(caminho_cat):
-                            os.remove(os.path.join(caminho_cat, arquivo))
-                        os.rmdir(caminho_cat)
-                    os.rmdir(caminho_base)
-                    logging.info("Processo concluído.")
-                except Exception as e:
-                    logging.error(f"Erro ao limpar arquivos temporários: {e}")
+            # Limpeza de memória e arquivos temporários
+            try:
+                gc.collect()
+                os.remove(caminho_zip)
+                for cat in categorias:
+                    caminho_cat = os.path.join(caminho_base, cat)
+                    for arquivo in os.listdir(caminho_cat):
+                        os.remove(os.path.join(caminho_cat, arquivo))
+                    os.rmdir(caminho_cat)
+                os.rmdir(caminho_base)
+                logging.info("Processo concluído.")
+            except Exception as e:
+                logging.error(f"Erro ao limpar arquivos temporários: {e}")
 
+with st.expander("Contexto e Descrição Completa"):
+    st.markdown("""
+    **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados, CNN Personalizada e ResNet-18**
+
+    Este aplicativo realiza duas tarefas principais:
+
+    1. **Treinar Modelo:**  
+       - Você faz upload de um dataset .zip contendo pastas, cada pasta representando uma classe (estado físico do fluido-copo).
+       - Escolhe entre treinar uma CNN personalizada ou utilizar a ResNet-18 pré-treinada.
+       - O app extrai características do áudio (MFCCs, centróide espectral ou espectrogramas), normaliza, aplica (opcionalmente) Data Augmentation.
+       - Treina o modelo escolhido para classificar os sons.
+       - Mostra métricas (acurácia, F1, precisão, recall) e histórico de treinamento, bem como gráficos das curvas de perda e acurácia.
+       - Plota a Matriz de Confusão, permitindo visualizar onde o modelo se confunde.
+       - Utiliza SHAP para interpretar quais features são mais importantes (apenas para CNN personalizada).
+       - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
+       - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
+       - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
+       - Mostra exemplos de cada classe do dataset original e exemplos aumentados.
+
+    2. **Classificar Áudio com Modelo Treinado:**  
+       - Você faz upload de um modelo já treinado (.keras, .h5 para CNN personalizada ou .pth para ResNet-18) e do arquivo de classes (classes.txt).
+       - Escolhe o método de classificação utilizado no treinamento.
+       - Envia um arquivo de áudio para classificação.
+       - O app extrai as mesmas features ou gera espectrogramas e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
+       - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs ou espectrograma correspondente.
+
+    **Contexto Físico (Fluidos, Ondas, Calor):**
+    Ao perturbar um copo com água, surgem modos ressonantes. A quantidade de água e a temperatura influenciam as frequências ressonantes. As MFCCs e centróide refletem a distribuição espectral, e os espectrogramas capturam a variação tempo-frequência do som. A CNN personalizada ou a ResNet-18 aprendem padrões ligados ao estado do fluido-copo.
+
+    **Explicação para Leigos:**
+    Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide ou espectrogramas), a CNN ou ResNet aprende a relacioná-los à quantidade de água e outras condições. SHAP explica quais características importam, clustering mostra agrupamentos de sons. Visualizações tornam tudo compreensível.
+
+    Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, proporcionando uma ferramenta poderosa e intuitiva para classificação de sons de água em copos de vidro.
+    """)
+
+st.sidebar.header("Configurações Gerais")
+with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
+    st.markdown("**SEED** garante resultados reproduzíveis.")
+
+seed_selection = st.sidebar.selectbox(
+    "Escolha o valor do SEED:",
+    options=seed_options,
+    index=seed_options.index(default_seed),
+    help="Define a semente para reprodutibilidade."
+)
+SEED = seed_selection
+set_seeds(SEED)
+
+with st.sidebar.expander("Sobre o SEED"):
+    st.markdown("""
+    **SEED** garante replicabilidade de resultados, permitindo que os experimentos sejam reproduzidos com os mesmos dados e parâmetros.
+    """)
+
+eu_icon_path = "eu.ico"
+if os.path.exists(eu_icon_path):
+    try:
+        st.sidebar.image(eu_icon_path, width=80)
+    except UnidentifiedImageError:
+        st.sidebar.text("Ícone 'eu.ico' corrompido.")
+else:
+    st.sidebar.text("Ícone 'eu.ico' não encontrado.")
+
+st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
+
+app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
+
+if app_mode == "Classificar Áudio":
+    classificar_audio(SEED)
+elif app_mode == "Treinar Modelo":
+    treinar_modelo(SEED)
