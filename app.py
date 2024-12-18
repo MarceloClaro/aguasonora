@@ -1,6 +1,6 @@
-# Parte 1: Importações e Configurações Iniciais
+# app.py
 
-import random 
+import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -33,6 +33,8 @@ import torchvision.transforms as torch_transforms
 from torchvision import models
 from torch.utils.data import DataLoader, Dataset
 
+# ============================ Configurações Iniciais ============================
+
 # Configuração de logging
 logging.basicConfig(
     filename='experiment_logs.log',
@@ -41,11 +43,10 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Configurações de semente para reprodutibilidade
-def set_seeds(seed):
+def set_seeds(seed: int):
     """
     Define as sementes para reprodutibilidade.
-
+    
     Args:
         seed (int): Valor da semente.
     """
@@ -56,21 +57,18 @@ def set_seeds(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+# ============================ Funções Auxiliares ============================
 
-#==================================================================
-
-# Parte 2: Funções Auxiliares
-
-def carregar_audio(caminho_arquivo, sr=None):
+def carregar_audio(caminho_arquivo: str, sr: int = None):
     """
     Carrega um arquivo de áudio usando Librosa com logs detalhados.
-
+    
     Args:
         caminho_arquivo (str): Caminho para o arquivo de áudio.
         sr (int, optional): Taxa de amostragem. Se None, usa a taxa original.
-
+    
     Returns:
-        tuple: Dados de áudio e taxa de amostragem.
+        tuple: Dados de áudio e taxa de amostragem, ou (None, None) em caso de erro.
     """
     if not os.path.exists(caminho_arquivo):
         error_msg = f"Arquivo de áudio não encontrado: {caminho_arquivo}"
@@ -92,18 +90,18 @@ def carregar_audio(caminho_arquivo, sr=None):
         st.error(error_msg)
         return None, None
 
-def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
+def extrair_features(data: np.ndarray, sr: int, use_mfcc: bool = True, use_spectral_centroid: bool = True):
     """
     Extrai features do áudio.
-
+    
     Args:
-        data (np.array): Dados de áudio.
+        data (np.ndarray): Dados de áudio.
         sr (int): Taxa de amostragem.
         use_mfcc (bool): Se True, extrai MFCCs.
         use_spectral_centroid (bool): Se True, extrai centróide espectral.
-
+    
     Returns:
-        np.array: Vetor de features normalizado.
+        np.ndarray: Vetor de features normalizado, ou None em caso de erro.
     """
     try:
         features_list = []
@@ -127,17 +125,17 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
         st.error(f"Erro ao extrair features: {e}")
         return None
 
-def aumentar_audio(data, sr, augmentations):
+def aumentar_audio(data: np.ndarray, sr: int, augmentations: Compose):
     """
     Aplica aumentação de dados no áudio.
-
+    
     Args:
-        data (np.array): Dados de áudio.
+        data (np.ndarray): Dados de áudio.
         sr (int): Taxa de amostragem.
         augmentations (Compose): Pipeline de aumentação.
-
+    
     Returns:
-        np.array: Áudio aumentado.
+        np.ndarray: Áudio aumentado, ou o áudio original em caso de erro.
     """
     try:
         return augmentations(samples=data, sample_rate=sr)
@@ -146,16 +144,16 @@ def aumentar_audio(data, sr, augmentations):
         st.warning(f"Erro ao aumentar áudio: {e}")
         return data
 
-def gerar_espectrograma(data, sr):
+def gerar_espectrograma(data: np.ndarray, sr: int):
     """
     Gera um espectrograma a partir do áudio.
-
+    
     Args:
-        data (np.array): Dados de áudio.
+        data (np.ndarray): Dados de áudio.
         sr (int): Taxa de amostragem.
-
+    
     Returns:
-        PIL.Image: Imagem do espectrograma ou None em caso de falha.
+        PIL.Image.Image: Imagem do espectrograma, ou None em caso de erro.
     """
     try:
         if len(data) == 0:
@@ -182,12 +180,12 @@ def gerar_espectrograma(data, sr):
         st.warning(error_msg)
         return None
 
-def visualizar_audio(data, sr):
+def visualizar_audio(data: np.ndarray, sr: int):
     """
     Visualiza diferentes representações do áudio.
-
+    
     Args:
-        data (np.array): Dados de áudio.
+        data (np.ndarray): Dados de áudio.
         sr (int): Taxa de amostragem.
     """
     try:
@@ -234,29 +232,33 @@ def visualizar_audio(data, sr):
         error_msg = f"Erro ao visualizar áudio: {e}"
         logging.error(error_msg)
         st.warning(error_msg)
-#===================================================================================
 
-# Parte 3: Classe de Dataset Personalizado e Outras Funções
+# ============================ Classe de Dataset Personalizado ============================
 
 class AudioSpectrogramDataset(Dataset):
     """
     Dataset personalizado para espectrogramas de áudio.
-
+    
     Args:
         df (pd.DataFrame): DataFrame com caminhos dos arquivos e classes.
         classes (list): Lista de classes.
         transform (callable, optional): Transformação a ser aplicada nas imagens.
     """
-    def __init__(self, df, classes, transform=None):
+    def __init__(self, df: pd.DataFrame, classes: list, transform=None):
         self.df = df
         self.classes = classes
         self.transform = transform
         self.label_encoder = LabelEncoder()
         self.label_encoder.fit(classes)
         self.indices_validos = self._filtrar_amostras_validas()
-    
+
     def _filtrar_amostras_validas(self):
-        """Filtra amostras válidas antes de criar o dataset."""
+        """
+        Filtra amostras válidas antes de criar o dataset.
+        
+        Returns:
+            list: Índices das amostras válidas.
+        """
         indices_validos = []
         for idx in range(len(self.df)):
             arquivo = self.df.iloc[idx]['caminho_arquivo']
@@ -271,10 +273,10 @@ class AudioSpectrogramDataset(Dataset):
                 continue
             indices_validos.append(idx)
         return indices_validos
-    
+
     def __len__(self):
         return len(self.indices_validos)
-    
+
     def __getitem__(self, idx):
         real_idx = self.indices_validos[idx]
         try:
@@ -302,71 +304,17 @@ class AudioSpectrogramDataset(Dataset):
             # Em vez de retornar None, levanta a exceção para que possa ser capturada no treinamento
             raise e
 
-def custom_collate(batch):
-    """
-    Função de colagem personalizada para ignorar amostras inválidas.
+# ============================ Funções de Clusterização ============================
 
-    Args:
-        batch (list): Lista de amostras.
-
-    Returns:
-        batch: Batch processado.
-    """
-    batch = list(filter(lambda x: x is not None, batch))
-    if len(batch) == 0:
-        return None
-    return torch.utils.data.dataloader.default_collate(batch)
-
-def verificar_contagem_classes(y, k_folds=1):
-    """
-    Verifica se todas as classes têm pelo menos k_folds amostras.
-
-    Args:
-        y (np.array): Labels.
-        k_folds (int, optional): Número de folds.
-
-    Returns:
-        bool: True se todas as classes tiverem amostras suficientes, False caso contrário.
-    """
-    classes, counts = np.unique(y, return_counts=True)
-    insufficient_classes = classes[counts < k_folds]
-    if len(insufficient_classes) > 0:
-        logging.warning(f"Classes com menos de {k_folds} amostras: {insufficient_classes}")
-        return False
-    return True
-
-def carregar_dados(zip_path):
-    """
-    Extrai e carrega dados do arquivo ZIP.
-
-    Args:
-        zip_path (str): Caminho para o arquivo ZIP.
-
-    Returns:
-        tuple: Diretório de extração e lista de categorias (pastas).
-    """
-    try:
-        diretorio_extracao = tempfile.mkdtemp()
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(diretorio_extracao)
-        categorias = [d for d in os.listdir(diretorio_extracao) if os.path.isdir(os.path.join(diretorio_extracao, d))]
-        logging.info(f"ZIP extraído para {diretorio_extracao} com categorias: {categorias}")
-        return diretorio_extracao, categorias
-    except Exception as e:
-        error_msg = f"Erro ao extrair o ZIP: {e}"
-        logging.error(error_msg)
-        st.error(error_msg)
-        return None, None
-
-def escolher_k_kmeans(X_original, y, max_k=10):
+def escolher_k_kmeans(X_original: np.ndarray, y: np.ndarray, max_k: int = 10):
     """
     Determina o melhor número de clusters usando o coeficiente de silhueta.
-
+    
     Args:
-        X_original (np.array): Features.
-        y (np.array): Labels.
+        X_original (np.ndarray): Features.
+        y (np.ndarray): Labels.
         max_k (int, optional): Número máximo de clusters a considerar.
-
+    
     Returns:
         int: Melhor valor de k.
     """
@@ -385,13 +333,72 @@ def escolher_k_kmeans(X_original, y, max_k=10):
                 melhor_sil = sil
                 melhor_k = k
     return melhor_k
-#================================================================================
-# Parte 4: Função para Classificar Áudio
 
-def classificar_audio(SEED):
+# ============================ Função de Carregamento de Dados ============================
+
+def carregar_dados(zip_path: str):
+    """
+    Extrai e carrega dados do arquivo ZIP.
+    
+    Args:
+        zip_path (str): Caminho para o arquivo ZIP.
+    
+    Returns:
+        tuple: Diretório de extração e lista de categorias (pastas), ou (None, None) em caso de erro.
+    """
+    try:
+        diretorio_extracao = tempfile.mkdtemp()
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(diretorio_extracao)
+        categorias = [d for d in os.listdir(diretorio_extracao) if os.path.isdir(os.path.join(diretorio_extracao, d))]
+        logging.info(f"ZIP extraído para {diretorio_extracao} com categorias: {categorias}")
+        return diretorio_extracao, categorias
+    except Exception as e:
+        error_msg = f"Erro ao extrair o ZIP: {e}"
+        logging.error(error_msg)
+        st.error(error_msg)
+        return None, None
+
+# ============================ Funções de Visualização ============================
+
+def visualizar_exemplos_classe(df: pd.DataFrame, y_valid: np.ndarray, classes: list, augmentation: bool = False, sr: int = 22050, metodo: str = "CNN Personalizada"):
+    """
+    Visualiza exemplos de cada classe do dataset.
+    
+    Args:
+        df (pd.DataFrame): DataFrame com caminhos dos arquivos e classes.
+        y_valid (np.ndarray): Labels válidos.
+        classes (list): Lista de classes.
+        augmentation (bool, optional): Se True, mostra exemplos aumentados.
+        sr (int, optional): Taxa de amostragem para visualização.
+        metodo (str, optional): Método de treinamento utilizado.
+    """
+    try:
+        st.markdown("### Exemplos por Classe")
+        for cls in classes:
+            st.subheader(f"Classe: {cls}")
+            indices = np.where(y_valid == np.where(classes == cls)[0][0])[0]
+            if len(indices) == 0:
+                st.write("Nenhum exemplo disponível.")
+                continue
+            selecionados = np.random.choice(indices, min(5, len(indices)), replace=False)
+            for idx in selecionados:
+                arquivo = df.iloc[idx]['caminho_arquivo']
+                data, sr = carregar_audio(arquivo, sr=sr)
+                if data is not None:
+                    st.audio(arquivo)
+                    visualizar_audio(data, sr)
+    except Exception as e:
+        error_msg = f"Erro ao visualizar exemplos por classe: {e}"
+        st.error(error_msg)
+        logging.error(error_msg)
+
+# ============================ Função de Classificação ============================
+
+def classificar_audio(SEED: int):
     """
     Função para classificar novos áudios usando um modelo treinado.
-
+    
     Args:
         SEED (int): Valor da semente para reprodutibilidade.
     """
@@ -414,8 +421,8 @@ def classificar_audio(SEED):
                 if metodo_classificacao == "CNN Personalizada":
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
-                    modelo = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-                    # Última camada será ajustada após carregar as classes
+                    modelo = models.resnet18(weights='IMAGENET1K_V1')
+                    # Ajustar a última camada após carregar as classes
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
@@ -454,7 +461,8 @@ def classificar_audio(SEED):
             elif metodo_classificacao == "ResNet-18":
                 try:
                     modelo.fc = torch.nn.Linear(modelo.fc.in_features, len(classes))
-                    modelo = modelo.to('cuda' if torch.cuda.is_available() else 'cpu')
+                    dispositivo = 'cuda' if torch.cuda.is_available() else 'cpu'
+                    modelo = modelo.to(dispositivo)
                     logging.info("Última camada da ResNet-18 ajustada para o número de classes.")
                     st.success("Última camada da ResNet-18 ajustada para o número de classes.")
                 except Exception as e:
@@ -511,9 +519,10 @@ def classificar_audio(SEED):
                                     ])
                                     espectrograma = transform(espectrograma).unsqueeze(0)
                                     modelo.eval()
-                                    modelo = modelo.to('cuda' if torch.cuda.is_available() else 'cpu')
+                                    dispositivo = 'cuda' if torch.cuda.is_available() else 'cpu'
+                                    modelo = modelo.to(dispositivo)
                                     with torch.no_grad():
-                                        espectrograma = espectrograma.to('cuda' if torch.cuda.is_available() else 'cpu')
+                                        espectrograma = espectrograma.to(dispositivo)
                                         pred = modelo(espectrograma)
                                         probs = torch.nn.functional.softmax(pred, dim=1)
                                         confidence, pred_class = torch.max(probs, dim=1)
@@ -550,12 +559,13 @@ def classificar_audio(SEED):
                     error_msg = f"Erro ao processar o áudio: {e}"
                     st.error(error_msg)
                     logging.error(error_msg)
-#==================================================================================================
-# Parte 5: Treinamento do Modelo (Corrigido)
 
-def treinar_modelo(SEED):
+# ============================ Função de Treinamento ============================
+
+def treinar_modelo(SEED: int):
     """
     Função para treinar o modelo CNN ou ResNet-18.
+    
     Args:
         SEED (int): Valor da semente para reprodutibilidade.
     """
@@ -858,6 +868,9 @@ def treinar_modelo(SEED):
                             else:
                                 logging.warning(f"Espectrograma aumentado não gerado para: {arquivo}")
                                 st.warning(f"Espectrograma aumentado não gerado para: {arquivo}")
+                        else:
+                            logging.warning(f"Áudio não carregado para o arquivo: {arquivo}")
+                            st.warning(f"Áudio não carregado para o arquivo: {arquivo}")
 
                 # Combinar dados originais e aumentados
                 if metodo_treinamento == "CNN Personalizada" and enable_augmentation and len(X_aug) > 0 and len(y_aug) > 0:
@@ -961,9 +974,9 @@ def treinar_modelo(SEED):
                     )
 
                     # Use num_workers=0 para facilitar a depuração
-                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=custom_collate)
-                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate)
-                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate)
+                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=lambda x: custom_collate(x))
+                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=lambda x: custom_collate(x))
+                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=lambda x: custom_collate(x))
                 else:
                     # Para CNN Personalizada, reshape os dados para (samples, features, 1)
                     X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
@@ -1340,7 +1353,6 @@ def treinar_modelo(SEED):
                                 error_msg = f"Erro durante a avaliação do modelo: {e}"
                                 st.error(error_msg)
                                 logging.error(error_msg)
-
                     except Exception as e:
                         error_msg = f"Erro durante o treinamento da ResNet-18: {e}"
                         st.error(error_msg)
@@ -1367,8 +1379,7 @@ def treinar_modelo(SEED):
                 logging.error(error_msg)
                 st.warning(error_msg)
 
-#=============================================================================================
-# Parte 6: Função Principal e Interface do Streamlit
+# ============================ Função Principal ============================
 
 def main_app():
     """
@@ -1449,8 +1460,45 @@ def main_app():
 
         Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, proporcionando uma ferramenta poderosa e intuitiva para classificação de sons de água em copos de vidro.
         """)
-#==============================================================================================
-# Parte 7: Execução da Aplicação
+
+# ============================ Funções de Teste Automatizado ============================
+
+# É recomendável criar um arquivo separado para testes, como test_app.py.
+# Abaixo está um exemplo de como você pode estruturar testes automatizados usando unittest.
+
+# test_app.py
+
+import unittest
+
+class TestAudioFunctions(unittest.TestCase):
+    def test_carregar_audio_valido(self):
+        data, sr = carregar_audio('caminho/para/audio_valido.wav')
+        self.assertIsNotNone(data)
+        self.assertIsNotNone(sr)
+
+    def test_carregar_audio_invalido(self):
+        data, sr = carregar_audio('caminho/para/audio_inexistente.wav')
+        self.assertIsNone(data)
+        self.assertIsNone(sr)
+
+    def test_extrair_features_valido(self):
+        # Supondo que 'data' e 'sr' são válidos
+        data = np.random.randn(22050)
+        sr = 22050
+        features = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+        self.assertIsNotNone(features)
+        self.assertEqual(features.shape[0], 40 + 1)  # 40 MFCCs + 1 centroid spectral
+
+    def test_extrair_features_invalido(self):
+        data = np.array([])
+        sr = 22050
+        features = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+        self.assertIsNone(features)
+
+if __name__ == '__main__':
+    unittest.main()
+
+# ============================ Execução da Aplicação ============================
 
 if __name__ == "__main__":
     main_app()
