@@ -13,3 +13,6 @@ seaborn
 Pillow
 torchaudio 
 sympy
+pylint
+flake8
+black
