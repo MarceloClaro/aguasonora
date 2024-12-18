@@ -1,46 +1,31 @@
-# app.py
-
-import random
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import librosa
-import librosa.display
-import tensorflow as tf
-from tensorflow.keras.utils import to_categorical
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
-from sklearn.utils.class_weight import compute_class_weight
-from sklearn.model_selection import train_test_split, KFold
-from sklearn.cluster import KMeans, AgglomerativeClustering
-from sklearn.metrics import silhouette_score
-from scipy.cluster.hierarchy import linkage, dendrogram
-from audiomentations import Compose, AddGaussianNoise, TimeStretch, PitchShift, Shift
-import streamlit as st
-import tempfile
-from PIL import Image, UnidentifiedImageError
-import io
-import torch
-import zipfile
-import gc
-import os
-import logging
-from tensorflow.keras import regularizers
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
-import shap
-import torchvision.transforms as torch_transforms
-from torchvision import models
-from torch.utils.data import DataLoader, Dataset
+# Importação das bibliotecas necessárias
+import random  # Para gerar números aleatórios e garantir reprodutibilidade
+import numpy as np  # Para manipulação de arrays e operações matemáticas
+import pandas as pd  # Para trabalhar com DataFrames e manipulação de dados
+import matplotlib.pyplot as plt  # Para visualização de gráficos
+import seaborn as sns  # Para visualização mais avançada de gráficos
+import librosa  # Biblioteca para análise de áudio
+import librosa.display  # Para exibição de espectrogramas e outros gráficos de áudio
+import tensorflow as tf  # Framework para criar e treinar redes neurais (deep learning)
+from tensorflow.keras.utils import to_categorical  # Para codificação de rótulos (one-hot encoding)
+from sklearn.preprocessing import LabelEncoder  # Para codificar rótulos de classe
+from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score  # Para avaliação de desempenho do modelo
+from sklearn.model_selection import train_test_split  # Para dividir os dados em treino e teste
+from audiomentations import Compose, AddGaussianNoise, TimeStretch, PitchShift, Shift  # Para aumentação de dados de áudio
+import streamlit as st  # Biblioteca para criar a interface interativa
+import tempfile  # Para trabalhar com arquivos temporários
+from PIL import Image  # Biblioteca para manipulação de imagens (usada para espectrogramas)
+import os  # Para operações com arquivos e diretórios
+import logging  # Para registrar logs de execução
 
 # ============================ Configurações Iniciais ============================
 
 # Configuração de logging
 logging.basicConfig(
-    filename='experiment_logs.log',
-    filemode='a',
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    filename='experiment_logs.log',  # Arquivo de log onde os erros e eventos serão registrados
+    filemode='a',  # Modo de abertura do arquivo de log (adicionando novas entradas)
+    format='%(asctime)s - %(levelname)s - %(message)s',  # Formato das mensagens no log
+    level=logging.INFO  # Nível de log (INFO é o nível padrão para registrar mensagens informativas)
 )
 
 def set_seeds(seed: int):
@@ -50,13 +35,12 @@ def set_seeds(seed: int):
     Args:
         seed (int): Valor da semente.
     """
-    random.seed(seed)
-    np.random.seed(seed)
-    tf.random.set_seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
+    random.seed(seed)  # Define a semente para números aleatórios em Python
+    np.random.seed(seed)  # Define a semente para a geração de números aleatórios do NumPy
+    tf.random.set_seed(seed)  # Define a semente para TensorFlow
+    torch.manual_seed(seed)  # Define a semente para PyTorch
+    if torch.cuda.is_available():  # Se houver GPU disponível
+        torch.cuda.manual_seed_all(seed)  # Define a semente para todas as GPUs disponíveis
 # ============================ Funções Auxiliares ============================
 
 def carregar_audio(caminho_arquivo: str, sr: int = None):
@@ -72,23 +56,24 @@ def carregar_audio(caminho_arquivo: str, sr: int = None):
     """
     if not os.path.exists(caminho_arquivo):
         error_msg = f"Arquivo de áudio não encontrado: {caminho_arquivo}"
-        logging.error(error_msg)
-        st.error(error_msg)
+        logging.error(error_msg)  # Registra o erro no log
+        st.error(error_msg)  # Exibe o erro no Streamlit
         return None, None
     try:
-        data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast', backend='soundfile')
+        data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast', backend='soundfile')  # Carrega o áudio
         if len(data) == 0:
             error_msg = f"Arquivo de áudio vazio: {caminho_arquivo}"
             logging.error(error_msg)
             st.error(error_msg)
             return None, None
         logging.info(f"Áudio carregado com sucesso: {caminho_arquivo} (Duração: {len(data)/sr:.2f}s)")
-        return data, sr
+        return data, sr  # Retorna os dados de áudio e a taxa de amostragem
     except Exception as e:
         error_msg = f"Erro ao carregar áudio {caminho_arquivo}: {e}"
         logging.error(error_msg)
         st.error(error_msg)
         return None, None
+
 
 def extrair_features(data: np.ndarray, sr: int, use_mfcc: bool = True, use_spectral_centroid: bool = True):
     """
@@ -108,22 +93,23 @@ def extrair_features(data: np.ndarray, sr: int, use_mfcc: bool = True, use_spect
         if use_mfcc:
             mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
             mfccs_scaled = np.mean(mfccs.T, axis=0)
-            features_list.append(mfccs_scaled)
+            features_list.append(mfccs_scaled)  # Extrai os MFCCs (coeficientes cepstrais)
         if use_spectral_centroid:
             centroid = librosa.feature.spectral_centroid(y=data, sr=sr)
             centroid_mean = np.mean(centroid, axis=1)
-            features_list.append(centroid_mean)
+            features_list.append(centroid_mean)  # Extrai o centróide espectral
         if len(features_list) > 1:
             features_vector = np.concatenate(features_list, axis=0)
         else:
             features_vector = features_list[0]
-        # Normalização
+        # Normalização das features
         features_vector = (features_vector - np.mean(features_vector)) / (np.std(features_vector) + 1e-9)
         return features_vector
     except Exception as e:
         logging.error(f"Erro ao extrair features: {e}")
         st.error(f"Erro ao extrair features: {e}")
         return None
+
 
 def aumentar_audio(data: np.ndarray, sr: int, augmentations: Compose):
     """
@@ -138,12 +124,12 @@ def aumentar_audio(data: np.ndarray, sr: int, augmentations: Compose):
         np.ndarray: Áudio aumentado, ou o áudio original em caso de erro.
     """
     try:
-        return augmentations(samples=data, sample_rate=sr)
+        return augmentations(samples=data, sample_rate=sr)  # Aplica as aumentações no áudio
     except Exception as e:
         logging.error(f"Erro ao aumentar áudio: {e}")
         st.warning(f"Erro ao aumentar áudio: {e}")
         return data
-
+#=================================================================================================
 def gerar_espectrograma(data: np.ndarray, sr: int):
     """
     Gera um espectrograma a partir do áudio.
@@ -161,17 +147,18 @@ def gerar_espectrograma(data: np.ndarray, sr: int):
             st.warning("Dados de áudio vazios.")
             return None
 
-        S = librosa.stft(data, n_fft=1024, hop_length=512)
-        S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
+        S = librosa.stft(data, n_fft=1024, hop_length=512)  # Transformada de Fourier de curto prazo
+        S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)  # Converte a amplitude para dB
 
+        # Plota o espectrograma
         plt.figure(figsize=(10, 4), dpi=100)
         librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='log', cmap='gray')
-        plt.axis('off')
+        plt.axis('off')  # Remove os eixos
         buf = io.BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
         plt.close()
         buf.seek(0)
-        img = Image.open(buf).convert('RGB')
+        img = Image.open(buf).convert('RGB')  # Converte para uma imagem RGB
         logging.info("Espectrograma gerado com sucesso.")
         return img
     except Exception as e:
@@ -179,6 +166,7 @@ def gerar_espectrograma(data: np.ndarray, sr: int):
         logging.error(error_msg)
         st.warning(error_msg)
         return None
+
 
 def visualizar_audio(data: np.ndarray, sr: int):
     """
@@ -232,9 +220,7 @@ def visualizar_audio(data: np.ndarray, sr: int):
         error_msg = f"Erro ao visualizar áudio: {e}"
         logging.error(error_msg)
         st.warning(error_msg)
-
-# ============================ Classe de Dataset Personalizado ============================
-
+#============================================================================================
 class AudioSpectrogramDataset(Dataset):
     """
     Dataset personalizado para espectrogramas de áudio.
@@ -303,9 +289,7 @@ class AudioSpectrogramDataset(Dataset):
             st.warning(error_msg)
             # Em vez de retornar None, levanta a exceção para que possa ser capturada no treinamento
             raise e
-
-# ============================ Funções de Clusterização ============================
-
+#=============================================================================================================
 def escolher_k_kmeans(X_original: np.ndarray, y: np.ndarray, max_k: int = 10):
     """
     Determina o melhor número de clusters usando o coeficiente de silhueta.
@@ -333,9 +317,7 @@ def escolher_k_kmeans(X_original: np.ndarray, y: np.ndarray, max_k: int = 10):
                 melhor_sil = sil
                 melhor_k = k
     return melhor_k
-
-# ============================ Função de Verificação de Contagem de Classes ============================
-
+#===================================================================================================
 def verificar_contagem_classes(y: np.ndarray, k_folds: int = 5):
     """
     Verifica se todas as classes têm pelo menos k_folds amostras.
@@ -351,9 +333,7 @@ def verificar_contagem_classes(y: np.ndarray, k_folds: int = 5):
     if np.any(counts < k_folds):
         return False
     return True
-
-# ============================ Função de Collate Personalizado ============================
-
+#====================================================================================
 def custom_collate(batch):
     """
     Função de collate personalizada para DataLoader.
@@ -368,9 +348,7 @@ def custom_collate(batch):
     inputs = torch.stack(inputs, dim=0)
     labels = torch.tensor(labels)
     return inputs, labels
-
-# ============================ Função de Carregamento de Dados ============================
-
+#=====================================================================================
 def carregar_dados(zip_path: str):
     """
     Extrai e carrega dados do arquivo ZIP.
@@ -393,9 +371,7 @@ def carregar_dados(zip_path: str):
         logging.error(error_msg)
         st.error(error_msg)
         return None, None
-
-# ============================ Funções de Visualização ============================
-
+#=============================================================================================
 def visualizar_exemplos_classe(df: pd.DataFrame, y_valid: np.ndarray, classes: list, augmentation: bool = False, sr: int = 22050, metodo: str = "CNN Personalizada"):
     """
     Visualiza exemplos de cada classe do dataset.
@@ -428,9 +404,7 @@ def visualizar_exemplos_classe(df: pd.DataFrame, y_valid: np.ndarray, classes: l
         error_msg = f"Erro ao visualizar exemplos por classe: {e}"
         st.error(error_msg)
         logging.error(error_msg)
-
-# ============================ Função de Classificação ============================
-
+#==============================================================================================================
 def classificar_audio(SEED: int):
     """
     Função para classificar novos áudios usando um modelo treinado.
@@ -596,9 +570,7 @@ def classificar_audio(SEED: int):
                     error_msg = f"Erro ao processar o áudio: {e}"
                     st.error(error_msg)
                     logging.error(error_msg)
-
-# ============================ Função de Treinamento ============================
-
+#=========================================================================================================================================
 def treinar_modelo(SEED: int):
     """
     Função para treinar o modelo CNN ou ResNet-18.
@@ -802,46 +774,7 @@ def treinar_modelo(SEED: int):
                 else:
                     l1_regularization = 0.0
                     l2_regularization = 0.0
-
-                st.sidebar.markdown("**Fine-Tuning Adicional:**")
-                learning_rate = st.sidebar.slider(
-                    "Taxa de Aprendizado:",
-                    1e-5, 1e-2, 1e-3, step=1e-5, format="%.5f",
-                    key='learning_rate_training'
-                )
-                optimizer_choice = st.sidebar.selectbox(
-                    "Otimização:",
-                    ["Adam", "SGD", "RMSprop"],0,
-                    key='optimizer_choice_training'
-                )
-
-                enable_augmentation = st.sidebar.checkbox(
-                    "Data Augmentation", True,
-                    key='enable_augmentation_training'
-                )
-                if enable_augmentation:
-                    adicionar_ruido = st.sidebar.checkbox("Ruído Gaussiano", True, key='add_gaussian_noise_training')
-                    estiramento_tempo = st.sidebar.checkbox("Time Stretch", True, key='time_stretch_training')
-                    alteracao_pitch = st.sidebar.checkbox("Pitch Shift", True, key='pitch_shift_training')
-                    deslocamento = st.sidebar.checkbox("Deslocamento", True, key='shift_training')
-
-                cross_validation = st.sidebar.checkbox(
-                    "k-Fold?", False,
-                    key='cross_validation_training'
-                )
-                if cross_validation:
-                    k_folds = st.sidebar.number_input(
-                        "Folds:",2,10,5,1,
-                        key='k_folds_training'
-                    )
-                else:
-                    k_folds = 1
-
-                balance_classes = st.sidebar.selectbox(
-                    "Balanceamento:",["Balanced","None"],0,
-                    key='balance_classes_training'
-                )
-
+#============================================================================
                 # Aumentação de dados
                 if metodo_treinamento == "CNN Personalizada" and enable_augmentation:
                     st.write("Aumentando Dados para CNN Personalizada...")
@@ -1019,486 +952,21 @@ def treinar_modelo(SEED: int):
                     X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
                     X_val_final = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
                     X_test_final = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
+#===============================================================================================================
+                # Limpeza de arquivos temporários
+                try:
+                    gc.collect()
+                    os.remove(caminho_zip)
+                    for cat in categorias:
+                        caminho_cat = os.path.join(diretorio_extracao, cat)
+                        for arquivo in os.listdir(caminho_cat):
+                            os.remove(os.path.join(caminho_cat, arquivo))
+                        os.rmdir(caminho_cat)
+                    os.rmdir(diretorio_extracao)
+                    logging.info("Processo concluído.")
+                except Exception as e:
+                    error_msg = f"Erro ao limpar arquivos temporários: {e}"
+                    logging.error(error_msg)
+                    st.warning(error_msg)
 
-                st.sidebar.markdown("**Configurações de Treinamento Adicionais:**")
 
-                # Configurações de balanceamento de classes
-                if balance_classes == "Balanced":
-                    if metodo_treinamento == "CNN Personalizada":
-                        class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
-                        class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
-                    elif metodo_treinamento == "ResNet-18":
-                        class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
-                        class_weight = torch.tensor(class_weights, dtype=torch.float).to('cuda' if torch.cuda.is_available() else 'cpu')
-                else:
-                    class_weight_dict = None
-                    class_weight = None
-
-                if metodo_treinamento == "CNN Personalizada":
-                    num_conv_layers = st.sidebar.slider(
-                        "Conv Layers",
-                        1, 5, 2, 1,
-                        key='num_conv_layers_cnn'
-                    )
-                    conv_filters_str = st.sidebar.text_input(
-                        "Filtros (vírgula):","64,128",
-                        key='conv_filters_cnn'
-                    )
-                    conv_kernel_size_str = st.sidebar.text_input(
-                        "Kernel (vírgula):","10,10",
-                        key='conv_kernel_size_cnn'
-                    )
-                    conv_filters = [int(f.strip()) for f in conv_filters_str.split(',')]
-                    conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_str.split(',')]
-
-                    # Garantir que o número de filtros e kernels corresponda ao número de camadas
-                    if len(conv_filters) != num_conv_layers or len(conv_kernel_size) != num_conv_layers:
-                        st.sidebar.error("O número de filtros e tamanhos de kernel deve corresponder ao número de camadas convolucionais.")
-                        st.stop()
-
-                    num_dense_layers = st.sidebar.slider(
-                        "Dense Layers:",
-                        1, 3, 1, 1,
-                        key='num_dense_layers_cnn'
-                    )
-                    dense_units_str = st.sidebar.text_input(
-                        "Neurônios Dense (vírgula):","64",
-                        key='dense_units_cnn'
-                    )
-                    dense_units = [int(u.strip()) for u in dense_units_str.split(',')]
-                    if len(dense_units) != num_dense_layers:
-                        st.sidebar.error("Número de neurônios deve ser igual ao número de camadas Dense.")
-                        st.stop()
-
-                    if regularization_type == "L1":
-                        reg = regularizers.l1(l1_regularization)
-                    elif regularization_type == "L2":
-                        reg = regularizers.l2(l2_regularization)
-                    elif regularization_type == "L1_L2":
-                        reg = regularizers.l1_l2(l1=l1_regularization, l2=l2_regularization)
-                    else:
-                        reg = None
-
-                    from tensorflow.keras.models import Sequential
-                    from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
-
-                    modelo_cnn = Sequential()
-                    modelo_cnn.add(Input(shape=(X_train_final.shape[1],1)))
-                    for i in range(num_conv_layers):
-                        modelo_cnn.add(Conv1D(
-                            filters=conv_filters[i],
-                            kernel_size=conv_kernel_size[i],
-                            activation='relu',
-                            kernel_regularizer=reg
-                        ))
-                        modelo_cnn.add(Dropout(dropout_rate))
-                        modelo_cnn.add(MaxPooling1D(pool_size=2))
-
-                    modelo_cnn.add(Flatten())
-                    for i in range(num_dense_layers):
-                        modelo_cnn.add(Dense(
-                            units=dense_units[i],
-                            activation='relu',
-                            kernel_regularizer=reg
-                        ))
-                        modelo_cnn.add(Dropout(dropout_rate))
-                    modelo_cnn.add(Dense(len(classes), activation='softmax'))
-
-                    if optimizer_choice == "Adam":
-                        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-                    elif optimizer_choice == "SGD":
-                        optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
-                    elif optimizer_choice == "RMSprop":
-                        optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
-                    else:
-                        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-
-                    modelo_cnn.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
-
-                elif metodo_treinamento == "ResNet-18":
-                    # Definindo a função de perda e otimizador
-                    criterion = torch.nn.CrossEntropyLoss(weight=class_weight if balance_classes == "Balanced" else None)
-                    if optimizer_choice == "Adam":
-                        optimizer = torch.optim.Adam(modelo.parameters(), lr=learning_rate)
-                    elif optimizer_choice == "SGD":
-                        optimizer = torch.optim.SGD(modelo.parameters(), lr=learning_rate)
-                    elif optimizer_choice == "RMSprop":
-                        optimizer = torch.optim.RMSprop(modelo.parameters(), lr=learning_rate)
-                    else:
-                        optimizer = torch.optim.Adam(modelo.parameters(), lr=learning_rate)
-
-                st.sidebar.markdown("**Configurações de Treinamento Adicionais:**")
-
-                es_monitor = st.sidebar.selectbox(
-                    "Monitor (Early Stopping):", 
-                    ["val_loss","val_accuracy"],
-                    key='es_monitor'
-                )
-                es_patience = st.sidebar.slider(
-                    "Patience:",
-                    1, 20, 5, 1,
-                    key='es_patience'
-                )
-                es_mode = st.sidebar.selectbox(
-                    "Mode:",
-                    ["min","max"],
-                    key='es_mode'
-                )
-
-                # Configurações de callbacks
-                if metodo_treinamento == "CNN Personalizada":
-                    try:
-                        os.makedirs('modelos_salvos', exist_ok=True)
-                        checkpointer = ModelCheckpoint(
-                            os.path.join('modelos_salvos','modelo_agua_aumentado.keras'),
-                            monitor='val_loss',
-                            verbose=1,
-                            save_best_only=True
-                        )
-                        earlystop = EarlyStopping(
-                            monitor=es_monitor,
-                            patience=es_patience,
-                            restore_best_weights=True,
-                            mode=es_mode,
-                            verbose=1
-                        )
-                        lr_scheduler = ReduceLROnPlateau(
-                            monitor='val_loss', 
-                            factor=0.5, 
-                            patience=3, 
-                            verbose=1
-                        )
-                        callbacks = [checkpointer, earlystop, lr_scheduler]
-                    except Exception as e:
-                        error_msg = f"Erro ao configurar callbacks: {e}"
-                        st.error(error_msg)
-                        logging.error(error_msg)
-                        return
-                elif metodo_treinamento == "ResNet-18":
-                    # PyTorch não usa callbacks da mesma forma que Keras, mas você pode implementar funcionalidades similares
-                    callbacks = []
-
-                st.write("Treinando...")
-                with st.spinner('Treinando...'):
-                    if metodo_treinamento == "CNN Personalizada":
-                        try:
-                            if cross_validation and k_folds > 1:
-                                kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
-                                fold_no = 1
-                                val_scores = []
-                                for train_index, val_index in kf.split(X_train_final):
-                                    if st.session_state.stop_training:
-                                        st.warning("Treinamento Parado pelo Usuário!")
-                                        break
-                                    st.write(f"Fold {fold_no}")
-                                    X_train_cv, X_val_cv = X_train_final[train_index], X_train_final[val_index]
-                                    y_train_cv, y_val_cv = y_train[train_index], y_train[val_index]
-                                    historico = modelo_cnn.fit(
-                                        X_train_cv, to_categorical(y_train_cv),
-                                        epochs=num_epochs,
-                                        batch_size=batch_size,
-                                        validation_data=(X_val_cv, to_categorical(y_val_cv)),
-                                        callbacks=callbacks,
-                                        class_weight=class_weight_dict,
-                                        verbose=1
-                                    )
-                                    score = modelo_cnn.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
-                                    val_scores.append(score[1]*100)
-                                    fold_no += 1
-                                if not st.session_state.stop_training:
-                                    st.write(f"Acurácia Média CV: {np.mean(val_scores):.2f}%")
-                            else:
-                                historico = modelo_cnn.fit(
-                                    X_train_final, to_categorical(y_train),
-                                    epochs=num_epochs,
-                                    batch_size=batch_size,
-                                    validation_data=(X_val_final, to_categorical(y_val)),
-                                    callbacks=callbacks,
-                                    class_weight=class_weight_dict,
-                                    verbose=1
-                                )
-                                if st.session_state.stop_training:
-                                    st.warning("Treinamento Parado pelo Usuário!")
-                                else:
-                                    st.success("Treino concluído!")
-                        except Exception as e:
-                            error_msg = f"Erro durante o treinamento da CNN: {e}"
-                            st.error(error_msg)
-                            logging.error(error_msg)
-
-                        try:
-                            with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
-                                modelo_cnn.save(tmp_model.name)
-                                caminho_tmp_model = tmp_model.name
-                            with open(caminho_tmp_model, 'rb') as f:
-                                modelo_bytes = f.read()
-                            buffer = io.BytesIO(modelo_bytes)
-                            st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
-                            os.remove(caminho_tmp_model)
-                        except Exception as e:
-                            error_msg = f"Erro ao salvar o modelo: {e}"
-                            st.error(error_msg)
-                            logging.error(error_msg)
-
-                        try:
-                            classes_str = "\n".join(classes)
-                            st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
-                        except Exception as e:
-                            error_msg = f"Erro ao salvar o arquivo de classes: {e}"
-                            st.error(error_msg)
-                            logging.error(error_msg)
-
-                        if not st.session_state.stop_training:
-                            try:
-                                st.markdown("### Avaliação do Modelo")
-                                score_train = modelo_cnn.evaluate(X_train_final, to_categorical(y_train), verbose=0)
-                                score_val = modelo_cnn.evaluate(X_val_final, to_categorical(y_val), verbose=0)
-                                score_test = modelo_cnn.evaluate(X_test_final, to_categorical(y_test), verbose=0)
-
-                                st.write(f"Acurácia Treino: {score_train[1]*100:.2f}%")
-                                st.write(f"Acurácia Validação: {score_val[1]*100:.2f}%")
-                                st.write(f"Acurácia Teste: {score_test[1]*100:.2f}%")
-
-                                y_pred = modelo_cnn.predict(X_test_final)
-                                y_pred_classes = np.argmax(y_pred, axis=1)
-                                f1_val = f1_score(y_test, y_pred_classes, average='weighted', zero_division=0)
-                                prec = precision_score(y_test, y_pred_classes, average='weighted', zero_division=0)
-                                rec = recall_score(y_test, y_pred_classes, average='weighted', zero_division=0)
-
-                                st.write(f"F1-score: {f1_val*100:.2f}%")
-                                st.write(f"Precisão: {prec*100:.2f}%")
-                                st.write(f"Recall: {rec*100:.2f}%")
-
-                                st.markdown("### Matriz de Confusão")
-                                cm = confusion_matrix(y_test, y_pred_classes, labels=range(len(classes)))
-                                cm_df = pd.DataFrame(cm, index=classes, columns=classes)
-                                fig_cm, ax_cm = plt.subplots(figsize=(12,8))
-                                sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-                                ax_cm.set_title("Matriz de Confusão", fontsize=16)
-                                ax_cm.set_xlabel("Classe Prevista", fontsize=14)
-                                ax_cm.set_ylabel("Classe Real", fontsize=14)
-                                st.pyplot(fig_cm)
-                                plt.close(fig_cm)
-
-                                st.markdown("### Histórico de Treinamento")
-                                hist_df = pd.DataFrame(historico.history)
-                                st.dataframe(hist_df)
-
-                                fig_hist, (ax_loss, ax_acc) = plt.subplots(1,2, figsize=(12,4))
-                                ax_loss.plot(hist_df.index, hist_df['loss'], label='Treino')
-                                ax_loss.plot(hist_df.index, hist_df['val_loss'], label='Validação')
-                                ax_loss.set_title("Curva de Perda")
-                                ax_loss.set_xlabel("Épocas")
-                                ax_loss.set_ylabel("Loss")
-                                ax_loss.legend()
-
-                                ax_acc.plot(hist_df.index, hist_df['accuracy'], label='Treino')
-                                ax_acc.plot(hist_df.index, hist_df['val_accuracy'], label='Validação')
-                                ax_acc.set_title("Curva de Acurácia")
-                                ax_acc.set_xlabel("Épocas")
-                                ax_acc.set_ylabel("Acurácia")
-                                ax_acc.legend()
-
-                                st.pyplot(fig_hist)
-                                plt.close(fig_hist)
-
-                                st.markdown("### Explicabilidade com SHAP")
-                                st.write("Selecionando amostras de teste para análise SHAP.")
-                                X_sample = X_test_final[:50]
-                                try:
-                                    explainer = shap.DeepExplainer(modelo_cnn, X_train_final[:100])
-                                    shap_values = explainer.shap_values(X_sample)
-
-                                    st.write("Plot SHAP Summary por Classe:")
-
-                                    num_shap_values = len(shap_values)
-                                    num_classes = len(classes)
-
-                                    if num_shap_values == num_classes:
-                                        for class_idx, class_name in enumerate(classes):
-                                            st.write(f"**Classe: {class_name}**")
-                                            fig_shap = plt.figure()
-                                            shap.summary_plot(shap_values[class_idx], X_sample, show=False)
-                                            st.pyplot(fig_shap)
-                                            plt.close(fig_shap)
-                                    elif num_shap_values == 1 and num_classes == 2:
-                                        st.write(f"**Classe: {classes[1]}**")
-                                        fig_shap = plt.figure()
-                                        shap.summary_plot(shap_values[0], X_sample, show=False)
-                                        st.pyplot(fig_shap)
-                                        plt.close(fig_shap)
-                                    else:
-                                        st.warning("Número de shap_values não corresponde ao número de classes.")
-                                        st.write(f"shap_values length: {num_shap_values}, classes length: {num_classes}")
-                                    st.write("""
-                                    **Interpretação SHAP:**  
-                                    MFCCs com valor SHAP alto contribuem significativamente para a classe.  
-                                    Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
-                                    """)
-                                except Exception as e:
-                                    error_msg = f"SHAP não pôde ser gerado: {e}"
-                                    st.write(error_msg)
-                                    logging.error(error_msg)
-
-                                st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
-                                st.write("""
-                                Clustering revela como dados se agrupam.  
-                                Determinaremos k automaticamente usando o coeficiente de silhueta.
-                                """)
-
-                                melhor_k = escolher_k_kmeans(X_combined, y_combined, max_k=10)
-                                sil_score = silhouette_score(X_combined, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_combined))
-                                st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
-
-                                kmeans = KMeans(n_clusters=melhor_k, random_state=42)
-                                kmeans_labels = kmeans.fit_predict(X_combined)
-                                st.write("Classes por Cluster (K-Means):")
-                                cluster_dist = []
-                                for cidx in range(melhor_k):
-                                    cluster_classes = y_combined[kmeans_labels == cidx]
-                                    counts = pd.Series(cluster_classes).value_counts()
-                                    cluster_dist.append(counts)
-                                for idx, dist in enumerate(cluster_dist):
-                                    st.write(f"**Cluster {idx+1}:**")
-                                    st.write(dist)
-
-                                st.write("Análise Hierárquica:")
-                                Z = linkage(X_combined, 'ward')
-                                fig_dend, ax_dend = plt.subplots(figsize=(10,5))
-                                dendrogram(Z, ax=ax_dend, truncate_mode='level', p=5)
-                                ax_dend.set_title("Dendrograma Hierárquico")
-                                ax_dend.set_xlabel("Amostras")
-                                ax_dend.set_ylabel("Distância")
-                                st.pyplot(fig_dend)
-                                plt.close(fig_dend)
-
-                                hier = AgglomerativeClustering(n_clusters=2)
-                                hier_labels = hier.fit_predict(X_combined)
-                                st.write("Classes por Cluster (Hierárquico):")
-                                cluster_dist_h = []
-                                for cidx in range(2):
-                                    cluster_classes = y_combined[hier_labels == cidx]
-                                    counts_h = pd.Series(cluster_classes).value_counts()
-                                    cluster_dist_h.append(counts_h)
-                                for idx, dist in enumerate(cluster_dist_h):
-                                    st.write(f"**Cluster {idx+1}:**")
-                                    st.write(dist)
-
-                                st.markdown("### Visualização de Exemplos")
-                                visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050, metodo=metodo_treinamento)
-                            except Exception as e:
-                                error_msg = f"Erro durante a avaliação do modelo: {e}"
-                                st.error(error_msg)
-                                logging.error(error_msg)
-                    except Exception as e:
-                        error_msg = f"Erro durante o treinamento da ResNet-18: {e}"
-                        st.error(error_msg)
-                        logging.error(error_msg)
-
-            except Exception as e:
-                error_msg = f"Erro ao treinar o modelo: {e}"
-                st.error(error_msg)
-                logging.error(error_msg)
-
-            # Limpeza de arquivos temporários
-            try:
-                gc.collect()
-                os.remove(caminho_zip)
-                for cat in categorias:
-                    caminho_cat = os.path.join(diretorio_extracao, cat)
-                    for arquivo in os.listdir(caminho_cat):
-                        os.remove(os.path.join(caminho_cat, arquivo))
-                    os.rmdir(caminho_cat)
-                os.rmdir(diretorio_extracao)
-                logging.info("Processo concluído.")
-            except Exception as e:
-                error_msg = f"Erro ao limpar arquivos temporários: {e}"
-                logging.error(error_msg)
-                st.warning(error_msg)
-
-# ============================ Função Principal ============================
-
-def main_app():
-    """
-    Função principal que define a interface do Streamlit.
-    """
-    st.title("Classificador de Sons de Água em Copos de Vidro")
-    st.write("Bem-vindo ao Classificador de Sons de Água! Aqui você pode treinar modelos para reconhecer diferentes sons de água em copos de vidro ou usar um modelo treinado para classificar novos áudios.")
-
-    app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"], key='app_mode')
-
-    # Configurações Gerais
-    st.sidebar.header("Configurações Gerais")
-    with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
-        st.markdown("**SEED** garante resultados reproduzíveis.")
-
-    seed_selection = st.sidebar.selectbox(
-        "Escolha o valor do SEED:",
-        options=list(range(0, 61, 2)),
-        index=list(range(0, 61, 2)).index(42),
-        help="Define a semente para reprodutibilidade.",
-        key='seed_selection'
-    )
-    SEED = seed_selection
-    set_seeds(SEED)
-
-    with st.sidebar.expander("Sobre o SEED"):
-        st.markdown("""
-        **SEED** garante replicabilidade de resultados, permitindo que os experimentos sejam reproduzidos com os mesmos dados e parâmetros.
-        """)
-
-    eu_icon_path = "eu.ico"
-    if os.path.exists(eu_icon_path):
-        try:
-            st.sidebar.image(eu_icon_path, width=80)
-        except UnidentifiedImageError:
-            st.sidebar.text("Ícone 'eu.ico' corrompido.")
-    else:
-        st.sidebar.text("Ícone 'eu.ico' não encontrado.")
-
-    st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
-
-    if app_mode == "Classificar Áudio":
-        classificar_audio(SEED)
-    elif app_mode == "Treinar Modelo":
-        treinar_modelo(SEED)
-
-    with st.expander("Contexto e Descrição Completa"):
-        st.markdown("""
-        **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados, CNN Personalizada e ResNet-18**
-
-        Este aplicativo realiza duas tarefas principais:
-
-        1. **Treinar Modelo:**  
-           - Você faz upload de um dataset .zip contendo pastas, cada pasta representando uma classe (estado físico do fluido-copo).
-           - Escolhe entre treinar uma CNN personalizada ou utilizar a ResNet-18 pré-treinada.
-           - O app extrai características do áudio (MFCCs, centróide espectral ou espectrogramas), normaliza, aplica (opcionalmente) Data Augmentation.
-           - Treina o modelo escolhido para classificar os sons.
-           - Mostra métricas (acurácia, F1, precisão, recall) e histórico de treinamento, bem como gráficos das curvas de perda e acurácia.
-           - Plota a Matriz de Confusão, permitindo visualizar onde o modelo se confunde.
-           - Utiliza SHAP para interpretar quais features são mais importantes (apenas para CNN personalizada).
-           - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
-           - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
-           - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
-           - Mostra exemplos de cada classe do dataset original e exemplos aumentados.
-
-        2. **Classificar Áudio com Modelo Treinado:**  
-           - Você faz upload de um modelo já treinado (.keras, .h5 para CNN personalizada ou .pth para ResNet-18) e do arquivo de classes (classes.txt).
-           - Escolhe o método de classificação utilizado no treinamento.
-           - Envia um arquivo de áudio para classificação.
-           - O app extrai as mesmas features ou gera espectrogramas e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
-           - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs ou espectrograma correspondente.
-
-        **Contexto Físico (Fluidos, Ondas, Calor):**
-        Ao perturbar um copo com água, surgem modos ressonantes. A quantidade de água e a temperatura influenciam as frequências ressonantes. As MFCCs e centróide refletem a distribuição espectral, e os espectrogramas capturam a variação tempo-frequência do som. A CNN personalizada ou a ResNet-18 aprendem padrões ligados ao estado do fluido-copo.
-
-        **Explicação para Leigos:**
-        Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide ou espectrogramas), a CNN ou ResNet aprende a relacioná-los à quantidade de água e outras condições. SHAP explica quais características importam, clustering mostra agrupamentos de sons. Visualizações tornam tudo compreensível.
-
-        Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, proporcionando uma ferramenta poderosa e intuitiva para classificação de sons de água em copos de vidro.
-        """)
-
-# ============================ Execução da Aplicação ============================
-
-if __name__ == "__main__":
-    main_app()
