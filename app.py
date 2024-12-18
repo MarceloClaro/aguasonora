@@ -1,4 +1,4 @@
-import random
+import random 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -41,7 +41,12 @@ logging.basicConfig(
 
 # Configurações de semente para reprodutibilidade
 def set_seeds(seed):
-    """Define as sementes para reprodutibilidade."""
+    """
+    Define as sementes para reprodutibilidade.
+
+    Args:
+        seed (int): Valor da semente.
+    """
     random.seed(seed)
     np.random.seed(seed)
     tf.random.set_seed(seed)
@@ -51,7 +56,16 @@ def set_seeds(seed):
 
 # Funções auxiliares
 def carregar_audio(caminho_arquivo, sr=None):
-    """Carrega um arquivo de áudio."""
+    """
+    Carrega um arquivo de áudio usando Librosa.
+
+    Args:
+        caminho_arquivo (str): Caminho para o arquivo de áudio.
+        sr (int, optional): Taxa de amostragem. Se None, usa a taxa original.
+
+    Returns:
+        tuple: Dados de áudio e taxa de amostragem.
+    """
     try:
         data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast', backend='soundfile')
         return data, sr
@@ -60,7 +74,18 @@ def carregar_audio(caminho_arquivo, sr=None):
         return None, None
 
 def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
-    """Extrai features do áudio."""
+    """
+    Extrai features do áudio.
+
+    Args:
+        data (np.array): Dados de áudio.
+        sr (int): Taxa de amostragem.
+        use_mfcc (bool): Se True, extrai MFCCs.
+        use_spectral_centroid (bool): Se True, extrai centróide espectral.
+
+    Returns:
+        np.array: Vetor de features normalizado.
+    """
     try:
         features_list = []
         if use_mfcc:
@@ -83,7 +108,17 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
         return None
 
 def aumentar_audio(data, sr, augmentations):
-    """Aplica aumentação de dados no áudio."""
+    """
+    Aplica aumentação de dados no áudio.
+
+    Args:
+        data (np.array): Dados de áudio.
+        sr (int): Taxa de amostragem.
+        augmentations (Compose): Pipeline de aumentação.
+
+    Returns:
+        np.array: Áudio aumentado.
+    """
     try:
         return augmentations(samples=data, sample_rate=sr)
     except Exception as e:
@@ -91,7 +126,16 @@ def aumentar_audio(data, sr, augmentations):
         return data
 
 def gerar_espectrograma(data, sr):
-    """Gera um espectrograma a partir do áudio."""
+    """
+    Gera um espectrograma a partir do áudio.
+
+    Args:
+        data (np.array): Dados de áudio.
+        sr (int): Taxa de amostragem.
+
+    Returns:
+        PIL.Image: Imagem do espectrograma.
+    """
     try:
         S = librosa.stft(data, n_fft=1024, hop_length=512)
         S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
@@ -109,7 +153,13 @@ def gerar_espectrograma(data, sr):
         return None
 
 def visualizar_audio(data, sr):
-    """Visualiza diferentes representações do áudio."""
+    """
+    Visualiza diferentes representações do áudio.
+
+    Args:
+        data (np.array): Dados de áudio.
+        sr (int): Taxa de amostragem.
+    """
     try:
         # Forma de onda no tempo
         fig_wave, ax_wave = plt.subplots(figsize=(8,4))
@@ -154,7 +204,17 @@ def visualizar_audio(data, sr):
         logging.error(f"Erro ao visualizar áudio: {e}")
 
 def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, metodo='CNN'):
-    """Visualiza exemplos de cada classe, tanto originais quanto aumentados."""
+    """
+    Visualiza exemplos de cada classe, tanto originais quanto aumentados.
+
+    Args:
+        df (pd.DataFrame): DataFrame com caminhos dos arquivos e classes.
+        y (np.array): Labels codificados.
+        classes (list): Lista de classes.
+        augmentation (bool, optional): Se True, mostra exemplos aumentados.
+        sr (int, optional): Taxa de amostragem.
+        metodo (str, optional): Método de treinamento utilizado.
+    """
     classes_indices = {c: np.where(y == i)[0] for i, c in enumerate(classes)}
     st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 de cada classe aumentada)")
     
@@ -204,7 +264,17 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                 logging.error(f"Erro ao aumentar áudio para a classe {c}: {e}")
 
 def escolher_k_kmeans(X_original, y, max_k=10):
-    """Determina o melhor número de clusters usando o coeficiente de silhueta."""
+    """
+    Determina o melhor número de clusters usando o coeficiente de silhueta.
+
+    Args:
+        X_original (np.array): Features.
+        y (np.array): Labels.
+        max_k (int, optional): Número máximo de clusters a considerar.
+
+    Returns:
+        int: Melhor valor de k.
+    """
     melhor_k = 2
     melhor_sil = -1
     n_amostras = X_original.shape[0]
@@ -222,7 +292,14 @@ def escolher_k_kmeans(X_original, y, max_k=10):
     return melhor_k
 
 class AudioSpectrogramDataset(Dataset):
-    """Dataset personalizado para espectrogramas de áudio."""
+    """
+    Dataset personalizado para espectrogramas de áudio.
+
+    Args:
+        df (pd.DataFrame): DataFrame com caminhos dos arquivos e classes.
+        classes (list): Lista de classes.
+        transform (callable, optional): Transformação a ser aplicada nas imagens.
+    """
     def __init__(self, df, classes, transform=None):
         self.df = df
         self.classes = classes
@@ -277,14 +354,31 @@ class AudioSpectrogramDataset(Dataset):
             raise e
 
 def custom_collate(batch):
-    """Função de colagem personalizada para ignorar amostras inválidas."""
+    """
+    Função de colagem personalizada para ignorar amostras inválidas.
+
+    Args:
+        batch (list): Lista de amostras.
+
+    Returns:
+        batch: Batch processado.
+    """
     batch = list(filter(lambda x: x is not None, batch))
     if len(batch) == 0:
         return None
     return torch.utils.data.dataloader.default_collate(batch)
 
 def verificar_contagem_classes(y, k_folds=1):
-    """Verifica se todas as classes têm pelo menos k_folds amostras."""
+    """
+    Verifica se todas as classes têm pelo menos k_folds amostras.
+
+    Args:
+        y (np.array): Labels.
+        k_folds (int, optional): Número de folds.
+
+    Returns:
+        bool: True se todas as classes tiverem amostras suficientes, False caso contrário.
+    """
     classes, counts = np.unique(y, return_counts=True)
     insufficient_classes = classes[counts < k_folds]
     if len(insufficient_classes) > 0:
@@ -294,7 +388,12 @@ def verificar_contagem_classes(y, k_folds=1):
 
 # Funções principais
 def classificar_audio(SEED):
-    """Função para classificar novos áudios usando um modelo treinado."""
+    """
+    Função para classificar novos áudios usando um modelo treinado.
+
+    Args:
+        SEED (int): Valor da semente para reprodutibilidade.
+    """
     with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
         metodo_classificacao = st.selectbox(
             "Escolha o Método de Classificação:",
@@ -315,7 +414,7 @@ def classificar_audio(SEED):
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
                     modelo = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, 1)  # Atualizar conforme necessário
+                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, len(classes))  # Atualizado para o número correto de classes
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
@@ -440,7 +539,12 @@ def classificar_audio(SEED):
                     logging.error(f"Erro ao processar o áudio: {e}")
 
 def treinar_modelo(SEED):
-    """Função para treinar o modelo CNN ou ResNet-18."""
+    """
+    Função para treinar o modelo CNN ou ResNet-18.
+
+    Args:
+        SEED (int): Valor da semente para reprodutibilidade.
+    """
     with st.expander("Treinamento do Modelo CNN ou ResNet-18"):
         metodo_treinamento = st.selectbox(
             "Escolha o Método de Treinamento:",
@@ -1245,17 +1349,20 @@ def treinar_modelo(SEED):
                 gc.collect()
                 os.remove(caminho_zip)
                 for cat in categorias:
-                    caminho_cat = os.path.join(caminho_base, cat)
+                    caminho_cat = os.path.join(diretorio_extracao, cat)
                     for arquivo in os.listdir(caminho_cat):
                         os.remove(os.path.join(caminho_cat, arquivo))
                     os.rmdir(caminho_cat)
-                os.rmdir(caminho_base)
+                os.rmdir(diretorio_extracao)
                 logging.info("Processo concluído.")
             except Exception as e:
                 logging.error(f"Erro ao limpar arquivos temporários: {e}")
 
 # Interface do Streamlit
 def main():
+    """
+    Função principal que define a interface do Streamlit.
+    """
     st.title("Classificador de Sons de Água em Copos de Vidro")
     st.write("Bem-vindo ao Classificador de Sons de Água! Aqui você pode treinar modelos para reconhecer diferentes sons de água em copos de vidro ou usar um modelo treinado para classificar novos áudios.")
 
