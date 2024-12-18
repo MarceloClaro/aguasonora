@@ -32,6 +32,7 @@ from torchvision import models
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
 
+# Configuração de logging
 logging.basicConfig(
     filename='experiment_logs.log',
     filemode='a',
@@ -39,11 +40,13 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# Configurações de semente para reprodutibilidade
 seed_options = list(range(0, 61, 2))
 default_seed = 42
 if default_seed not in seed_options:
     seed_options.insert(0, default_seed)
 
+# Configuração da página do Streamlit
 icon_path = "logo.png"
 if os.path.exists(icon_path):
     try:
@@ -56,10 +59,12 @@ else:
     st.set_page_config(page_title="Geomaker", layout="wide")
     logging.warning("Ícone não encontrado.")
 
+# Estado da sessão para controlar o treinamento
 if 'stop_training' not in st.session_state:
     st.session_state.stop_training = False
 
 def set_seeds(seed):
+    """Define as sementes para reprodutibilidade."""
     random.seed(seed)
     np.random.seed(seed)
     tf.random.set_seed(seed)
@@ -68,13 +73,16 @@ def set_seeds(seed):
         torch.cuda.manual_seed_all(seed)
 
 def carregar_audio(caminho_arquivo, sr=None):
+    """Carrega um arquivo de áudio."""
     try:
         data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast', backend='soundfile')
         return data, sr
-    except Exception:
+    except Exception as e:
+        logging.error(f"Erro ao carregar áudio {caminho_arquivo}: {e}")
         return None, None
 
 def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
+    """Extrai features do áudio."""
     try:
         features_list = []
         if use_mfcc:
@@ -91,16 +99,20 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
             features_vector = features_list[0]
         features_vector = (features_vector - np.mean(features_vector)) / (np.std(features_vector) + 1e-9)
         return features_vector
-    except Exception:
+    except Exception as e:
+        logging.error(f"Erro ao extrair features: {e}")
         return None
 
 def aumentar_audio(data, sr, augmentations):
+    """Aplica aumentação de dados no áudio."""
     try:
         return augmentations(samples=data, sample_rate=sr)
-    except Exception:
+    except Exception as e:
+        logging.error(f"Erro ao aumentar áudio: {e}")
         return data
 
 def gerar_espectrograma(data, sr):
+    """Gera um espectrograma a partir do áudio."""
     try:
         S = librosa.stft(data, n_fft=1024, hop_length=512)
         S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
@@ -113,11 +125,14 @@ def gerar_espectrograma(data, sr):
         buf.seek(0)
         img = Image.open(buf).convert('RGB')
         return img
-    except Exception:
+    except Exception as e:
+        logging.error(f"Erro ao gerar espectrograma: {e}")
         return None
 
 def visualizar_audio(data, sr):
+    """Visualiza diferentes representações do áudio."""
     try:
+        # Forma de onda no tempo
         fig_wave, ax_wave = plt.subplots(figsize=(8,4))
         librosa.display.waveshow(data, sr=sr, ax=ax_wave)
         ax_wave.set_title("Forma de Onda no Tempo")
@@ -126,6 +141,7 @@ def visualizar_audio(data, sr):
         st.pyplot(fig_wave)
         plt.close(fig_wave)
 
+        # Espectro de frequência
         fft = np.fft.fft(data)
         fft_abs = np.abs(fft[:len(fft)//2])
         freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
@@ -137,6 +153,7 @@ def visualizar_audio(data, sr):
         st.pyplot(fig_fft)
         plt.close(fig_fft)
 
+        # Espectrograma
         D = np.abs(librosa.stft(data))**2
         S = librosa.power_to_db(D, ref=np.max)
         fig_spec, ax_spec = plt.subplots(figsize=(8,4))
@@ -146,6 +163,7 @@ def visualizar_audio(data, sr):
         st.pyplot(fig_spec)
         plt.close(fig_spec)
 
+        # MFCCs
         mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
         fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
         img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
@@ -153,25 +171,28 @@ def visualizar_audio(data, sr):
         fig_mfcc.colorbar(img_mfcc, ax=ax_mfcc)
         st.pyplot(fig_mfcc)
         plt.close(fig_mfcc)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.error(f"Erro ao visualizar áudio: {e}")
 
 def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, metodo='CNN'):
+    """Visualiza exemplos de cada classe, tanto originais quanto aumentados."""
     classes_indices = {c: np.where(y == i)[0] for i, c in enumerate(classes)}
     st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 de cada classe aumentada)")
-    if metodo in ['CNN', 'ResNet18', 'ResNet-18']:
+    
+    transforms_aug = None
+    if metodo in ['CNN Personalizada', 'ResNet18', 'ResNet-18']:
         transforms_aug = Compose([
             AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
             TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
             PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
             Shift(min_shift=-0.5, max_shift=0.5, p=0.5),
         ])
-    else:
-        transforms_aug = None
+    
     for c in classes:
         st.markdown(f"#### Classe: {c}")
         indices_classe = classes_indices[c]
         if len(indices_classe) == 0:
+            logging.warning(f"Nenhuma amostra encontrada para a classe: {c}")
             continue
         idx_original = random.choice(indices_classe)
         arquivo_original = df.iloc[idx_original]['caminho_arquivo']
@@ -182,6 +203,9 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                 espectrograma = gerar_espectrograma(data_original, sr_original)
                 if espectrograma:
                     st.image(espectrograma, caption="Espectrograma Original", use_column_width=True)
+        else:
+            logging.warning(f"Dados inválidos para a amostra original da classe: {c}")
+        
         if augmentation and transforms_aug is not None:
             try:
                 if len(indices_classe) > 1:
@@ -197,10 +221,13 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                         espectrograma_aug = gerar_espectrograma(aug_data, sr_aug)
                         if espectrograma_aug:
                             st.image(espectrograma_aug, caption="Espectrograma Aumentado", use_column_width=True)
-            except Exception:
-                pass
+                else:
+                    logging.warning(f"Dados inválidos para a amostra aumentada da classe: {c}")
+            except Exception as e:
+                logging.error(f"Erro ao aumentar áudio para a classe {c}: {e}")
 
 def escolher_k_kmeans(X_original, y, max_k=10):
+    """Determina o melhor número de clusters usando o coeficiente de silhueta."""
     melhor_k = 2
     melhor_sil = -1
     n_amostras = X_original.shape[0]
@@ -218,42 +245,59 @@ def escolher_k_kmeans(X_original, y, max_k=10):
     return melhor_k
 
 class AudioSpectrogramDataset(Dataset):
+    """Dataset personalizado para espectrogramas de áudio."""
     def __init__(self, df, classes, transform=None):
         self.df = df
         self.classes = classes
         self.transform = transform
         self.label_encoder = LabelEncoder()
         self.label_encoder.fit(classes)
+        self.indices_validos = self._filtrar_amostras_validas()
     
-    def __len__(self):
-        return len(self.df)
-    
-    def __getitem__(self, idx):
-        try:
+    def _filtrar_amostras_validas(self):
+        """Filtra amostras válidas antes de criar o dataset."""
+        indices_validos = []
+        for idx in range(len(self.df)):
             arquivo = self.df.iloc[idx]['caminho_arquivo']
             classe = self.df.iloc[idx]['classe']
             data, sr = carregar_audio(arquivo, sr=None)
             if data is None or sr is None:
-                raise ValueError(f"Não foi possível carregar o áudio: {arquivo}")
+                logging.warning(f"Dados inválidos no índice {idx}: {arquivo}")
+                continue
             espectrograma = gerar_espectrograma(data, sr)
             if espectrograma is None:
-                raise ValueError(f"Não foi possível gerar espectrograma para: {arquivo}")
+                logging.warning(f"Espectrograma inválido no índice {idx}: {arquivo}")
+                continue
+            indices_validos.append(idx)
+        return indices_validos
+    
+    def __len__(self):
+        return len(self.indices_validos)
+    
+    def __getitem__(self, idx):
+        real_idx = self.indices_validos[idx]
+        try:
+            arquivo = self.df.iloc[real_idx]['caminho_arquivo']
+            classe = self.df.iloc[real_idx]['classe']
+            data, sr = carregar_audio(arquivo, sr=None)
+            if data is None or sr is None:
+                logging.error(f"Não foi possível carregar o áudio no índice {real_idx}: {arquivo}")
+                raise ValueError(f"Dados inválidos no índice {real_idx}: {arquivo}")
+            espectrograma = gerar_espectrograma(data, sr)
+            if espectrograma is None:
+                logging.error(f"Não foi possível gerar espectrograma no índice {real_idx}: {arquivo}")
+                raise ValueError(f"Espectrograma inválido no índice {real_idx}: {arquivo}")
             if self.transform:
                 espectrograma = self.transform(espectrograma)
             label = self.label_encoder.transform([classe])[0]
             return espectrograma, label
         except Exception as e:
-            logging.error(f"Erro em __getitem__ para o índice {idx}: {e}")
+            logging.error(f"Erro em __getitem__ para o índice {real_idx}: {e}")
+            # Em vez de retornar None, raise para que o DataLoader possa lidar com o erro
             raise e
 
-def verificar_contagem_classes(y, k_folds=1):
-    classes, counts = np.unique(y, return_counts=True)
-    insufficient_classes = classes[counts < k_folds]
-    if len(insufficient_classes) > 0:
-        return False
-    return True
-
 def classificar_audio(SEED):
+    """Função para classificar novos áudios usando um modelo treinado."""
     with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
         metodo_classificacao = st.selectbox(
             "Escolha o Método de Classificação:",
@@ -274,7 +318,7 @@ def classificar_audio(SEED):
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
                     modelo = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, 1)
+                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, len(classes_file))
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
                 if metodo_classificacao == "CNN Personalizada":
@@ -403,6 +447,7 @@ def classificar_audio(SEED):
                     logging.warning("Não foi possível carregar o áudio.")
 
 def treinar_modelo(SEED):
+    """Função para treinar o modelo CNN ou ResNet-18."""
     with st.expander("Treinamento do Modelo CNN ou ResNet-18"):
         metodo_treinamento = st.selectbox(
             "Escolha o Método de Treinamento:",
@@ -410,6 +455,7 @@ def treinar_modelo(SEED):
             key='select_training_method'
         )
 
+        # Controle para parar o treinamento
         stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False, key='stop_training_checkbox')
 
         if stop_training_choice:
@@ -469,6 +515,7 @@ def treinar_modelo(SEED):
                 X_aug = []
                 y_aug = []
 
+                # Extrair features ou gerar espectrogramas dependendo do método de treinamento
                 if metodo_treinamento == "CNN Personalizada":
                     st.write("Extraindo Features (MFCCs, Centróide)...")
                     X = []
@@ -507,6 +554,7 @@ def treinar_modelo(SEED):
 
                 st.sidebar.markdown("**Configurações de Treinamento:**")
 
+                # Configurações de treinamento
                 num_epochs = st.sidebar.slider(
                     "Número de Épocas:",
                     10, 500, 50, 10,
@@ -614,6 +662,7 @@ def treinar_modelo(SEED):
                     key='balance_classes_training'
                 )
 
+                # Aumentação de dados
                 if metodo_treinamento == "CNN Personalizada" and enable_augmentation:
                     st.write("Aumentando Dados para CNN Personalizada...")
                     transforms_aug = []
@@ -665,6 +714,7 @@ def treinar_modelo(SEED):
                                 X_aug.append(img_path)
                                 y_aug.append(y[i])
 
+                # Combinar dados originais e aumentados
                 if metodo_treinamento == "CNN Personalizada" and enable_augmentation and len(X_aug) > 0 and len(y_aug) > 0:
                     X_aug = np.array(X_aug)
                     y_aug = np.array(y_aug)
@@ -681,6 +731,7 @@ def treinar_modelo(SEED):
                     X_combined = X
                     y_combined = y_valid
 
+                # Verificação de amostras válidas para ResNet-18
                 if metodo_treinamento == "ResNet-18":
                     valid_indices = []
                     for i, img_path in enumerate(X_combined):
@@ -692,7 +743,9 @@ def treinar_modelo(SEED):
                     y_combined = y_combined[valid_indices]
                     st.write(f"Amostras válidas após verificação: {len(X_combined)}")
 
+                # Verificar se todas as classes têm pelo menos k_folds amostras
                 if not verificar_contagem_classes(y_combined, k_folds=k_folds):
+                    st.error("Algumas classes têm menos amostras do que o número de folds.")
                     st.stop()
 
                 st.write("Dividindo Dados...")
@@ -759,9 +812,10 @@ def treinar_modelo(SEED):
                         transform=transform_val
                     )
 
-                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=2)
-                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=2)
-                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=2)
+                    # Use num_workers=0 para facilitar a depuração
+                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0)
+                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0)
+                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0)
                 else:
                     X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
                     X_val_final = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
@@ -862,67 +916,10 @@ def treinar_modelo(SEED):
                     modelo_cnn.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
                 elif metodo_treinamento == "ResNet-18":
-                    transform_train = torch_transforms.Compose([
-                        torch_transforms.Resize((224, 224)),
-                        torch_transforms.RandomHorizontalFlip(),
-                        torch_transforms.ToTensor(),
-                        torch_transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                 std=[0.229, 0.224, 0.225])
-                    ])
-                    transform_val = torch_transforms.Compose([
-                        torch_transforms.Resize((224, 224)),
-                        torch_transforms.ToTensor(),
-                        torch_transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                 std=[0.229, 0.224, 0.225])
-                    ])
+                    # Transformações já foram definidas anteriormente
+                    pass
 
-                    dataset_train = AudioSpectrogramDataset(
-                        pd.DataFrame({
-                            'caminho_arquivo': X_train,
-                            'classe': [classes[i] for i in y_train]
-                        }), 
-                        classes, 
-                        transform=transform_train
-                    )
-                    dataset_val = AudioSpectrogramDataset(
-                        pd.DataFrame({
-                            'caminho_arquivo': X_val,
-                            'classe': [classes[i] for i in y_val]
-                        }), 
-                        classes, 
-                        transform=transform_val
-                    )
-                    dataset_test = AudioSpectrogramDataset(
-                        pd.DataFrame({
-                            'caminho_arquivo': X_test,
-                            'classe': [classes[i] for i in y_test]
-                        }), 
-                        classes, 
-                        transform=transform_val
-                    )
-
-                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=2)
-                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=2)
-                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=2)
-
-                    modelo_resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-                    modelo_resnet.fc = torch.nn.Linear(modelo_resnet.fc.in_features, len(classes))
-                    modelo_resnet = modelo_resnet.to('cuda' if torch.cuda.is_available() else 'cpu')
-
-                    if optimizer_choice == "Adam":
-                        optimizer = torch.optim.Adam(modelo_resnet.parameters(), lr=learning_rate)
-                    elif optimizer_choice == "SGD":
-                        optimizer = torch.optim.SGD(modelo_resnet.parameters(), lr=learning_rate, momentum=0.9)
-                    elif optimizer_choice == "RMSprop":
-                        optimizer = torch.optim.RMSprop(modelo_resnet.parameters(), lr=learning_rate)
-                    else:
-                        optimizer = torch.optim.Adam(modelo_resnet.parameters(), lr=learning_rate)
-
-                    criterion = torch.nn.CrossEntropyLoss(weight=class_weight if balance_classes == "Balanced" else None)
-
-                diretorio_salvamento = 'modelos_salvos'
-                if not os.path.exists(diretorio_salvamento):
-                    os.makedirs(diretorio_salvamento)
+                st.sidebar.markdown("**Configurações de Treinamento Adicionais:**")
 
                 es_monitor = st.sidebar.selectbox(
                     "Monitor (Early Stopping):", 
@@ -940,9 +937,10 @@ def treinar_modelo(SEED):
                     key='es_mode'
                 )
 
+                # Configurações de callbacks
                 if metodo_treinamento == "CNN Personalizada":
                     checkpointer = ModelCheckpoint(
-                        os.path.join(diretorio_salvamento,'modelo_agua_aumentado.keras'),
+                        os.path.join('modelos_salvos','modelo_agua_aumentado.keras'),
                         monitor='val_loss',
                         verbose=1,
                         save_best_only=True
@@ -962,7 +960,8 @@ def treinar_modelo(SEED):
                     )
                     callbacks = [checkpointer, earlystop, lr_scheduler]
                 elif metodo_treinamento == "ResNet-18":
-                    pass
+                    # Pode-se adicionar callbacks para PyTorch, se desejado
+                    callbacks = []
 
                 st.write("Treinando...")
                 with st.spinner('Treinando...'):
@@ -1169,22 +1168,95 @@ def treinar_modelo(SEED):
                                 st.markdown("### Visualização de Exemplos")
                                 visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050, metodo=metodo_treinamento)
                             except Exception as e:
-                                st.error(f"Erro durante a avaliação do modelo ResNet-18: {e}")
-                                logging.error(f"Erro durante a avaliação do modelo ResNet-18: {e}")
+                                st.error(f"Erro durante a avaliação do modelo: {e}")
+                                logging.error(f"Erro durante a avaliação do modelo: {e}")
 
-                    try:
-                        gc.collect()
-                        os.remove(caminho_zip)
-                        for cat in categorias:
-                            caminho_cat = os.path.join(caminho_base, cat)
-                            for arquivo in os.listdir(caminho_cat):
-                                os.remove(os.path.join(caminho_cat, arquivo))
-                            os.rmdir(caminho_cat)
-                        os.rmdir(caminho_base)
-                        logging.info("Processo concluído.")
-                    except Exception as e:
-                        logging.error(f"Erro ao limpar arquivos temporários: {e}")
-    
+                        elif metodo_treinamento == "ResNet-18":
+                            # Implementação semelhante para ResNet-18
+                            try:
+                                # Treinamento usando PyTorch
+                                num_epochs_resnet = num_epochs
+                                modelo_resnet.train()
+                                for epoch in range(num_epochs_resnet):
+                                    if st.session_state.stop_training:
+                                        st.warning("Treinamento Parado pelo Usuário!")
+                                        break
+                                    running_loss = 0.0
+                                    for inputs, labels in loader_train:
+                                        inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
+                                        optimizer.zero_grad()
+                                        outputs = modelo_resnet(inputs)
+                                        loss = criterion(outputs, labels)
+                                        loss.backward()
+                                        optimizer.step()
+                                        running_loss += loss.item()
+                                    avg_loss = running_loss / len(loader_train)
+                                    st.write(f"Epoch {epoch+1}/{num_epochs_resnet}, Loss: {avg_loss:.4f}")
+
+                                    # Validação
+                                    modelo_resnet.eval()
+                                    val_loss = 0.0
+                                    correct = 0
+                                    total = 0
+                                    with torch.no_grad():
+                                        for inputs, labels in loader_val:
+                                            inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
+                                            outputs = modelo_resnet(inputs)
+                                            loss = criterion(outputs, labels)
+                                            val_loss += loss.item()
+                                            _, predicted = torch.max(outputs.data, 1)
+                                            total += labels.size(0)
+                                            correct += (predicted == labels).sum().item()
+                                    avg_val_loss = val_loss / len(loader_val)
+                                    val_accuracy = 100 * correct / total
+                                    st.write(f"Val Loss: {avg_val_loss:.4f}, Val Accuracy: {val_accuracy:.2f}%")
+                                    modelo_resnet.train()
+
+                                    if st.session_state.stop_training:
+                                        st.warning("Treinamento Parado pelo Usuário!")
+                                        break
+
+                                st.success("Treino concluído!")
+
+                                # Avaliação no Teste
+                                modelo_resnet.eval()
+                                test_loss = 0.0
+                                correct = 0
+                                total = 0
+                                with torch.no_grad():
+                                    for inputs, labels in loader_test:
+                                        inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
+                                        outputs = modelo_resnet(inputs)
+                                        loss = criterion(outputs, labels)
+                                        test_loss += loss.item()
+                                        _, predicted = torch.max(outputs.data, 1)
+                                        total += labels.size(0)
+                                        correct += (predicted == labels).sum().item()
+                                avg_test_loss = test_loss / len(loader_test)
+                                test_accuracy = 100 * correct / total
+                                st.write(f"Acurácia Teste: {test_accuracy:.2f}%")
+                            except Exception as e:
+                                st.error(f"Erro durante o treinamento da ResNet-18: {e}")
+                                logging.error(f"Erro durante o treinamento da ResNet-18: {e}")
+
+                except Exception as e:
+                    st.error(f"Erro ao treinar o modelo: {e}")
+                    logging.error(f"Erro ao treinar o modelo: {e}")
+
+                # Limpeza de arquivos temporários
+                try:
+                    gc.collect()
+                    os.remove(caminho_zip)
+                    for cat in categorias:
+                        caminho_cat = os.path.join(caminho_base, cat)
+                        for arquivo in os.listdir(caminho_cat):
+                            os.remove(os.path.join(caminho_cat, arquivo))
+                        os.rmdir(caminho_cat)
+                    os.rmdir(caminho_base)
+                    logging.info("Processo concluído.")
+                except Exception as e:
+                    logging.error(f"Erro ao limpar arquivos temporários: {e}")
+
     with st.expander("Contexto e Descrição Completa"):
         st.markdown("""
         **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados, CNN Personalizada e ResNet-18**
