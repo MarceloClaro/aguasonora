@@ -277,6 +277,11 @@ def main():
             except Exception as e:
                 print(f"Erro ao converter {audio_file}: {e}")
 
+    # Verificar se há imagens no diretório de espectrogramas
+    if not any(os.scandir(spectrogram_dir)):
+        print(f"Nenhuma imagem foi gerada no diretório {spectrogram_dir}. Verifique os arquivos de áudio fornecidos.")
+        return
+
     # Treinar o modelo com os espectrogramas gerados
     model, classes = train_model(
         spectrogram_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split
