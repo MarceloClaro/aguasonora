@@ -189,10 +189,10 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
 
     if metodo in ['CNN', 'ResNet18', 'ResNet-18']:
         transforms_aug = Compose([
-            AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
-            TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0),
-            PitchShift(min_semitones=-4, max_semitones=4, p=1.0),
-            Shift(min_shift=-0.5, max_shift=0.5, p=1.0),
+            AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
+            TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
+            PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
+            Shift(min_shift=-0.5, max_shift=0.5, p=0.5),
         ])
     else:
         transforms_aug = None
@@ -247,8 +247,6 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                         espectrograma_aug = gerar_espectrograma(aug_data, sr_aug)
                         if espectrograma_aug:
                             st.image(espectrograma_aug, caption="Espectrograma Aumentado", use_column_width=True)
-                else:
-                    st.warning(f"**Não foi possível carregar o áudio para augmentation da classe {c}.**")
             except Exception as e:
                 st.warning(f"**Erro ao aplicar augmentation na classe {c}: {e}**")
                 logging.error(f"Erro ao aplicar augmentation na classe {c}: {e}")
@@ -305,7 +303,8 @@ def verificar_contagem_classes(y, k_folds=1):
     classes, counts = np.unique(y, return_counts=True)
     insufficient_classes = classes[counts < k_folds]
     if len(insufficient_classes) > 0:
-        st.error(f"As seguintes classes têm menos de {k_folds} amostras: {', '.join(insufficient_classes)}. Cada classe deve ter pelo menos {k_folds} amostras.")
+        class_names = [classes[i] for i in insufficient_classes]
+        st.error(f"As seguintes classes têm menos de {k_folds} amostras: {', '.join(class_names)}. Cada classe deve ter pelo menos {k_folds} amostras.")
         return False
     return True
 
@@ -322,11 +321,12 @@ def classificar_audio(SEED):
         metodo_classificacao = st.selectbox(
             "Escolha o Método de Classificação:",
             ["CNN Personalizada", "ResNet-18"],
+            key='select_classification_method',
             help="Selecione entre a CNN personalizada ou a ResNet-18 pré-treinada para classificação."
         )
 
-        modelo_file = st.file_uploader("Upload do Modelo (.keras, .h5, .pth)", type=["keras","h5","pth"])
-        classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
+        modelo_file = st.file_uploader("Upload do Modelo (.keras, .h5, .pth)", type=["keras","h5","pth"], key='model_uploader')
+        classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"], key='classes_uploader')
 
         if modelo_file is not None and classes_file is not None:
             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(modelo_file.name)[1]) as tmp_model:
@@ -337,7 +337,7 @@ def classificar_audio(SEED):
                 if metodo_classificacao == "CNN Personalizada":
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
-                    # Carregar modelo ResNet-18 pré-treinado e ajustar
+                    # Carregar modelo ResNet-18 pré-treinada e ajustar
                     num_classes_placeholder = 1  # Placeholder, será ajustado após carregar as classes
                     modelo = models.resnet18(pretrained=False)
                     # A última camada será ajustada após carregar as classes
@@ -355,6 +355,7 @@ def classificar_audio(SEED):
 
             try:
                 classes = classes_file.read().decode("utf-8").splitlines()
+                classes = [c.strip() for c in classes if c.strip()]  # Remover linhas vazias e espaços
                 if not classes:
                     st.error("O arquivo de classes está vazio.")
                     return
@@ -394,7 +395,7 @@ def classificar_audio(SEED):
             st.markdown("**Modelo e Classes Carregados!**")
             st.markdown(f"**Classes:** {', '.join(classes)}")
 
-            audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
+            audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"], key='audio_uploader')
             if audio_file is not None:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
                     tmp_audio.write(audio_file.read())
@@ -498,22 +499,23 @@ def treinar_modelo(SEED):
         metodo_treinamento = st.selectbox(
             "Escolha o Método de Treinamento:",
             ["CNN Personalizada", "ResNet-18"],
+            key='select_training_method',
             help="Selecione entre treinar uma CNN personalizada ou utilizar a ResNet-18 pré-treinada."
         )
 
         # Checkbox para permitir parar o treinamento
-        stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False)
+        stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False, key='stop_training_checkbox')
 
         if stop_training_choice:
             st.sidebar.write("Durante o treinamento, caso deseje parar, clique no botão abaixo:")
-            stop_button = st.sidebar.button("Parar Treinamento Agora")
+            stop_button = st.sidebar.button("Parar Treinamento Agora", key='stop_training_button')
             if stop_button:
                 st.session_state.stop_training = True
         else:
             st.session_state.stop_training = False
 
         st.markdown("### Passo 1: Upload do Dataset (ZIP)")
-        zip_upload = st.file_uploader("Upload do ZIP", type=["zip"])
+        zip_upload = st.file_uploader("Upload do ZIP", type=["zip"], key='zip_uploader')
 
         if zip_upload is not None:
             try:
@@ -568,6 +570,8 @@ def treinar_modelo(SEED):
                     X = []
                     y_valid = []
                     for i, row in df.iterrows():
+                        if st.session_state.stop_training:
+                            break
                         arquivo = row['caminho_arquivo']
                         data, sr = carregar_audio(arquivo, sr=None)
                         if data is not None:
@@ -602,53 +606,113 @@ def treinar_modelo(SEED):
                 st.sidebar.markdown("**Configurações de Treinamento:**")
 
                 # Parâmetros de Treinamento
-                num_epochs = st.sidebar.slider("Número de Épocas:", 10, 500, 50, 10)
-                batch_size = st.sidebar.selectbox("Batch:", [8,16,32,64,128],0)
+                num_epochs = st.sidebar.slider(
+                    "Número de Épocas:",
+                    10, 500, 50, 10,
+                    key='num_epochs_training'
+                )
+                batch_size = st.sidebar.selectbox(
+                    "Batch:",
+                    [8,16,32,64,128],0,
+                    key='batch_size_training'
+                )
 
-                treino_percentage = st.sidebar.slider("Treino (%)",50,90,70,5)
-                valid_percentage = st.sidebar.slider("Validação (%)",5,30,15,5)
+                treino_percentage = st.sidebar.slider(
+                    "Treino (%)",
+                    50, 90, 70, 5,
+                    key='treino_percentage_training'
+                )
+                valid_percentage = st.sidebar.slider(
+                    "Validação (%)",
+                    5, 30, 15, 5,
+                    key='valid_percentage_training'
+                )
                 test_percentage = 100 - (treino_percentage + valid_percentage)
                 if test_percentage < 0:
                     st.sidebar.error("Treino + Validação > 100%")
                     st.stop()
                 st.sidebar.write(f"Teste (%)={test_percentage}%")
 
-                augment_factor = st.sidebar.slider("Fator Aumento:",1,100,10,1)
-                dropout_rate = st.sidebar.slider("Dropout:",0.0,0.9,0.4,0.05)
+                augment_factor = st.sidebar.slider(
+                    "Fator Aumento:",
+                    1, 100, 10, 1,
+                    key='augment_factor_training'
+                )
+                dropout_rate = st.sidebar.slider(
+                    "Dropout:",
+                    0.0, 0.9, 0.4, 0.05,
+                    key='dropout_rate_training'
+                )
 
-                regularization_type = st.sidebar.selectbox("Regularização:",["None","L1","L2","L1_L2"],0)
+                regularization_type = st.sidebar.selectbox(
+                    "Regularização:",
+                    ["None","L1","L2","L1_L2"],0,
+                    key='regularization_type_training'
+                )
                 if regularization_type == "L1":
-                    l1_regularization = st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
+                    l1_regularization = st.sidebar.slider(
+                        "L1:",0.0,0.1,0.001,0.001,
+                        key='l1_regularization_training'
+                    )
                     l2_regularization = 0.0
                 elif regularization_type == "L2":
-                    l2_regularization = st.sidebar.slider("L2:",0.0,0.1,0.001,0.001)
+                    l2_regularization = st.sidebar.slider(
+                        "L2:",0.0,0.1,0.001,0.001,
+                        key='l2_regularization_training'
+                    )
                     l1_regularization = 0.0
                 elif regularization_type == "L1_L2":
-                    l1_regularization = st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
-                    l2_regularization = st.sidebar.slider("L2:",0.0,0.1,0.001,0.001)
+                    l1_regularization = st.sidebar.slider(
+                        "L1:",0.0,0.1,0.001,0.001,
+                        key='l1_regularization_training'
+                    )
+                    l2_regularization = st.sidebar.slider(
+                        "L2:",0.0,0.1,0.001,0.001,
+                        key='l2_regularization_training'
+                    )
                 else:
                     l1_regularization = 0.0
                     l2_regularization = 0.0
 
                 # Opções de Fine-Tuning Adicionais
                 st.sidebar.markdown("**Fine-Tuning Adicional:**")
-                learning_rate = st.sidebar.slider("Taxa de Aprendizado:", 1e-5, 1e-2, 1e-3, step=1e-5, format="%.5f")
-                optimizer_choice = st.sidebar.selectbox("Otimização:", ["Adam", "SGD", "RMSprop"],0)
+                learning_rate = st.sidebar.slider(
+                    "Taxa de Aprendizado:",
+                    1e-5, 1e-2, 1e-3, step=1e-5, format="%.5f",
+                    key='learning_rate_training'
+                )
+                optimizer_choice = st.sidebar.selectbox(
+                    "Otimização:",
+                    ["Adam", "SGD", "RMSprop"],0,
+                    key='optimizer_choice_training'
+                )
 
-                enable_augmentation = st.sidebar.checkbox("Data Augmentation", True)
+                enable_augmentation = st.sidebar.checkbox(
+                    "Data Augmentation", True,
+                    key='enable_augmentation_training'
+                )
                 if enable_augmentation:
-                    adicionar_ruido = st.sidebar.checkbox("Ruído Gaussiano", True)
-                    estiramento_tempo = st.sidebar.checkbox("Time Stretch", True)
-                    alteracao_pitch = st.sidebar.checkbox("Pitch Shift", True)
-                    deslocamento = st.sidebar.checkbox("Deslocamento", True)
+                    adicionar_ruido = st.sidebar.checkbox("Ruído Gaussiano", True, key='add_gaussian_noise_training')
+                    estiramento_tempo = st.sidebar.checkbox("Time Stretch", True, key='time_stretch_training')
+                    alteracao_pitch = st.sidebar.checkbox("Pitch Shift", True, key='pitch_shift_training')
+                    deslocamento = st.sidebar.checkbox("Deslocamento", True, key='shift_training')
 
-                cross_validation = st.sidebar.checkbox("k-Fold?", False)
+                cross_validation = st.sidebar.checkbox(
+                    "k-Fold?", False,
+                    key='cross_validation_training'
+                )
                 if cross_validation:
-                    k_folds = st.sidebar.number_input("Folds:",2,10,5,1)
+                    k_folds = st.sidebar.number_input(
+                        "Folds:",2,10,5,1,
+                        key='k_folds_training'
+                    )
                 else:
                     k_folds = 1
 
-                balance_classes = st.sidebar.selectbox("Balanceamento:",["Balanced","None"],0)
+                balance_classes = st.sidebar.selectbox(
+                    "Balanceamento:",["Balanced","None"],0,
+                    key='balance_classes_training'
+                )
 
                 if metodo_treinamento == "CNN Personalizada" and enable_augmentation:
                     st.write("Aumentando Dados para CNN Personalizada...")
@@ -786,18 +850,7 @@ def treinar_modelo(SEED):
 
                 st.sidebar.markdown("**Configurações de Treinamento Adicionais:**")
 
-                # Opções de Fine-Tuning Adicionais
-                st.sidebar.markdown("**Fine-Tuning Adicional:**")
-                learning_rate = st.sidebar.slider("Taxa de Aprendizado:", 1e-5, 1e-2, 1e-3, step=1e-5, format="%.5f")
-                optimizer_choice = st.sidebar.selectbox("Otimização:", ["Adam", "SGD", "RMSprop"],0)
-
-                cross_validation = st.sidebar.checkbox("k-Fold?", False)
-                if cross_validation:
-                    k_folds = st.sidebar.number_input("Folds:",2,10,5,1)
-                else:
-                    k_folds = 1
-
-                balance_classes = st.sidebar.selectbox("Balanceamento:",["Balanced","None"],0)
+                # Opções de Fine-Tuning Adicionais (já definidas anteriormente)
 
                 # Balanceamento de classes
                 if balance_classes == "Balanced":
@@ -813,9 +866,19 @@ def treinar_modelo(SEED):
 
                 if metodo_treinamento == "CNN Personalizada":
                     # Definir a arquitetura da CNN personalizada
-                    num_conv_layers = st.sidebar.slider("Conv Layers",1,5,2,1)
-                    conv_filters_str = st.sidebar.text_input("Filtros (vírgula):","64,128")
-                    conv_kernel_size_str = st.sidebar.text_input("Kernel (vírgula):","10,10")
+                    num_conv_layers = st.sidebar.slider(
+                        "Conv Layers",
+                        1, 5, 2, 1,
+                        key='num_conv_layers_cnn'
+                    )
+                    conv_filters_str = st.sidebar.text_input(
+                        "Filtros (vírgula):","64,128",
+                        key='conv_filters_cnn'
+                    )
+                    conv_kernel_size_str = st.sidebar.text_input(
+                        "Kernel (vírgula):","10,10",
+                        key='conv_kernel_size_cnn'
+                    )
                     conv_filters = [int(f.strip()) for f in conv_filters_str.split(',')]
                     conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_str.split(',')]
 
@@ -825,8 +888,15 @@ def treinar_modelo(SEED):
                         if conv_kernel_size[i] > input_length:
                             conv_kernel_size[i] = input_length
 
-                    num_dense_layers = st.sidebar.slider("Dense Layers:",1,3,1,1)
-                    dense_units_str = st.sidebar.text_input("Neurônios Dense (vírgula):","64")
+                    num_dense_layers = st.sidebar.slider(
+                        "Dense Layers:",
+                        1, 3, 1, 1,
+                        key='num_dense_layers_cnn'
+                    )
+                    dense_units_str = st.sidebar.text_input(
+                        "Neurônios Dense (vírgula):","64",
+                        key='dense_units_cnn'
+                    )
                     dense_units = [int(u.strip()) for u in dense_units_str.split(',')]
                     if len(dense_units) != num_dense_layers:
                         st.sidebar.error("Número de neurônios deve ser igual ao número de camadas Dense.")
@@ -927,9 +997,21 @@ def treinar_modelo(SEED):
                 if not os.path.exists(diretorio_salvamento):
                     os.makedirs(diretorio_salvamento)
 
-                es_monitor = st.sidebar.selectbox("Monitor (Early Stopping):", ["val_loss","val_accuracy"],0)
-                es_patience = st.sidebar.slider("Patience:",1,20,5,1)
-                es_mode = st.sidebar.selectbox("Mode:",["min","max"],0)
+                es_monitor = st.sidebar.selectbox(
+                    "Monitor (Early Stopping):", 
+                    ["val_loss","val_accuracy"],
+                    key='es_monitor'
+                )
+                es_patience = st.sidebar.slider(
+                    "Patience:",
+                    1, 20, 5, 1,
+                    key='es_patience'
+                )
+                es_mode = st.sidebar.selectbox(
+                    "Mode:",
+                    ["min","max"],
+                    key='es_mode'
+                )
 
                 if metodo_treinamento == "CNN Personalizada":
                     checkpointer = ModelCheckpoint(
@@ -1461,7 +1543,8 @@ seed_selection = st.sidebar.selectbox(
     "Escolha o valor do SEED:",
     options=seed_options,
     index=seed_options.index(default_seed),
-    help="Define a semente para reprodutibilidade."
+    help="Define a semente para reprodutibilidade.",
+    key='seed_selection'
 )
 SEED = seed_selection
 set_seeds(SEED)
@@ -1482,7 +1565,7 @@ else:
 
 st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
 
-app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
+app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"], key='app_mode')
 
 if app_mode == "Classificar Áudio":
     classificar_audio(SEED)
