@@ -27,7 +27,7 @@ import logging
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 import shap
-import torchvision.transforms as transforms
+import torchvision.transforms as torch_transforms  # Renomeado para evitar conflitos
 from torchvision import models
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
@@ -227,7 +227,10 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
         if augmentation and transforms_aug is not None:
             try:
                 # Seleciona outro exemplo aleatório para augmentation
-                idx_aug = random.choice(indices_classe)
+                if len(indices_classe) > 1:
+                    idx_aug = random.choice(indices_classe)
+                else:
+                    idx_aug = idx_original  # Se houver apenas uma amostra, reutiliza
                 st.write(f"Selecionando índice para augmentation: {idx_aug}")
                 if idx_aug >= len(df):
                     st.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
@@ -337,7 +340,7 @@ def classificar_audio(SEED):
                 if metodo_classificacao == "CNN Personalizada":
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
-                    # Carregar modelo ResNet-18 pré-treinada e ajustar
+                    # Carregar modelo ResNet-18 pré-treinado e ajustar
                     num_classes_placeholder = 1  # Placeholder, será ajustado após carregar as classes
                     modelo = models.resnet18(pretrained=False)
                     # A última camada será ajustada após carregar as classes
@@ -437,11 +440,11 @@ def classificar_audio(SEED):
                             espectrograma = gerar_espectrograma(data, sr)
                             if espectrograma:
                                 # Transformações para ResNet-18
-                                transform = transforms.Compose([
-                                    transforms.Resize((224, 224)),
-                                    transforms.ToTensor(),
-                                    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                         std=[0.229, 0.224, 0.225])
+                                transform = torch_transforms.Compose([
+                                    torch_transforms.Resize((224, 224)),
+                                    torch_transforms.ToTensor(),
+                                    torch_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                              std=[0.229, 0.224, 0.225])
                                 ])
                                 espectrograma = transform(espectrograma).unsqueeze(0)  # Adiciona batch dimension
 
@@ -727,18 +730,18 @@ def treinar_modelo(SEED):
                 # Para ResNet-18, criamos datasets personalizados
                 if metodo_treinamento == "ResNet-18":
                     # Definir transformações
-                    transform_train = transforms.Compose([
-                        transforms.Resize((224, 224)),
-                        transforms.RandomHorizontalFlip(),
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                             std=[0.229, 0.224, 0.225])
+                    transform_train = torch_transforms.Compose([
+                        torch_transforms.Resize((224, 224)),
+                        torch_transforms.RandomHorizontalFlip(),
+                        torch_transforms.ToTensor(),
+                        torch_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                 std=[0.229, 0.224, 0.225])
                     ])
-                    transform_val = transforms.Compose([
-                        transforms.Resize((224, 224)),
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                             std=[0.229, 0.224, 0.225])
+                    transform_val = torch_transforms.Compose([
+                        torch_transforms.Resize((224, 224)),
+                        torch_transforms.ToTensor(),
+                        torch_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                 std=[0.229, 0.224, 0.225])
                     ])
 
                     # Criar Datasets
@@ -853,18 +856,18 @@ def treinar_modelo(SEED):
 
                 elif metodo_treinamento == "ResNet-18":
                     # Configurar transformações para treinamento e validação
-                    transform_train = transforms.Compose([
-                        transforms.Resize((224, 224)),
-                        transforms.RandomHorizontalFlip(),
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                             std=[0.229, 0.224, 0.225])
+                    transform_train = torch_transforms.Compose([
+                        torch_transforms.Resize((224, 224)),
+                        torch_transforms.RandomHorizontalFlip(),
+                        torch_transforms.ToTensor(),
+                        torch_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                 std=[0.229, 0.224, 0.225])
                     ])
-                    transform_val = transforms.Compose([
-                        transforms.Resize((224, 224)),
-                        transforms.ToTensor(),
-                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                             std=[0.229, 0.224, 0.225])
+                    transform_val = torch_transforms.Compose([
+                        torch_transforms.Resize((224, 224)),
+                        torch_transforms.ToTensor(),
+                        torch_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                 std=[0.229, 0.224, 0.225])
                     ])
 
                     # Atualizar Datasets com transformações
