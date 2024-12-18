@@ -547,6 +547,10 @@ def treinar_modelo(SEED):
 
                 st.write(f"Classes codificadas: {', '.join(classes)}")
 
+                # Inicialização de X_aug e y_aug
+                X_aug = []
+                y_aug = []
+
                 if metodo_treinamento == "CNN Personalizada":
                     st.write("Extraindo Features (MFCCs, Centróide)...")
                     X = []
@@ -559,7 +563,7 @@ def treinar_modelo(SEED):
                             if ftrs is not None:
                                 X.append(ftrs)
                                 y_valid.append(y[i])
-
+    
                     X = np.array(X)
                     y_valid = np.array(y_valid)
                 elif metodo_treinamento == "ResNet-18":
@@ -636,8 +640,7 @@ def treinar_modelo(SEED):
 
                 if enable_augmentation and metodo_treinamento == "CNN Personalizada":
                     st.write("Aumentando Dados...")
-                    X_aug = []
-                    y_aug = []
+                    # Transformações para aumento de dados
                     transforms_aug = []
                     if adicionar_ruido:
                         transforms_aug.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
@@ -664,16 +667,15 @@ def treinar_modelo(SEED):
                                         X_aug.append(ftrs)
                                         y_aug.append(y[i])
 
-                if metodo_treinamento == "CNN Personalizada" and enable_augmentation and X_aug and y_aug:
+                # Concatenar dados aumentados se existirem
+                if metodo_treinamento == "CNN Personalizada" and enable_augmentation and len(X_aug) > 0 and len(y_aug) > 0:
                     X_aug = np.array(X_aug)
                     y_aug = np.array(y_aug)
                     st.write(f"Dados Aumentados: {X_aug.shape}")
                     X_combined = np.concatenate((X, X_aug), axis=0)
                     y_combined = np.concatenate((y_valid, y_aug), axis=0)
-                elif metodo_treinamento == "ResNet-18" and enable_augmentation and X_aug and y_aug:
+                elif metodo_treinamento == "ResNet-18" and enable_augmentation and len(X_aug) > 0 and len(y_aug) > 0:
                     # Aumento de dados para ResNet-18 (espectrogramas)
-                    # Para simplificar, vamos aumentar replicando espectrogramas com augmentations
-                    # Isso pode ser otimizado conforme necessidade
                     st.write("Aumento de dados para ResNet-18 não implementado.")
                     X_combined = X
                     y_combined = y_valid
@@ -765,10 +767,6 @@ def treinar_modelo(SEED):
                 else:
                     class_weight_dict = None
                     class_weight = None
-
-                if metodo_treinamento == "CNN Personalizada":
-                    # Opções de Augmentation já aplicadas anteriormente
-                    pass
 
                 if metodo_treinamento == "CNN Personalizada":
                     # Definir a arquitetura da CNN personalizada
@@ -1123,222 +1121,6 @@ def treinar_modelo(SEED):
                                 for idx, dist in enumerate(cluster_dist_h):
                                     st.write(f"**Cluster {idx+1}:**")
                                     st.write(dist)
-
-                                st.markdown("### Visualização de Exemplos")
-                                visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050, metodo=metodo_treinamento)
-
-                            except Exception as e:
-                                st.error(f"Erro durante a avaliação do modelo CNN: {e}")
-                                logging.error(f"Erro durante a avaliação do modelo CNN: {e}")
-
-                    elif metodo_treinamento == "ResNet-18":
-                        # Treinar modelo ResNet-18
-                        try:
-                            from torch.optim import lr_scheduler
-                        except ImportError:
-                            st.error("PyTorch não está instalado. Por favor, instale PyTorch para usar a ResNet-18.")
-                            return
-
-                        # Definir scheduler
-                        scheduler_resnet = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=1)
-
-                        best_acc = 0.0
-
-                        for epoch in range(num_epochs):
-                            if st.session_state.stop_training:
-                                st.warning("Treinamento Parado pelo Usuário!")
-                                break
-                            st.write(f"Epoch {epoch+1}/{num_epochs}")
-                            st.write('-' * 10)
-
-                            # Treinamento
-                            modelo_resnet.train()
-                            running_loss = 0.0
-                            running_corrects = 0
-
-                            for inputs, labels in loader_train:
-                                if inputs is None:
-                                    continue
-                                inputs = inputs.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                labels = labels.to('cuda' if torch.cuda.is_available() else 'cpu')
-
-                                optimizer.zero_grad()
-
-                                outputs = modelo_resnet(inputs)
-                                _, preds = torch.max(outputs, 1)
-                                loss = criterion(outputs, labels)
-
-                                loss.backward()
-                                optimizer.step()
-
-                                running_loss += loss.item() * inputs.size(0)
-                                running_corrects += torch.sum(preds == labels.data)
-
-                            epoch_loss = running_loss / len(loader_train.dataset)
-                            epoch_acc = running_corrects.double() / len(loader_train.dataset)
-
-                            st.write(f'Train Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
-
-                            # Validação
-                            modelo_resnet.eval()
-                            val_loss = 0.0
-                            val_corrects = 0
-
-                            with torch.no_grad():
-                                for inputs, labels in loader_val:
-                                    if inputs is None:
-                                        continue
-                                    inputs = inputs.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                    labels = labels.to('cuda' if torch.cuda.is_available() else 'cpu')
-
-                                    outputs = modelo_resnet(inputs)
-                                    _, preds = torch.max(outputs, 1)
-                                    loss = criterion(outputs, labels)
-
-                                    val_loss += loss.item() * inputs.size(0)
-                                    val_corrects += torch.sum(preds == labels.data)
-
-                            epoch_val_loss = val_loss / len(loader_val.dataset)
-                            epoch_val_acc = val_corrects.double() / len(loader_val.dataset)
-
-                            st.write(f'Val Loss: {epoch_val_loss:.4f} Acc: {epoch_val_acc:.4f}')
-
-                            # Scheduler step
-                            scheduler_resnet.step(epoch_val_loss)
-
-                            # Checkpoint
-                            if epoch_val_acc > best_acc:
-                                best_acc = epoch_val_acc
-                                torch.save(modelo_resnet.state_dict(), os.path.join(diretorio_salvamento, 'best_resnet18.pth'))
-                                st.write(f"Melhor acurácia atualizada: {best_acc:.4f}")
-
-                        if not st.session_state.stop_training:
-                            st.success("Treino concluído!")
-
-                            # Carregar o melhor modelo
-                            try:
-                                modelo_resnet.load_state_dict(torch.load(os.path.join(diretorio_salvamento, 'best_resnet18.pth')))
-                                modelo_resnet.eval()
-                            except Exception as e:
-                                st.error(f"Erro ao carregar o melhor modelo: {e}")
-                                logging.error(f"Erro ao carregar o melhor modelo: {e}")
-                                return
-
-                            # Salvando o modelo
-                            try:
-                                buffer = io.BytesIO()
-                                torch.save(modelo_resnet.state_dict(), buffer)
-                                buffer.seek(0)
-                                st.download_button("Download Modelo ResNet-18 (.pth)", data=buffer, file_name="best_resnet18.pth")
-                            except Exception as e:
-                                st.error(f"Erro ao salvar o modelo ResNet-18: {e}")
-                                logging.error(f"Erro ao salvar o modelo ResNet-18: {e}")
-
-                            # Salvando as classes
-                            try:
-                                classes_str = "\n".join(classes)
-                                st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
-                            except Exception as e:
-                                st.error(f"Erro ao salvar o arquivo de classes: {e}")
-                                logging.error(f"Erro ao salvar o arquivo de classes: {e}")
-
-                            # Avaliação no conjunto de teste
-                            try:
-                                st.markdown("### Avaliação do Modelo")
-                                running_loss = 0.0
-                                running_corrects = 0
-
-                                for inputs, labels in loader_test:
-                                    if inputs is None:
-                                        continue
-                                    inputs = inputs.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                    labels = labels.to('cuda' if torch.cuda.is_available() else 'cpu')
-
-                                    outputs = modelo_resnet(inputs)
-                                    _, preds = torch.max(outputs, 1)
-                                    loss = criterion(outputs, labels)
-
-                                    running_loss += loss.item() * inputs.size(0)
-                                    running_corrects += torch.sum(preds == labels.data)
-
-                                test_loss = running_loss / len(loader_test.dataset)
-                                test_acc = running_corrects.double() / len(loader_test.dataset)
-
-                                st.write(f"Acurácia Teste: {test_acc:.4f}")
-
-                                # Previsões para métricas adicionais
-                                y_pred = []
-                                y_true = []
-
-                                for inputs, labels in loader_test:
-                                    if inputs is None:
-                                        continue
-                                    inputs = inputs.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                    labels = labels.to('cuda' if torch.cuda.is_available() else 'cpu')
-
-                                    outputs = modelo_resnet(inputs)
-                                    _, preds = torch.max(outputs, 1)
-
-                                    y_pred.extend(preds.cpu().numpy())
-                                    y_true.extend(labels.cpu().numpy())
-
-                                f1_val = f1_score(y_true, y_pred, average='weighted', zero_division=0)
-                                prec = precision_score(y_true, y_pred, average='weighted', zero_division=0)
-                                rec = recall_score(y_true, y_pred, average='weighted', zero_division=0)
-
-                                st.write(f"F1-score: {f1_val*100:.2f}%")
-                                st.write(f"Precisão: {prec*100:.2f}%")
-                                st.write(f"Recall: {rec*100:.2f}%")
-
-                                st.markdown("### Matriz de Confusão")
-                                cm = confusion_matrix(y_true, y_pred, labels=range(len(classes)))
-                                cm_df = pd.DataFrame(cm, index=classes, columns=classes)
-                                fig_cm, ax_cm = plt.subplots(figsize=(12,8))
-                                sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-                                ax_cm.set_title("Matriz de Confusão", fontsize=16)
-                                ax_cm.set_xlabel("Classe Prevista", fontsize=14)
-                                ax_cm.set_ylabel("Classe Real", fontsize=14)
-                                st.pyplot(fig_cm)
-                                plt.close(fig_cm)
-
-                                st.markdown("### Histórico de Treinamento")
-                                # Para ResNet-18, histórico não está disponível diretamente
-                                st.warning("Histórico de Treinamento não disponível para ResNet-18.")
-
-                                st.markdown("### Explicabilidade com SHAP")
-                                st.write("SHAP não está implementado para ResNet-18 neste exemplo.")
-
-                                st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
-                                st.write("""
-                                Clustering revela como dados se agrupam.  
-                                Determinaremos k automaticamente usando o coeficiente de silhueta.
-                                """)
-
-                                melhor_k = escolher_k_kmeans(X_combined, max_k=10)
-                                sil_score = silhouette_score(X_combined, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_combined))
-                                st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
-
-                                kmeans = KMeans(n_clusters=melhor_k, random_state=42)
-                                kmeans_labels = kmeans.fit_predict(X_combined)
-                                st.write("Classes por Cluster (K-Means):")
-                                cluster_dist = []
-                                for cidx in range(melhor_k):
-                                    cluster_classes = y_combined[kmeans_labels == cidx]
-                                    counts = pd.Series(cluster_classes).value_counts()
-                                    cluster_dist.append(counts)
-                                for idx, dist in enumerate(cluster_dist):
-                                    st.write(f"**Cluster {idx+1}:**")
-                                    st.write(dist)
-
-                                st.write("Análise Hierárquica:")
-                                Z = linkage(X_combined, 'ward')
-                                fig_dend, ax_dend = plt.subplots(figsize=(10,5))
-                                dendrogram(Z, ax=ax_dend, truncate_mode='level', p=5)
-                                ax_dend.set_title("Dendrograma Hierárquico")
-                                ax_dend.set_xlabel("Amostras")
-                                ax_dend.set_ylabel("Distância")
-                                st.pyplot(fig_dend)
-                                plt.close(fig_dend)
 
                                 st.markdown("### Visualização de Exemplos")
                                 visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050, metodo=metodo_treinamento)
