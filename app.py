@@ -78,6 +78,7 @@ def carregar_audio(caminho_arquivo, sr=None):
             logging.error(error_msg)
             st.error(error_msg)
             return None, None
+        logging.info(f"Áudio carregado com sucesso: {caminho_arquivo} (Duração: {len(data)/sr:.2f}s)")
         return data, sr
     except Exception as e:
         error_msg = f"Erro ao carregar áudio {caminho_arquivo}: {e}"
