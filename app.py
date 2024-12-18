@@ -243,6 +243,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
         arquivo_original = df.iloc[idx_original]['caminho_arquivo']
         data_original, sr_original = carregar_audio(arquivo_original, sr=None)
         if data_original is not None and sr_original is not None:
+            st.write(f"**Original:** {os.path.basename(arquivo_original)}")
             visualizar_audio(data_original, sr_original)
             if metodo in ['ResNet18', 'ResNet-18']:
                 espectrograma = gerar_espectrograma(data_original, sr_original)
@@ -261,6 +262,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                 data_aug, sr_aug = carregar_audio(arquivo_aug, sr=None)
                 if data_aug is not None and sr_aug is not None:
                     aug_data = aumentar_audio(data_aug, sr_aug, transforms_aug)
+                    st.write(f"**Aumentado:** {os.path.basename(arquivo_aug)}")
                     visualizar_audio(aug_data, sr_aug)
                     if metodo in ['ResNet18', 'ResNet-18']:
                         espectrograma_aug = gerar_espectrograma(aug_data, sr_aug)
@@ -554,6 +556,7 @@ def classificar_audio(SEED):
                                         visualizar_audio(data, sr)
 
                                         # Convertendo o espectrograma para visualização
+                                        # Como o modelo espera 3 canais (RGB), precisamos duplicar a imagem em 3 canais
                                         espectrograma_img = espectrograma.cpu().squeeze().permute(1,2,0).numpy()
                                         espectrograma_img = np.clip(espectrograma_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406]), 0, 1)
                                         st.image(espectrograma_img, caption="Espectrograma Classificado", use_column_width=True)
@@ -658,6 +661,8 @@ def treinar_modelo(SEED):
                                 logging.info(f"Features extraídas para: {arquivo}")
                             else:
                                 logging.warning(f"Features não extraídas para: {arquivo}")
+                        else:
+                            logging.warning(f"Áudio não carregado para o arquivo: {arquivo}")
                     X = np.array(X)
                     y_valid = np.array(y_valid)
                 elif metodo_treinamento == "ResNet-18":
@@ -674,16 +679,28 @@ def treinar_modelo(SEED):
                             if espectrograma is not None:
                                 temp_dir = tempfile.mkdtemp()
                                 img_path = os.path.join(temp_dir, f"class_{y[i]}_img_{i}.png")
-                                espectrograma.save(img_path)
-                                X.append(img_path)
-                                y_valid.append(y[i])
-                                logging.info(f"Espectrograma gerado para: {arquivo}, salvo em: {img_path}")
+                                try:
+                                    espectrograma.save(img_path)
+                                    X.append(img_path)
+                                    y_valid.append(y[i])
+                                    logging.info(f"Espectrograma gerado para: {arquivo}, salvo em: {img_path}")
+                                except Exception as e:
+                                    logging.error(f"Erro ao salvar espectrograma para {arquivo}: {e}")
+                                    st.warning(f"Erro ao salvar espectrograma para {arquivo}: {e}")
                             else:
                                 logging.warning(f"Espectrograma não gerado para: {arquivo}")
+                                st.warning(f"Espectrograma não gerado para: {arquivo}")
+                        else:
+                            logging.warning(f"Áudio não carregado para o arquivo: {arquivo}")
+                            st.warning(f"Áudio não carregado para o arquivo: {arquivo}")
                     X = np.array(X)
                     y_valid = np.array(y_valid)
 
                 st.write(f"Dados Processados: {len(X)} amostras.")
+
+                if len(X) == 0:
+                    st.error("Nenhuma amostra válida foi processada. Verifique os logs para mais detalhes.")
+                    return
 
                 st.sidebar.markdown("**Configurações de Treinamento:**")
 
@@ -846,12 +863,17 @@ def treinar_modelo(SEED):
                             if espectrograma_aug:
                                 temp_dir = tempfile.mkdtemp()
                                 img_path = os.path.join(temp_dir, f"class_{y[i]}_aug_img_{i}.png")
-                                espectrograma_aug.save(img_path)
-                                X_aug.append(img_path)
-                                y_aug.append(y[i])
-                                logging.info(f"Espectrograma aumentado gerado para: {arquivo}, salvo em: {img_path}")
+                                try:
+                                    espectrograma_aug.save(img_path)
+                                    X_aug.append(img_path)
+                                    y_aug.append(y[i])
+                                    logging.info(f"Espectrograma aumentado gerado para: {arquivo}, salvo em: {img_path}")
+                                except Exception as e:
+                                    logging.error(f"Erro ao salvar espectrograma aumentado para {arquivo}: {e}")
+                                    st.warning(f"Erro ao salvar espectrograma aumentado para {arquivo}: {e}")
                             else:
                                 logging.warning(f"Espectrograma aumentado não gerado para: {arquivo}")
+                                st.warning(f"Espectrograma aumentado não gerado para: {arquivo}")
 
                 # Combinar dados originais e aumentados
                 if metodo_treinamento == "CNN Personalizada" and enable_augmentation and len(X_aug) > 0 and len(y_aug) > 0:
@@ -878,6 +900,7 @@ def treinar_modelo(SEED):
                             valid_indices.append(i)
                         else:
                             logging.warning(f"Arquivo de espectrograma inexistente: {img_path}")
+                            st.warning(f"Arquivo de espectrograma inexistente: {img_path}")
                     X_combined = X_combined[valid_indices]
                     y_combined = y_combined[valid_indices]
                     st.write(f"Amostras válidas após verificação: {len(X_combined)}")
@@ -889,6 +912,7 @@ def treinar_modelo(SEED):
 
                 st.write("Dividindo Dados...")
                 if metodo_treinamento == "CNN Personalizada":
+                    # Para CNN, os dados são features vetorizadas
                     X_train, X_temp, y_train, y_temp = train_test_split(
                         X_combined, y_combined, 
                         test_size=(100 - treino_percentage)/100.0,
@@ -896,6 +920,7 @@ def treinar_modelo(SEED):
                         stratify=y_combined
                     )
                 elif metodo_treinamento == "ResNet-18":
+                    # Para ResNet-18, os dados são caminhos de imagens
                     X_train, X_temp, y_train, y_temp = train_test_split(
                         X_combined, y_combined, 
                         test_size=(100 - treino_percentage)/100.0,
@@ -956,6 +981,7 @@ def treinar_modelo(SEED):
                     loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate)
                     loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate)
                 else:
+                    # Para CNN Personalizada, reshape os dados para (samples, features, 1)
                     X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
                     X_val_final = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
                     X_test_final = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
@@ -1327,6 +1353,8 @@ def treinar_modelo(SEED):
                                     break
                                 running_loss = 0.0
                                 for inputs, labels in loader_train:
+                                    if inputs is None or labels is None:
+                                        continue
                                     inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
                                     optimizer.zero_grad()
                                     outputs = modelo(inputs)
@@ -1347,6 +1375,8 @@ def treinar_modelo(SEED):
                                 total = 0
                                 with torch.no_grad():
                                     for inputs, labels in loader_val:
+                                        if inputs is None or labels is None:
+                                            continue
                                         inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
                                         outputs = modelo(inputs)
                                         loss = criterion(outputs, labels)
@@ -1375,6 +1405,8 @@ def treinar_modelo(SEED):
                             total = 0
                             with torch.no_grad():
                                 for inputs, labels in loader_test:
+                                    if inputs is None or labels is None:
+                                        continue
                                     inputs, labels = inputs.to('cuda' if torch.cuda.is_available() else 'cpu'), labels.to('cuda' if torch.cuda.is_available() else 'cpu')
                                     outputs = modelo(inputs)
                                     loss = criterion(outputs, labels)
