@@ -10,3 +10,5 @@ lime
 audiomentations
 pillow
 torch
+torchvision
+
