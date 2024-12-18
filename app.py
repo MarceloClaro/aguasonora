@@ -386,6 +386,27 @@ def verificar_contagem_classes(y, k_folds=1):
         return False
     return True
 
+def carregar_dados(zip_path):
+    """
+    Extrai e carrega dados do arquivo ZIP.
+
+    Args:
+        zip_path (str): Caminho para o arquivo ZIP.
+
+    Returns:
+        tuple: Diretório de extração e lista de categorias (pastas).
+    """
+    try:
+        diretorio_extracao = tempfile.mkdtemp()
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(diretorio_extracao)
+        categorias = [d for d in os.listdir(diretorio_extracao) if os.path.isdir(os.path.join(diretorio_extracao, d))]
+        return diretorio_extracao, categorias
+    except Exception as e:
+        st.error(f"Erro ao extrair o ZIP: {e}")
+        logging.error(f"Erro ao extrair o ZIP: {e}")
+        return None, None
+
 # Funções principais
 def classificar_audio(SEED):
     """
