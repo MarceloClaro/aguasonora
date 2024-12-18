@@ -36,30 +36,17 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Configurações da Página
+st.set_page_config(page_title="Geomaker", layout="wide")
+
 seed_options = list(range(0, 61, 2))
 default_seed = 42
 if default_seed not in seed_options:
     seed_options.insert(0, default_seed)
 
-icon_path = "logo.png"
-if os.path.exists(icon_path):
-    try:
-        st.set_page_config(page_title="Geomaker", page_icon=icon_path, layout="wide")
-        logging.info("Ícone carregado com sucesso.")
-    except Exception as e:
-        st.set_page_config(page_title="Geomaker", layout="wide")
-        logging.warning(f"Erro ao carregar ícone: {e}")
-else:
-    st.set_page_config(page_title="Geomaker", layout="wide")
-    logging.warning("Ícone não encontrado.")
-
-# Estado para parar o treinamento
 if 'stop_training' not in st.session_state:
     st.session_state.stop_training = False
 
 def set_seeds(seed):
-    """Define as sementes para reprodutibilidade."""
     random.seed(seed)
     np.random.seed(seed)
     tf.random.set_seed(seed)
@@ -68,7 +55,6 @@ def set_seeds(seed):
         torch.cuda.manual_seed_all(seed)
 
 def carregar_audio(caminho_arquivo, sr=None):
-    """Carrega o arquivo de áudio usando Librosa."""
     try:
         data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast')
         return data, sr
@@ -77,9 +63,6 @@ def carregar_audio(caminho_arquivo, sr=None):
         return None, None
 
 def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
-    """
-    Extrai MFCCs e centróide espectral do áudio. Normaliza as features.
-    """
     try:
         features_list = []
         if use_mfcc:
@@ -94,7 +77,6 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
             features_vector = np.concatenate(features_list, axis=0)
         else:
             features_vector = features_list[0]
-        # Normalização
         features_vector = (features_vector - np.mean(features_vector)) / (np.std(features_vector) + 1e-9)
         return features_vector
     except Exception as e:
@@ -102,7 +84,6 @@ def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
         return None
 
 def aumentar_audio(data, sr, augmentations):
-    """Aplica augmentations no áudio."""
     try:
         return augmentations(samples=data, sample_rate=sr)
     except Exception as e:
@@ -110,18 +91,15 @@ def aumentar_audio(data, sr, augmentations):
         return data
 
 def visualizar_audio(data, sr):
-    """Visualiza diferentes representações do áudio."""
     try:
-        # Forma de onda usando waveshow
         fig_wave, ax_wave = plt.subplots(figsize=(8,4))
-        librosa.display.waveshow(data, sr=sr, ax=ax_wave)
+        librosa.display.waveplot(data, sr=sr, ax=ax_wave)
         ax_wave.set_title("Forma de Onda no Tempo")
         ax_wave.set_xlabel("Tempo (s)")
         ax_wave.set_ylabel("Amplitude")
         st.pyplot(fig_wave)
         plt.close(fig_wave)
 
-        # FFT (Espectro)
         fft = np.fft.fft(data)
         fft_abs = np.abs(fft[:len(fft)//2])
         freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
@@ -133,17 +111,15 @@ def visualizar_audio(data, sr):
         st.pyplot(fig_fft)
         plt.close(fig_fft)
 
-        # Espectrograma
         D = np.abs(librosa.stft(data))**2
         S = librosa.power_to_db(D, ref=np.max)
         fig_spec, ax_spec = plt.subplots(figsize=(8,4))
-        img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='hz', ax=ax_spec)
+        img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='linear', ax=ax_spec)
         ax_spec.set_title("Espectrograma")
         fig_spec.colorbar(img_spec, ax=ax_spec, format='%+2.0f dB')
         st.pyplot(fig_spec)
         plt.close(fig_spec)
 
-        # MFCCs Plot
         mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
         fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
         img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
@@ -156,13 +132,8 @@ def visualizar_audio(data, sr):
         logging.error(f"Erro na visualização do áudio: {e}")
 
 def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
-    """
-    Visualiza pelo menos um exemplo de cada classe original e, se augmentation=True,
-    também um exemplo aumentado.
-    """
     classes_indices = {c: np.where(y == i)[0] for i, c in enumerate(classes)}
-
-    st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 de cada classe aumentada)")
+    st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset")
 
     transforms = Compose([
         AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
@@ -178,7 +149,6 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
         if len(indices_classe) == 0:
             st.warning(f"**Nenhum exemplo encontrado para a classe {c}.**")
             continue
-        # Seleciona um exemplo aleatório
         idx_original = random.choice(indices_classe)
         st.write(f"Selecionando índice original: {idx_original}")
         if idx_original >= len(df):
@@ -195,7 +165,6 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
 
         if augmentation:
             try:
-                # Seleciona outro exemplo aleatório para augmentation
                 idx_aug = random.choice(indices_classe)
                 st.write(f"Selecionando índice para augmentation: {idx_aug}")
                 if idx_aug >= len(df):
@@ -215,10 +184,6 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
                 logging.error(f"Erro ao aplicar augmentation na classe {c}: {e}")
 
 def escolher_k_kmeans(X_original, max_k=10):
-    """
-    Escolher k para K-Means automaticamente de acordo com o dataset.
-    Usaremos o coeficiente de silhueta para determinar o melhor k entre 2 e max_k.
-    """
     melhor_k = 2
     melhor_sil = -1
     n_amostras = X_original.shape[0]
@@ -239,8 +204,8 @@ def classificar_audio(SEED):
     with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
         st.markdown("### Instruções para Classificar Áudio")
         st.markdown("""
-        **Passo 1:** Upload do modelo treinado (.keras ou .h5) e classes (classes.txt).  
-        **Passo 2:** Upload do áudio a ser classificado.  
+        **Passo 1:** Upload do modelo (.keras ou .h5) e classes (classes.txt).
+        **Passo 2:** Upload do áudio a ser classificado.
         **Passo 3:** O app extrai features e prediz a classe.
         """)
 
@@ -273,14 +238,13 @@ def classificar_audio(SEED):
                 logging.error(f"Erro ao ler o arquivo de classes: {e}")
                 return
 
-            # Verificar se o número de classes corresponde ao número de saídas do modelo
             num_classes_model = modelo.output_shape[-1]
             num_classes_file = len(classes)
             st.write(f"Número de classes no arquivo: {num_classes_file}")
             st.write(f"Número de saídas no modelo: {num_classes_model}")
             if num_classes_file != num_classes_model:
                 st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
-                logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                logging.error("Mismatch entre classes e saída do modelo.")
                 return
 
             st.markdown("**Modelo e Classes Carregados!**")
@@ -304,7 +268,6 @@ def classificar_audio(SEED):
                             confidence = pred[0][pred_class[0]] * 100
                             st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
 
-                            # Gráfico de Probabilidades
                             fig_prob, ax_prob = plt.subplots(figsize=(8,4))
                             ax_prob.bar(classes, pred[0], color='skyblue')
                             ax_prob.set_title("Probabilidades por Classe")
@@ -313,7 +276,6 @@ def classificar_audio(SEED):
                             st.pyplot(fig_prob)
                             plt.close(fig_prob)
 
-                            # Reprodução e Visualização do Áudio
                             st.audio(caminho_audio)
                             visualizar_audio(data, sr)
                         except Exception as e:
@@ -330,18 +292,16 @@ def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
         st.markdown("### Instruções Passo a Passo")
         st.markdown("""
-        **Passo 1:** Upload do dataset .zip (pastas=classes).  
-        **Passo 2:** Ajuste parâmetros no sidebar.  
-        **Passo 3:** Clique em 'Treinar Modelo'.  
-        **Passo 4:** Analise métricas, matriz de confusão, histórico, SHAP.  
-        **Passo 5:** Veja o clustering e visualize espectros e MFCCs.
+        **Passo 1:** Upload do dataset .zip (pastas=classes).
+        **Passo 2:** Ajuste parâmetros no sidebar.
+        **Passo 3:** Clique em 'Treinar Modelo'.
+        **Passo 4:** Analise métricas e gráficos.
+        **Passo 5:** Visualize Clustering e exemplos.
         """)
 
-        # Checkbox para permitir parar o treinamento
         stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False)
-
         if stop_training_choice:
-            st.sidebar.write("Durante o treinamento, caso deseje parar, clique no botão abaixo:")
+            st.sidebar.write("Clique no botão abaixo para parar durante o treinamento:")
             stop_button = st.sidebar.button("Parar Treinamento Agora")
             if stop_button:
                 st.session_state.stop_training = True
@@ -395,7 +355,7 @@ def treinar_modelo(SEED):
 
                 st.write(f"Classes codificadas: {', '.join(classes)}")
 
-                st.write("Extraindo Features (MFCCs, Centróide)...")
+                st.write("Extraindo Features...")
                 X = []
                 y_valid = []
                 for i, row in df.iterrows():
@@ -412,11 +372,8 @@ def treinar_modelo(SEED):
                 st.write(f"Features extraídas: {X.shape}")
 
                 st.sidebar.markdown("**Configurações de Treinamento:**")
-
-                # Parâmetros de Treinamento
                 num_epochs = st.sidebar.slider("Número de Épocas:", 10, 500, 50, 10)
                 batch_size = st.sidebar.selectbox("Batch:", [8,16,32,64,128],0)
-
                 treino_percentage = st.sidebar.slider("Treino (%)",50,90,70,5)
                 valid_percentage = st.sidebar.slider("Validação (%)",5,30,15,5)
                 test_percentage = 100 - (treino_percentage + valid_percentage)
@@ -427,7 +384,6 @@ def treinar_modelo(SEED):
 
                 augment_factor = st.sidebar.slider("Fator Aumento:",1,100,10,1)
                 dropout_rate = st.sidebar.slider("Dropout:",0.0,0.9,0.4,0.05)
-
                 regularization_type = st.sidebar.selectbox("Regularização:",["None","L1","L2","L1_L2"],0)
                 if regularization_type == "L1":
                     l1_regularization = st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
@@ -442,7 +398,6 @@ def treinar_modelo(SEED):
                     l1_regularization = 0.0
                     l2_regularization = 0.0
 
-                # Opções de Fine-Tuning Adicionais
                 st.sidebar.markdown("**Fine-Tuning Adicional:**")
                 learning_rate = st.sidebar.slider("Taxa de Aprendizado:", 1e-5, 1e-2, 1e-3, step=1e-5, format="%.5f")
                 optimizer_choice = st.sidebar.selectbox("Otimização:", ["Adam", "SGD", "RMSprop"],0)
@@ -491,8 +446,10 @@ def treinar_modelo(SEED):
                                     if ftrs is not None:
                                         X_aug.append(ftrs)
                                         y_aug.append(y[i])
+                else:
+                    X_aug, y_aug = [], []
 
-                if enable_augmentation and 'X_aug' in locals() and X_aug and y_aug:
+                if enable_augmentation and X_aug and y_aug:
                     X_aug = np.array(X_aug)
                     y_aug = np.array(y_aug)
                     st.write(f"Dados Aumentados: {X_aug.shape}")
@@ -521,7 +478,6 @@ def treinar_modelo(SEED):
                 X_original = X_combined
                 y_original = y_combined
 
-                # Reconfigurar os dados para o modelo
                 X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
                 X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
                 X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
@@ -532,7 +488,6 @@ def treinar_modelo(SEED):
                 conv_filters = [int(f.strip()) for f in conv_filters_str.split(',')]
                 conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_str.split(',')]
 
-                # Ajusta o tamanho do kernel se necessário
                 input_length = X_train_final.shape[1]
                 for i in range(num_conv_layers):
                     if conv_kernel_size[i] > input_length:
@@ -579,7 +534,6 @@ def treinar_modelo(SEED):
                     modelo.add(Dropout(dropout_rate))
                 modelo.add(Dense(len(classes), activation='softmax'))
 
-                # Configuração do Otimizador
                 if optimizer_choice == "Adam":
                     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
                 elif optimizer_choice == "SGD":
@@ -587,7 +541,7 @@ def treinar_modelo(SEED):
                 elif optimizer_choice == "RMSprop":
                     optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
                 else:
-                    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)  # Default
+                    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
                 modelo.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
@@ -669,7 +623,6 @@ def treinar_modelo(SEED):
                         else:
                             st.success("Treino concluído!")
 
-                # Salvando o modelo
                 with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
                     modelo.save(tmp_model.name)
                     caminho_tmp_model = tmp_model.name
@@ -679,7 +632,6 @@ def treinar_modelo(SEED):
                 st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
                 os.remove(caminho_tmp_model)
 
-                # Salvando as classes
                 classes_str = "\n".join(classes)
                 st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
 
@@ -718,7 +670,6 @@ def treinar_modelo(SEED):
                     hist_df = pd.DataFrame(historico.history)
                     st.dataframe(hist_df)
 
-                    # Plot das curvas de treinamento
                     fig_hist, (ax_loss, ax_acc) = plt.subplots(1,2, figsize=(12,4))
                     ax_loss.plot(hist_df.index, hist_df['loss'], label='Treino')
                     ax_loss.plot(hist_df.index, hist_df['val_loss'], label='Validação')
@@ -738,14 +689,14 @@ def treinar_modelo(SEED):
                     plt.close(fig_hist)
 
                     st.markdown("### Explicabilidade com SHAP")
-                    st.write("Selecionando amostras de teste para análise SHAP.")
+                    st.write("Análise SHAP usando GradientExplainer.")
                     X_sample = X_test[:50]
                     try:
-                        explainer = shap.DeepExplainer(modelo, X_train_final[:100])
+                        # Ajuste: usando GradientExplainer ao invés de DeepExplainer
+                        explainer = shap.GradientExplainer(modelo, X_train_final[:100])
                         shap_values = explainer.shap_values(X_sample)
 
                         st.write("Plot SHAP Summary por Classe:")
-
                         num_shap_values = len(shap_values)
                         num_classes = len(classes)
                         st.write(f"Número de shap_values: {num_shap_values}, Número de classes: {num_classes}")
@@ -758,7 +709,6 @@ def treinar_modelo(SEED):
                                 st.pyplot(fig_shap)
                                 plt.close(fig_shap)
                         elif num_shap_values == 1 and num_classes == 2:
-                            # Classificação binária
                             st.write(f"**Classe: {classes[1]}**")
                             fig_shap = plt.figure()
                             shap.summary_plot(shap_values[0], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
@@ -766,24 +716,14 @@ def treinar_modelo(SEED):
                             plt.close(fig_shap)
                         else:
                             st.warning("Número de shap_values não corresponde ao número de classes.")
-                            st.write(f"shap_values length: {num_shap_values}, classes length: {num_classes}")
-                        st.write("""
-                        **Interpretação SHAP:**  
-                        MFCCs com valor SHAP alto contribuem significativamente para a classe.
-                        """)
                     except Exception as e:
                         st.write("SHAP não pôde ser gerado:", e)
                         logging.error(f"Erro ao gerar SHAP: {e}")
 
-                    st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
-                    st.write("""
-                    Clustering revela como dados se agrupam.
-                    Determinaremos k automaticamente usando o coeficiente de silhueta.
-                    """)
-
+                    st.markdown("### Análise de Clusters")
                     melhor_k = escolher_k_kmeans(X_original, max_k=10)
                     sil_score = silhouette_score(X_original, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_original))
-                    st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
+                    st.write(f"Melhor k para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
 
                     kmeans = KMeans(n_clusters=melhor_k, random_state=42)
                     kmeans_labels = kmeans.fit_predict(X_original)
@@ -821,7 +761,6 @@ def treinar_modelo(SEED):
 
                     visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050)
 
-                # Limpeza de memória e arquivos temporários
                 gc.collect()
                 os.remove(caminho_zip)
                 for cat in categorias:
@@ -838,11 +777,7 @@ def treinar_modelo(SEED):
 
 with st.expander("Contexto e Descrição Completa"):
     st.markdown("""**Classificação de Sons de Água Vibrando em Copo de Vidro**""")
-    st.markdown("""
-    Abaixo, algumas fórmulas em LaTeX serão apresentadas usando `st.latex()`:
-
-    Frequência do modo ressonante:
-    """)
+    st.markdown("Frequência do modo ressonante:")
     st.latex(r"f_n = \frac{v}{2L} \sqrt{n^2 + \left(\frac{R}{L}\right)^2}")
     st.latex(r"v = \sqrt{\frac{1}{\rho \beta}}")
 
@@ -875,22 +810,20 @@ with st.expander("Contexto e Descrição Completa"):
 
     st.markdown("Métricas de avaliação:")
     st.latex(r"\text{Acurácia} = \frac{\text{Número de Previsões Corretas}}{\text{Total de Previsões}}")
-    st.latex(r"\text{Precisão} = \frac{\text{Verdadeiros Positivos}}{\text{Verdadeiros Positivos + Falsos Positivos}}")
-    st.latex(r"\text{Recall} = \frac{\text{Verdadeiros Positivos}}{\text{Verdadeiros Positivos + Falsos Negativos}}")
+    st.latex(r"\text{Precisão} = \frac{\text{VP}}{\text{VP + FP}}")
+    st.latex(r"\text{Recall} = \frac{\text{VP}}{\text{VP + FN}}")
     st.latex(r"F1 = 2 \cdot \frac{\text{Precisão} \cdot \text{Recall}}{\text{Precisão} + \text{Recall}}")
 
     st.markdown("Explicabilidade (SHAP):")
-    st.latex(r"\phi_i(f, x) = \sum_{S \subseteq N \setminus \{i\}} \frac{|S|!(|N|-|S|-1)!}{|N|!} [f_{S \cup \{i\}}(x_{S \cup \{i\}})-f_S(x_S)]")
+    st.latex(r"\phi_i(f, x) = \sum_{S \subseteq N \setminus \{i\}} \frac{|S|!(|N|-|S|-1)!}{|N|!}[f_{S \cup \{i\}}(x_{S \cup \{i\}})-f_S(x_S)]")
 
     st.markdown("Coeficiente de Silhueta:")
     st.latex(r"s(i) = \frac{b(i) - a(i)}{\max\{a(i), b(i)\}}")
 
-    st.markdown("K-Means (minimização da soma das distâncias quadráticas):")
+    st.markdown("K-Means:")
     st.latex(r"\min_{C} \sum_{i=1}^{k} \sum_{x \in C_i} \|x - \mu_i\|^2")
 
-    st.markdown("""
-    Todas essas fórmulas integram o contexto físico e matemático que fundamenta a análise dos áudios, a extração de características, o treinamento do modelo e a interpretação dos resultados.
-    """)
+    st.markdown("Essas fórmulas sustentam a análise física, matemática e estatística aplicada ao áudio, permitindo desde a extração de características, aprendizado via rede neural, até a interpretabilidade (SHAP) e análise estrutural (clustering).")
 
 st.sidebar.header("Configurações Gerais")
 with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
