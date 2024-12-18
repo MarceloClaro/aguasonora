@@ -187,7 +187,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
             continue
         arquivo_original = df.iloc[idx_original]['caminho_arquivo']
         data_original, sr_original = carregar_audio(arquivo_original, sr=None)
-        if data_original is not None e sr_original is not None:
+        if data_original is not None and sr_original is not None:
             st.markdown(f"**Exemplo Original:** {os.path.basename(arquivo_original)}")
             visualizar_audio(data_original, sr_original)
         else:
