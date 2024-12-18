@@ -46,7 +46,7 @@ logging.basicConfig(
 def set_seeds(seed: int):
     """
     Define as sementes para reprodutibilidade.
-    
+
     Args:
         seed (int): Valor da semente.
     """
@@ -62,11 +62,11 @@ def set_seeds(seed: int):
 def carregar_audio(caminho_arquivo: str, sr: int = None):
     """
     Carrega um arquivo de áudio usando Librosa com logs detalhados.
-    
+
     Args:
         caminho_arquivo (str): Caminho para o arquivo de áudio.
         sr (int, optional): Taxa de amostragem. Se None, usa a taxa original.
-    
+
     Returns:
         tuple: Dados de áudio e taxa de amostragem, ou (None, None) em caso de erro.
     """
@@ -93,13 +93,13 @@ def carregar_audio(caminho_arquivo: str, sr: int = None):
 def extrair_features(data: np.ndarray, sr: int, use_mfcc: bool = True, use_spectral_centroid: bool = True):
     """
     Extrai features do áudio.
-    
+
     Args:
         data (np.ndarray): Dados de áudio.
         sr (int): Taxa de amostragem.
         use_mfcc (bool): Se True, extrai MFCCs.
         use_spectral_centroid (bool): Se True, extrai centróide espectral.
-    
+
     Returns:
         np.ndarray: Vetor de features normalizado, ou None em caso de erro.
     """
@@ -128,12 +128,12 @@ def extrair_features(data: np.ndarray, sr: int, use_mfcc: bool = True, use_spect
 def aumentar_audio(data: np.ndarray, sr: int, augmentations: Compose):
     """
     Aplica aumentação de dados no áudio.
-    
+
     Args:
         data (np.ndarray): Dados de áudio.
         sr (int): Taxa de amostragem.
         augmentations (Compose): Pipeline de aumentação.
-    
+
     Returns:
         np.ndarray: Áudio aumentado, ou o áudio original em caso de erro.
     """
@@ -147,11 +147,11 @@ def aumentar_audio(data: np.ndarray, sr: int, augmentations: Compose):
 def gerar_espectrograma(data: np.ndarray, sr: int):
     """
     Gera um espectrograma a partir do áudio.
-    
+
     Args:
         data (np.ndarray): Dados de áudio.
         sr (int): Taxa de amostragem.
-    
+
     Returns:
         PIL.Image.Image: Imagem do espectrograma, ou None em caso de erro.
     """
@@ -183,7 +183,7 @@ def gerar_espectrograma(data: np.ndarray, sr: int):
 def visualizar_audio(data: np.ndarray, sr: int):
     """
     Visualiza diferentes representações do áudio.
-    
+
     Args:
         data (np.ndarray): Dados de áudio.
         sr (int): Taxa de amostragem.
@@ -238,7 +238,7 @@ def visualizar_audio(data: np.ndarray, sr: int):
 class AudioSpectrogramDataset(Dataset):
     """
     Dataset personalizado para espectrogramas de áudio.
-    
+
     Args:
         df (pd.DataFrame): DataFrame com caminhos dos arquivos e classes.
         classes (list): Lista de classes.
@@ -255,7 +255,7 @@ class AudioSpectrogramDataset(Dataset):
     def _filtrar_amostras_validas(self):
         """
         Filtra amostras válidas antes de criar o dataset.
-        
+
         Returns:
             list: Índices das amostras válidas.
         """
@@ -309,12 +309,12 @@ class AudioSpectrogramDataset(Dataset):
 def escolher_k_kmeans(X_original: np.ndarray, y: np.ndarray, max_k: int = 10):
     """
     Determina o melhor número de clusters usando o coeficiente de silhueta.
-    
+
     Args:
         X_original (np.ndarray): Features.
         y (np.ndarray): Labels.
         max_k (int, optional): Número máximo de clusters a considerar.
-    
+
     Returns:
         int: Melhor valor de k.
     """
@@ -339,11 +339,11 @@ def escolher_k_kmeans(X_original: np.ndarray, y: np.ndarray, max_k: int = 10):
 def verificar_contagem_classes(y: np.ndarray, k_folds: int = 5):
     """
     Verifica se todas as classes têm pelo menos k_folds amostras.
-    
+
     Args:
         y (np.ndarray): Labels.
         k_folds (int, optional): Número de folds para cross-validation.
-    
+
     Returns:
         bool: True se todas as classes têm pelo menos k_folds amostras, False caso contrário.
     """
@@ -357,10 +357,10 @@ def verificar_contagem_classes(y: np.ndarray, k_folds: int = 5):
 def custom_collate(batch):
     """
     Função de collate personalizada para DataLoader.
-    
+
     Args:
         batch (list): Lista de tuplas (imagem, label).
-    
+
     Returns:
         tuple: Tensores de imagens e labels.
     """
@@ -374,10 +374,10 @@ def custom_collate(batch):
 def carregar_dados(zip_path: str):
     """
     Extrai e carrega dados do arquivo ZIP.
-    
+
     Args:
         zip_path (str): Caminho para o arquivo ZIP.
-    
+
     Returns:
         tuple: Diretório de extração e lista de categorias (pastas), ou (None, None) em caso de erro.
     """
@@ -399,7 +399,7 @@ def carregar_dados(zip_path: str):
 def visualizar_exemplos_classe(df: pd.DataFrame, y_valid: np.ndarray, classes: list, augmentation: bool = False, sr: int = 22050, metodo: str = "CNN Personalizada"):
     """
     Visualiza exemplos de cada classe do dataset.
-    
+
     Args:
         df (pd.DataFrame): DataFrame com caminhos dos arquivos e classes.
         y_valid (np.ndarray): Labels válidos.
@@ -434,7 +434,7 @@ def visualizar_exemplos_classe(df: pd.DataFrame, y_valid: np.ndarray, classes: l
 def classificar_audio(SEED: int):
     """
     Função para classificar novos áudios usando um modelo treinado.
-    
+
     Args:
         SEED (int): Valor da semente para reprodutibilidade.
     """
@@ -602,7 +602,7 @@ def classificar_audio(SEED: int):
 def treinar_modelo(SEED: int):
     """
     Função para treinar o modelo CNN ou ResNet-18.
-    
+
     Args:
         SEED (int): Valor da semente para reprodutibilidade.
     """
