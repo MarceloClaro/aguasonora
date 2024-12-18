@@ -1,303 +1,882 @@
-import os
-import zipfile
-import tempfile
-import shutil
 import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from PIL import Image
+import seaborn as sns
+import librosa
+import librosa.display
+import tensorflow as tf
+from tensorflow.keras.utils import to_categorical
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.model_selection import train_test_split, KFold
+from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.metrics import silhouette_score
+from scipy.cluster.hierarchy import linkage, dendrogram
+from audiomentations import Compose, AddGaussianNoise, TimeStretch, PitchShift, Shift
+import streamlit as st
+import tempfile
+from PIL import Image, UnidentifiedImageError
+import io
+import torch
+import zipfile
+import gc
+import os
+import logging
+from tensorflow.keras import regularizers
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
+import shap
 
-try:
-    import torch
-    from torch import nn, optim
-    from torch.utils.data import DataLoader
-    from torchvision import transforms, models
-    from sklearn.metrics import confusion_matrix, classification_report
-except ImportError as e:
-    print(f"Erro ao importar bibliotecas: {e}. Por favor, certifique-se de que todos os pacotes necessários estejam instalados.")
-    raise
+# Configuração de Logging
+logging.basicConfig(
+    filename='experiment_logs.log',
+    filemode='a',
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-# Definir o dispositivo (CPU ou GPU)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Configurações da Página
+seed_options = list(range(0, 61, 2))
+default_seed = 42
+if default_seed not in seed_options:
+    seed_options.insert(0, default_seed)
 
-def set_seed(seed):
-    """Define uma seed para garantir a reprodutibilidade."""
+icon_path = "logo.png"
+if os.path.exists(icon_path):
+    try:
+        st.set_page_config(page_title="Geomaker", page_icon=icon_path, layout="wide")
+        logging.info("Ícone carregado com sucesso.")
+    except Exception as e:
+        st.set_page_config(page_title="Geomaker", layout="wide")
+        logging.warning(f"Erro ao carregar ícone: {e}")
+else:
+    st.set_page_config(page_title="Geomaker", layout="wide")
+    logging.warning("Ícone não encontrado.")
+
+# Estado para parar o treinamento
+if 'stop_training' not in st.session_state:
+    st.session_state.stop_training = False
+
+def set_seeds(seed):
+    """Define as sementes para reprodutibilidade."""
     random.seed(seed)
     np.random.seed(seed)
+    tf.random.set_seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-set_seed(42)
-
-# Função para converter áudio em imagens (espectrogramas)
-def audio_to_spectrogram(audio_path, output_dir, sr=22050, img_size=(224, 224)):
+def carregar_audio(caminho_arquivo, sr=None):
+    """Carrega o arquivo de áudio usando Librosa."""
     try:
-        import librosa
-        import librosa.display
-
-        if not audio_path.lower().endswith(('.wav', '.mp3', '.flac', '.ogg')):
-            print(f"Arquivo ignorado (não é um áudio): {audio_path}")
-            return
-
-        y, sr = librosa.load(audio_path, sr=sr)
-        spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
-        spectrogram_db = librosa.power_to_db(spectrogram, ref=np.max)
-
-        plt.figure(figsize=(2.24, 2.24), dpi=100)
-        librosa.display.specshow(spectrogram_db, sr=sr, x_axis='time', y_axis='mel', cmap='viridis')
-        plt.axis('off')
-
-        temp_image = os.path.join(output_dir, os.path.basename(audio_path).replace('.wav', '.png'))
-        plt.savefig(temp_image, bbox_inches='tight', pad_inches=0)
-        plt.close()
-
-        # Redimensionar a imagem
-        image = Image.open(temp_image).resize(img_size)
-        image.save(temp_image)
-    except ImportError as e:
-        print("O pacote 'librosa' não está instalado. Por favor, instale-o para processar áudios.")
-        raise
+        data, sr = librosa.load(caminho_arquivo, sr=sr, res_type='kaiser_fast')
+        return data, sr
     except Exception as e:
-        print(f"Erro ao processar {audio_path}: {e}")
+        logging.error(f"Erro ao carregar áudio: {e}")
+        return None, None
 
-# Dataset personalizado para espectrogramas
-class SpectrogramDataset(torch.utils.data.Dataset):
-    def __init__(self, image_paths, labels, transform=None):
-        self.image_paths = image_paths
-        self.labels = labels
-        self.transform = transform
+def extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True):
+    """
+    Extrai MFCCs e centróide espectral do áudio. Normaliza as features.
+    """
+    try:
+        features_list = []
+        if use_mfcc:
+            mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
+            mfccs_scaled = np.mean(mfccs.T, axis=0)
+            features_list.append(mfccs_scaled)
+        if use_spectral_centroid:
+            centroid = librosa.feature.spectral_centroid(y=data, sr=sr)
+            centroid_mean = np.mean(centroid, axis=1)
+            features_list.append(centroid_mean)
+        if len(features_list) > 1:
+            features_vector = np.concatenate(features_list, axis=0)
+        else:
+            features_vector = features_list[0]
+        # Normalização
+        features_vector = (features_vector - np.mean(features_vector)) / (np.std(features_vector) + 1e-9)
+        return features_vector
+    except Exception as e:
+        logging.error(f"Erro ao extrair features: {e}")
+        return None
 
-    def __len__(self):
-        return len(self.image_paths)
+def aumentar_audio(data, sr, augmentations):
+    """Aplica augmentations no áudio."""
+    try:
+        return augmentations(samples=data, sample_rate=sr)
+    except Exception as e:
+        logging.error(f"Erro ao aumentar áudio: {e}")
+        return data
 
-    def __getitem__(self, idx):
-        image_path = self.image_paths[idx]
-        label = self.labels[idx]
+def visualizar_audio(data, sr):
+    """Visualiza diferentes representações do áudio."""
+    try:
+        # Forma de onda usando waveshow
+        fig_wave, ax_wave = plt.subplots(figsize=(8,4))
+        librosa.display.waveshow(data, sr=sr, ax=ax_wave)
+        ax_wave.set_title("Forma de Onda no Tempo")
+        ax_wave.set_xlabel("Tempo (s)")
+        ax_wave.set_ylabel("Amplitude")
+        st.pyplot(fig_wave)
+        plt.close(fig_wave)
 
-        try:
-            image = Image.open(image_path).convert("RGB")
-        except Exception as e:
-            print(f"Erro ao abrir imagem {image_path}: {e}")
-            raise
+        # FFT (Espectro)
+        fft = np.fft.fft(data)
+        fft_abs = np.abs(fft[:len(fft)//2])
+        freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
+        fig_fft, ax_fft = plt.subplots(figsize=(8,4))
+        ax_fft.plot(freqs, fft_abs)
+        ax_fft.set_title("Espectro (Amplitude x Frequência)")
+        ax_fft.set_xlabel("Frequência (Hz)")
+        ax_fft.set_ylabel("Amplitude")
+        st.pyplot(fig_fft)
+        plt.close(fig_fft)
 
-        if self.transform:
-            image = self.transform(image)
-        return image, label
+        # Espectrograma
+        D = np.abs(librosa.stft(data))**2
+        S = librosa.power_to_db(D, ref=np.max)
+        fig_spec, ax_spec = plt.subplots(figsize=(8,4))
+        img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='hz', ax=ax_spec)
+        ax_spec.set_title("Espectrograma")
+        fig_spec.colorbar(img_spec, ax=ax_spec, format='%+2.0f dB')
+        st.pyplot(fig_spec)
+        plt.close(fig_spec)
 
-# Transformações para treino e teste
-train_transforms = transforms.Compose([
-    transforms.RandomApply([
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(degrees=15),
-    ], p=0.5),
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-])
+        # MFCCs Plot
+        mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
+        fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
+        img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
+        ax_mfcc.set_title("MFCCs")
+        fig_mfcc.colorbar(img_mfcc, ax=ax_mfcc)
+        st.pyplot(fig_mfcc)
+        plt.close(fig_mfcc)
+    except Exception as e:
+        st.error(f"Erro na visualização do áudio: {e}")
+        logging.error(f"Erro na visualização do áudio: {e}")
 
-test_transforms = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-])
+def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
+    """
+    Visualiza pelo menos um exemplo de cada classe original e, se augmentation=True,
+    também um exemplo aumentado.
+    """
+    classes_indices = {c: np.where(y == i)[0] for i, c in enumerate(classes)}
 
-# Função para criar e treinar o modelo
-def train_model(image_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split):
-    set_seed(42)
+    st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 de cada classe aumentada)")
 
-    # Verificar se o diretório de imagens existe
-    if not os.path.exists(image_dir):
-        raise FileNotFoundError(f"Diretório de imagens não encontrado: {image_dir}")
+    transforms = Compose([
+        AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
+        TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0),
+        PitchShift(min_semitones=-4, max_semitones=4, p=1.0),
+        Shift(min_shift=-0.5, max_shift=0.5, p=1.0),
+    ])
 
-    # Listar imagens e classes
-    classes = sorted([d for d in os.listdir(image_dir) if os.path.isdir(os.path.join(image_dir, d))])
-    if not classes:
-        raise ValueError("Nenhuma classe encontrada no diretório de imagens.")
-
-    image_paths = []
-    labels = []
-    for label_idx, class_name in enumerate(classes):
-        class_dir = os.path.join(image_dir, class_name)
-        for image_name in os.listdir(class_dir):
-            image_path = os.path.join(class_dir, image_name)
-            if os.path.isfile(image_path):
-                image_paths.append(image_path)
-                labels.append(label_idx)
-
-    if not image_paths:
-        raise ValueError("Nenhuma imagem encontrada no diretório de imagens.")
-
-    # Dividir os dados em treino, validação e teste
-    indices = list(range(len(image_paths)))
-    random.shuffle(indices)
-    train_end = int(train_split * len(indices))
-    valid_end = int((train_split + valid_split) * len(indices))
-
-    train_indices = indices[:train_end]
-    valid_indices = indices[train_end:valid_end]
-    test_indices = indices[valid_end:]
-
-    train_dataset = SpectrogramDataset(
-        [image_paths[i] for i in train_indices], [labels[i] for i in train_indices], transform=train_transforms
-    )
-    valid_dataset = SpectrogramDataset(
-        [image_paths[i] for i in valid_indices], [labels[i] for i in valid_indices], transform=test_transforms
-    )
-    test_dataset = SpectrogramDataset(
-        [image_paths[i] for i in test_indices], [labels[i] for i in test_indices], transform=test_transforms
-    )
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    # Carregar o modelo pré-treinado
-    if model_name == 'ResNet18':
-        model = models.resnet18(pretrained=True)
-    elif model_name == 'ResNet50':
-        model = models.resnet50(pretrained=True)
-    else:
-        raise ValueError("Modelo não suportado.")
-
-    num_features = model.fc.in_features
-    model.fc = nn.Linear(num_features, num_classes)
-    model = model.to(device)
-
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Treinamento
-    best_model_wts = None
-    best_acc = 0.0
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        running_corrects = 0
-
-        for inputs, labels in train_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-
-            _, preds = torch.max(outputs, 1)
-            running_loss += loss.item() * inputs.size(0)
-            running_corrects += torch.sum(preds == labels.data)
-
-        epoch_loss = running_loss / len(train_dataset)
-        epoch_acc = running_corrects.double() / len(train_dataset)
-
-        print(f"Epoch {epoch+1}/{epochs}: Loss {epoch_loss:.4f} Acc {epoch_acc:.4f}")
-
-        # Validação
-        model.eval()
-        val_running_corrects = 0
-        with torch.no_grad():
-            for inputs, labels in valid_loader:
-                inputs, labels = inputs.to(device), labels.to(device)
-                outputs = model(inputs)
-                _, preds = torch.max(outputs, 1)
-                val_running_corrects += torch.sum(preds == labels.data)
-
-        val_acc = val_running_corrects.double() / len(valid_dataset)
-        print(f"Validation Accuracy: {val_acc:.4f}")
-
-        if val_acc > best_acc:
-            best_acc = val_acc
-            best_model_wts = model.state_dict()
-
-    # Avaliação no conjunto de teste
-    model.load_state_dict(best_model_wts)
-    model.eval()
-    test_corrects = 0
-    all_preds = []
-    all_labels = []
-    with torch.no_grad():
-        for inputs, labels in test_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            test_corrects += torch.sum(preds == labels.data)
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-
-    test_acc = test_corrects.double() / len(test_dataset)
-    print(f"Test Accuracy: {test_acc:.4f}")
-
-    # Matriz de Confusão e Relatório de Classificação
-    cm = confusion_matrix(all_labels, all_preds)
-    print("Confusion Matrix:\n", cm)
-    print("Classification Report:\n", classification_report(all_labels, all_preds))
-
-    return model, classes
-
-def main():
-    print("Classificação de Áudio usando Espectrogramas")
-
-    # Configurações
-    model_name = 'ResNet18'
-    num_classes = 5
-    epochs = 10
-    learning_rate = 0.001
-    batch_size = 16
-    train_split = 0.7
-    valid_split = 0.15
-
-    # Caminho para o diretório de áudios
-    audio_dir = "audios"
-    spectrogram_dir = "spectrograms"
-
-    if not os.path.exists(audio_dir):
-        print(f"O diretório {audio_dir} não foi encontrado. Criando uma estrutura de exemplo...")
-        os.makedirs(audio_dir, exist_ok=True)
-        sample_class = os.path.join(audio_dir, "classe_exemplo")
-        os.makedirs(sample_class, exist_ok=True)
-        print(f"Por favor, adicione arquivos de áudio no diretório: {sample_class}")
-        return
-
-    os.makedirs(spectrogram_dir, exist_ok=True)
-
-    # Converter áudios em espectrogramas
-    for class_name in os.listdir(audio_dir):
-        class_path = os.path.join(audio_dir, class_name)
-        if not os.path.isdir(class_path):
-            print(f"Ignorando {class_path}, pois não é um diretório.")
+    for c in classes:
+        st.markdown(f"#### Classe: {c}")
+        indices_classe = classes_indices[c]
+        st.write(f"Número de amostras para a classe '{c}': {len(indices_classe)}")
+        if len(indices_classe) == 0:
+            st.warning(f"**Nenhum exemplo encontrado para a classe {c}.**")
             continue
+        # Seleciona um exemplo aleatório
+        idx_original = random.choice(indices_classe)
+        st.write(f"Selecionando índice original: {idx_original}")
+        if idx_original >= len(df):
+            st.error(f"Índice {idx_original} está fora do intervalo do DataFrame.")
+            logging.error(f"Índice {idx_original} está fora do intervalo do DataFrame.")
+            continue
+        arquivo_original = df.iloc[idx_original]['caminho_arquivo']
+        data_original, sr_original = carregar_audio(arquivo_original, sr=None)
+        if data_original is not None and sr_original is not None:
+            st.markdown(f"**Exemplo Original:** {os.path.basename(arquivo_original)}")
+            visualizar_audio(data_original, sr_original)
+        else:
+            st.warning(f"**Não foi possível carregar o áudio da classe {c}.**")
 
-        output_class_dir = os.path.join(spectrogram_dir, class_name)
-        os.makedirs(output_class_dir, exist_ok=True)
-
-        for audio_file in os.listdir(class_path):
-            audio_file_path = os.path.join(class_path, audio_file)
+        if augmentation:
             try:
-                audio_to_spectrogram(audio_file_path, output_class_dir)
+                # Seleciona outro exemplo aleatório para augmentation
+                idx_aug = random.choice(indices_classe)
+                st.write(f"Selecionando índice para augmentation: {idx_aug}")
+                if idx_aug >= len(df):
+                    st.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
+                    logging.error(f"Índice {idx_aug} está fora do intervalo do DataFrame.")
+                    continue
+                arquivo_aug = df.iloc[idx_aug]['caminho_arquivo']
+                data_aug, sr_aug = carregar_audio(arquivo_aug, sr=None)
+                if data_aug is not None and sr_aug is not None:
+                    aug_data = aumentar_audio(data_aug, sr_aug, transforms)
+                    st.markdown(f"**Exemplo Aumentado a partir de:** {os.path.basename(arquivo_aug)}")
+                    visualizar_audio(aug_data, sr_aug)
+                else:
+                    st.warning(f"**Não foi possível carregar o áudio para augmentation da classe {c}.**")
             except Exception as e:
-                print(f"Erro ao converter {audio_file}: {e}")
+                st.warning(f"**Erro ao aplicar augmentation na classe {c}: {e}**")
+                logging.error(f"Erro ao aplicar augmentation na classe {c}: {e}")
 
-    # Verificar se há imagens no diretório de espectrogramas
-    if not any(os.scandir(spectrogram_dir)):
-        print(f"Nenhuma imagem foi gerada no diretório {spectrogram_dir}. Verifique os arquivos de áudio fornecidos.")
-        return
+def escolher_k_kmeans(X_original, max_k=10):
+    """
+    Escolher k para K-Means automaticamente de acordo com o dataset.
+    Usaremos o coeficiente de silhueta para determinar o melhor k entre 2 e max_k.
+    """
+    melhor_k = 2
+    melhor_sil = -1
+    n_amostras = X_original.shape[0]
+    max_k = min(max_k, n_amostras-1)
+    if max_k < 2:
+        max_k = 2
+    for k in range(2, max_k+1):
+        kmeans_test = KMeans(n_clusters=k, random_state=42)
+        labels_test = kmeans_test.fit_predict(X_original)
+        if len(np.unique(labels_test)) > 1:
+            sil = silhouette_score(X_original, labels_test)
+            if sil > melhor_sil:
+                melhor_sil = sil
+                melhor_k = k
+    return melhor_k
 
-    # Treinar o modelo com os espectrogramas gerados
-    model, classes = train_model(
-        spectrogram_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split
-    )
+def classificar_audio(SEED):
+    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
+        st.markdown("### Instruções para Classificar Áudio")
+        st.markdown("""
+        **Passo 1:** Upload do modelo treinado (.keras ou .h5) e classes (classes.txt).  
+        **Passo 2:** Upload do áudio a ser classificado.  
+        **Passo 3:** O app extrai features e prediz a classe.
+        """)
 
-    # Salvar o modelo treinado
-    model_save_path = "trained_model.pth"
-    torch.save(model.state_dict(), model_save_path)
-    print(f"Modelo salvo em {model_save_path}")
+        modelo_file = st.file_uploader("Upload do Modelo (.keras ou .h5)", type=["keras","h5"])
+        classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
 
-    # Salvar as classes em um arquivo
-    classes_save_path = "classes.txt"
-    with open(classes_save_path, "w") as f:
-        for class_name in classes:
-            f.write(f"{class_name}\n")
-    print(f"Classes salvas em {classes_save_path}")
+        if modelo_file is not None and classes_file is not None:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(modelo_file.name)[1]) as tmp_model:
+                tmp_model.write(modelo_file.read())
+                caminho_modelo = tmp_model.name
 
-if __name__ == "__main__":
-    main()
+            try:
+                modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
+                logging.info("Modelo carregado com sucesso.")
+                st.success("Modelo carregado com sucesso!")
+                # Verificar a saída do modelo
+                st.write(f"Modelo carregado com saída: {modelo.output_shape}")
+            except Exception as e:
+                st.error(f"Erro ao carregar o modelo: {e}")
+                logging.error(f"Erro ao carregar o modelo: {e}")
+                return
+
+            try:
+                classes = classes_file.read().decode("utf-8").splitlines()
+                if not classes:
+                    st.error("O arquivo de classes está vazio.")
+                    return
+                logging.info("Arquivo de classes carregado com sucesso.")
+            except Exception as e:
+                st.error(f"Erro ao ler o arquivo de classes: {e}")
+                logging.error(f"Erro ao ler o arquivo de classes: {e}")
+                return
+
+            # Verificar se o número de classes corresponde ao número de saídas do modelo
+            num_classes_model = modelo.output_shape[-1]
+            num_classes_file = len(classes)
+            st.write(f"Número de classes no arquivo: {num_classes_file}")
+            st.write(f"Número de saídas no modelo: {num_classes_model}")
+            if num_classes_file != num_classes_model:
+                st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                return
+
+            st.markdown("**Modelo e Classes Carregados!**")
+            st.markdown(f"**Classes:** {', '.join(classes)}")
+
+            audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
+            if audio_file is not None:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
+                    tmp_audio.write(audio_file.read())
+                    caminho_audio = tmp_audio.name
+
+                data, sr = carregar_audio(caminho_audio, sr=None)
+                if data is not None:
+                    ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+                    if ftrs is not None:
+                        ftrs = ftrs.reshape(1, -1, 1)
+                        try:
+                            pred = modelo.predict(ftrs)
+                            pred_class = np.argmax(pred, axis=1)
+                            pred_label = classes[pred_class[0]]
+                            confidence = pred[0][pred_class[0]] * 100
+                            st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
+
+                            # Gráfico de Probabilidades
+                            fig_prob, ax_prob = plt.subplots(figsize=(8,4))
+                            ax_prob.bar(classes, pred[0], color='skyblue')
+                            ax_prob.set_title("Probabilidades por Classe")
+                            ax_prob.set_ylabel("Probabilidade")
+                            plt.xticks(rotation=45)
+                            st.pyplot(fig_prob)
+                            plt.close(fig_prob)
+
+                            # Reprodução e Visualização do Áudio
+                            st.audio(caminho_audio)
+                            visualizar_audio(data, sr)
+                        except Exception as e:
+                            st.error(f"Erro na predição: {e}")
+                            logging.error(f"Erro na predição: {e}")
+                    else:
+                        st.error("Não foi possível extrair features do áudio.")
+                        logging.warning("Não foi possível extrair features do áudio.")
+                else:
+                    st.error("Não foi possível carregar o áudio.")
+                    logging.warning("Não foi possível carregar o áudio.")
+
+def treinar_modelo(SEED):
+    with st.expander("Treinamento do Modelo CNN"):
+        st.markdown("### Instruções Passo a Passo")
+        st.markdown("""
+        **Passo 1:** Upload do dataset .zip (pastas=classes).  
+        **Passo 2:** Ajuste parâmetros no sidebar.  
+        **Passo 3:** Clique em 'Treinar Modelo'.  
+        **Passo 4:** Analise métricas, matriz de confusão, histórico, SHAP.  
+        **Passo 5:** Veja o clustering e visualize espectros e MFCCs.
+        """)
+
+        # Checkbox para permitir parar o treinamento
+        stop_training_choice = st.sidebar.checkbox("Permitir Parar Treinamento a Qualquer Momento", value=False)
+
+        if stop_training_choice:
+            st.sidebar.write("Durante o treinamento, caso deseje parar, clique no botão abaixo:")
+            stop_button = st.sidebar.button("Parar Treinamento Agora")
+            if stop_button:
+                st.session_state.stop_training = True
+        else:
+            st.session_state.stop_training = False
+
+        st.markdown("### Passo 1: Upload do Dataset (ZIP)")
+        zip_upload = st.file_uploader("Upload do ZIP", type=["zip"])
+
+        if zip_upload is not None:
+            try:
+                st.write("Extraindo o Dataset...")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_zip:
+                    tmp_zip.write(zip_upload.read())
+                    caminho_zip = tmp_zip.name
+
+                diretorio_extracao = tempfile.mkdtemp()
+                with zipfile.ZipFile(caminho_zip, 'r') as zip_ref:
+                    zip_ref.extractall(diretorio_extracao)
+                caminho_base = diretorio_extracao
+
+                categorias = [d for d in os.listdir(caminho_base) if os.path.isdir(os.path.join(caminho_base, d))]
+                if len(categorias) == 0:
+                    st.error("Nenhuma subpasta encontrada no ZIP.")
+                    return
+
+                st.success("Dataset extraído!")
+                st.write(f"Classes encontradas: {', '.join(categorias)}")
+
+                caminhos_arquivos = []
+                labels = []
+                for cat in categorias:
+                    caminho_cat = os.path.join(caminho_base, cat)
+                    arquivos_na_cat = [f for f in os.listdir(caminho_cat) if f.lower().endswith(('.wav','.mp3','.flac','.ogg','.m4a'))]
+                    st.write(f"Classe '{cat}': {len(arquivos_na_cat)} arquivos.")
+                    for nome_arquivo in arquivos_na_cat:
+                        caminhos_arquivos.append(os.path.join(caminho_cat, nome_arquivo))
+                        labels.append(cat)
+
+                df = pd.DataFrame({'caminho_arquivo': caminhos_arquivos, 'classe': labels})
+                st.write("10 Primeiras Amostras do Dataset:")
+                st.dataframe(df.head(10))
+
+                if len(df) == 0:
+                    st.error("Nenhuma amostra encontrada no dataset.")
+                    return
+
+                labelencoder = LabelEncoder()
+                y = labelencoder.fit_transform(df['classe'])
+                classes = labelencoder.classes_
+
+                st.write(f"Classes codificadas: {', '.join(classes)}")
+
+                st.write("Extraindo Features (MFCCs, Centróide)...")
+                X = []
+                y_valid = []
+                for i, row in df.iterrows():
+                    arquivo = row['caminho_arquivo']
+                    data, sr = carregar_audio(arquivo, sr=None)
+                    if data is not None:
+                        ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+                        if ftrs is not None:
+                            X.append(ftrs)
+                            y_valid.append(y[i])
+
+                X = np.array(X)
+                y_valid = np.array(y_valid)
+                st.write(f"Features extraídas: {X.shape}")
+
+                st.sidebar.markdown("**Configurações de Treinamento:**")
+
+                # Parâmetros de Treinamento
+                num_epochs = st.sidebar.slider("Número de Épocas:", 10, 500, 50, 10)
+                batch_size = st.sidebar.selectbox("Batch:", [8,16,32,64,128],0)
+
+                treino_percentage = st.sidebar.slider("Treino (%)",50,90,70,5)
+                valid_percentage = st.sidebar.slider("Validação (%)",5,30,15,5)
+                test_percentage = 100 - (treino_percentage + valid_percentage)
+                if test_percentage < 0:
+                    st.sidebar.error("Treino + Validação > 100%")
+                    st.stop()
+                st.sidebar.write(f"Teste (%)={test_percentage}%")
+
+                augment_factor = st.sidebar.slider("Fator Aumento:",1,100,10,1)
+                dropout_rate = st.sidebar.slider("Dropout:",0.0,0.9,0.4,0.05)
+
+                regularization_type = st.sidebar.selectbox("Regularização:",["None","L1","L2","L1_L2"],0)
+                if regularization_type == "L1":
+                    l1_regularization = st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
+                    l2_regularization = 0.0
+                elif regularization_type == "L2":
+                    l2_regularization = st.sidebar.slider("L2:",0.0,0.1,0.001,0.001)
+                    l1_regularization = 0.0
+                elif regularization_type == "L1_L2":
+                    l1_regularization = st.sidebar.slider("L1:",0.0,0.1,0.001,0.001)
+                    l2_regularization = st.sidebar.slider("L2:",0.0,0.1,0.001,0.001)
+                else:
+                    l1_regularization = 0.0
+                    l2_regularization = 0.0
+
+                # Opções de Fine-Tuning Adicionais
+                st.sidebar.markdown("**Fine-Tuning Adicional:**")
+                learning_rate = st.sidebar.slider("Taxa de Aprendizado:", 1e-5, 1e-2, 1e-3, step=1e-5, format="%.5f")
+                optimizer_choice = st.sidebar.selectbox("Otimização:", ["Adam", "SGD", "RMSprop"],0)
+
+                enable_augmentation = st.sidebar.checkbox("Data Augmentation", True)
+                if enable_augmentation:
+                    adicionar_ruido = st.sidebar.checkbox("Ruído Gaussiano", True)
+                    estiramento_tempo = st.sidebar.checkbox("Time Stretch", True)
+                    alteracao_pitch = st.sidebar.checkbox("Pitch Shift", True)
+                    deslocamento = st.sidebar.checkbox("Deslocamento", True)
+
+                cross_validation = st.sidebar.checkbox("k-Fold?", False)
+                if cross_validation:
+                    k_folds = st.sidebar.number_input("Folds:",2,10,5,1)
+                else:
+                    k_folds = 1
+
+                balance_classes = st.sidebar.selectbox("Balanceamento:",["Balanced","None"],0)
+
+                if enable_augmentation:
+                    st.write("Aumentando Dados...")
+                    X_aug = []
+                    y_aug = []
+                    transforms = []
+                    if adicionar_ruido:
+                        transforms.append(AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0))
+                    if estiramento_tempo:
+                        transforms.append(TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0))
+                    if alteracao_pitch:
+                        transforms.append(PitchShift(min_semitones=-4, max_semitones=4, p=1.0))
+                    if deslocamento:
+                        transforms.append(Shift(min_shift=-0.5, max_shift=0.5, p=1.0))
+                    if transforms:
+                        aug = Compose(transforms)
+                        for i, row in df.iterrows():
+                            if st.session_state.stop_training:
+                                break
+                            arquivo = row['caminho_arquivo']
+                            data, sr = carregar_audio(arquivo, sr=None)
+                            if data is not None:
+                                for _ in range(augment_factor):
+                                    if st.session_state.stop_training:
+                                        break
+                                    aug_data = aumentar_audio(data, sr, aug)
+                                    ftrs = extrair_features(aug_data, sr)
+                                    if ftrs is not None:
+                                        X_aug.append(ftrs)
+                                        y_aug.append(y[i])
+
+                if enable_augmentation and 'X_aug' in locals() and X_aug and y_aug:
+                    X_aug = np.array(X_aug)
+                    y_aug = np.array(y_aug)
+                    st.write(f"Dados Aumentados: {X_aug.shape}")
+                    X_combined = np.concatenate((X, X_aug), axis=0)
+                    y_combined = np.concatenate((y_valid, y_aug), axis=0)
+                else:
+                    X_combined = X
+                    y_combined = y_valid
+
+                st.write("Dividindo Dados...")
+                X_train, X_temp, y_train, y_temp = train_test_split(
+                    X_combined, y_combined, 
+                    test_size=(100 - treino_percentage)/100.0,
+                    random_state=SEED, 
+                    stratify=y_combined
+                )
+                X_val, X_test, y_val, y_test = train_test_split(
+                    X_temp, y_temp, 
+                    test_size=test_percentage/(test_percentage + valid_percentage),
+                    random_state=SEED, 
+                    stratify=y_temp
+                )
+
+                st.write(f"Treino: {X_train.shape}, Validação: {X_val.shape}, Teste: {X_test.shape}")
+
+                X_original = X_combined
+                y_original = y_combined
+
+                # Reconfigurar os dados para o modelo
+                X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
+                X_val = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
+                X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
+
+                num_conv_layers = st.sidebar.slider("Conv Layers",1,5,2,1)
+                conv_filters_str = st.sidebar.text_input("Filtros (vírgula):","64,128")
+                conv_kernel_size_str = st.sidebar.text_input("Kernel (vírgula):","10,10")
+                conv_filters = [int(f.strip()) for f in conv_filters_str.split(',')]
+                conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_str.split(',')]
+
+                # Ajusta o tamanho do kernel se necessário
+                input_length = X_train_final.shape[1]
+                for i in range(num_conv_layers):
+                    if conv_kernel_size[i] > input_length:
+                        conv_kernel_size[i] = input_length
+
+                num_dense_layers = st.sidebar.slider("Dense Layers:",1,3,1,1)
+                dense_units_str = st.sidebar.text_input("Neurônios Dense (vírgula):","64")
+                dense_units = [int(u.strip()) for u in dense_units_str.split(',')]
+                if len(dense_units) != num_dense_layers:
+                    st.sidebar.error("Número de neurônios deve ser igual ao número de camadas Dense.")
+                    st.stop()
+
+                if regularization_type == "L1":
+                    reg = regularizers.l1(l1_regularization)
+                elif regularization_type == "L2":
+                    reg = regularizers.l2(l2_regularization)
+                elif regularization_type == "L1_L2":
+                    reg = regularizers.l1_l2(l1=l1_regularization, l2=l2_regularization)
+                else:
+                    reg = None
+
+                from tensorflow.keras.models import Sequential
+                from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, Input
+
+                modelo = Sequential()
+                modelo.add(Input(shape=(X_train_final.shape[1],1)))
+                for i in range(num_conv_layers):
+                    modelo.add(Conv1D(
+                        filters=conv_filters[i],
+                        kernel_size=conv_kernel_size[i],
+                        activation='relu',
+                        kernel_regularizer=reg
+                    ))
+                    modelo.add(Dropout(dropout_rate))
+                    modelo.add(MaxPooling1D(pool_size=2))
+
+                modelo.add(Flatten())
+                for i in range(num_dense_layers):
+                    modelo.add(Dense(
+                        units=dense_units[i],
+                        activation='relu',
+                        kernel_regularizer=reg
+                    ))
+                    modelo.add(Dropout(dropout_rate))
+                modelo.add(Dense(len(classes), activation='softmax'))
+
+                # Configuração do Otimizador com Taxa de Aprendizado
+                if optimizer_choice == "Adam":
+                    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+                elif optimizer_choice == "SGD":
+                    optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
+                elif optimizer_choice == "RMSprop":
+                    optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
+                else:
+                    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)  # Default
+
+                modelo.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+
+                diretorio_salvamento = 'modelos_salvos'
+                if not os.path.exists(diretorio_salvamento):
+                    os.makedirs(diretorio_salvamento)
+
+                es_monitor = st.sidebar.selectbox("Monitor (Early Stopping):", ["val_loss","val_accuracy"],0)
+                es_patience = st.sidebar.slider("Patience:",1,20,5,1)
+                es_mode = st.sidebar.selectbox("Mode:",["min","max"],0)
+
+                checkpointer = ModelCheckpoint(
+                    os.path.join(diretorio_salvamento,'modelo_agua_aumentado.keras'),
+                    monitor='val_loss',
+                    verbose=1,
+                    save_best_only=True
+                )
+                earlystop = EarlyStopping(
+                    monitor=es_monitor,
+                    patience=es_patience,
+                    restore_best_weights=True,
+                    mode=es_mode,
+                    verbose=1
+                )
+                lr_scheduler = ReduceLROnPlateau(
+                    monitor='val_loss', 
+                    factor=0.5, 
+                    patience=3, 
+                    verbose=1
+                )
+
+                callbacks = [checkpointer, earlystop, lr_scheduler]
+
+                if balance_classes == "Balanced":
+                    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+                    class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
+                else:
+                    class_weight_dict = None
+
+                st.write("Treinando...")
+                with st.spinner('Treinando...'):
+                    if cross_validation and k_folds > 1:
+                        kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
+                        fold_no = 1
+                        val_scores = []
+                        for train_index, val_index in kf.split(X_train_final):
+                            if st.session_state.stop_training:
+                                st.warning("Treinamento Parado pelo Usuário!")
+                                break
+                            st.write(f"Fold {fold_no}")
+                            X_train_cv, X_val_cv = X_train_final[train_index], X_train_final[val_index]
+                            y_train_cv, y_val_cv = y_train[train_index], y_train[val_index]
+                            historico = modelo.fit(
+                                X_train_cv, to_categorical(y_train_cv),
+                                epochs=num_epochs,
+                                batch_size=batch_size,
+                                validation_data=(X_val_cv, to_categorical(y_val_cv)),
+                                callbacks=callbacks,
+                                class_weight=class_weight_dict,
+                                verbose=1
+                            )
+                            score = modelo.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
+                            val_scores.append(score[1]*100)
+                            fold_no += 1
+                        if not st.session_state.stop_training:
+                            st.write(f"Acurácia Média CV: {np.mean(val_scores):.2f}%")
+                    else:
+                        historico = modelo.fit(
+                            X_train_final, to_categorical(y_train),
+                            epochs=num_epochs,
+                            batch_size=batch_size,
+                            validation_data=(X_val, to_categorical(y_val)),
+                            callbacks=callbacks,
+                            class_weight=class_weight_dict,
+                            verbose=1
+                        )
+                        if st.session_state.stop_training:
+                            st.warning("Treinamento Parado pelo Usuário!")
+                        else:
+                            st.success("Treino concluído!")
+
+                # Salvando o modelo
+                with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
+                    modelo.save(tmp_model.name)
+                    caminho_tmp_model = tmp_model.name
+                with open(caminho_tmp_model, 'rb') as f:
+                    modelo_bytes = f.read()
+                buffer = io.BytesIO(modelo_bytes)
+                st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
+                os.remove(caminho_tmp_model)
+
+                # Salvando as classes
+                classes_str = "\n".join(classes)
+                st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
+
+                if not st.session_state.stop_training:
+                    st.markdown("### Avaliação do Modelo")
+                    score_train = modelo.evaluate(X_train_final, to_categorical(y_train), verbose=0)
+                    score_val = modelo.evaluate(X_val, to_categorical(y_val), verbose=0)
+                    score_test = modelo.evaluate(X_test, to_categorical(y_test), verbose=0)
+
+                    st.write(f"Acurácia Treino: {score_train[1]*100:.2f}%")
+                    st.write(f"Acurácia Validação: {score_val[1]*100:.2f}%")
+                    st.write(f"Acurácia Teste: {score_test[1]*100:.2f}%")
+
+                    y_pred = modelo.predict(X_test)
+                    y_pred_classes = y_pred.argmax(axis=1)
+                    f1_val = f1_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+                    prec = precision_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+                    rec = recall_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+
+                    st.write(f"F1-score: {f1_val*100:.2f}%")
+                    st.write(f"Precisão: {prec*100:.2f}%")
+                    st.write(f"Recall: {rec*100:.2f}%")
+
+                    st.markdown("### Matriz de Confusão")
+                    cm = confusion_matrix(y_test, y_pred_classes, labels=range(len(classes)))
+                    cm_df = pd.DataFrame(cm, index=classes, columns=classes)
+                    fig_cm, ax_cm = plt.subplots(figsize=(12,8))
+                    sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
+                    ax_cm.set_title("Matriz de Confusão", fontsize=16)
+                    ax_cm.set_xlabel("Classe Prevista", fontsize=14)
+                    ax_cm.set_ylabel("Classe Real", fontsize=14)
+                    st.pyplot(fig_cm)
+                    plt.close(fig_cm)
+
+                    st.markdown("### Histórico de Treinamento")
+                    hist_df = pd.DataFrame(historico.history)
+                    st.dataframe(hist_df)
+
+                    # Plot das curvas de treinamento
+                    fig_hist, (ax_loss, ax_acc) = plt.subplots(1,2, figsize=(12,4))
+                    ax_loss.plot(hist_df.index, hist_df['loss'], label='Treino')
+                    ax_loss.plot(hist_df.index, hist_df['val_loss'], label='Validação')
+                    ax_loss.set_title("Curva de Perda")
+                    ax_loss.set_xlabel("Épocas")
+                    ax_loss.set_ylabel("Loss")
+                    ax_loss.legend()
+
+                    ax_acc.plot(hist_df.index, hist_df['accuracy'], label='Treino')
+                    ax_acc.plot(hist_df.index, hist_df['val_accuracy'], label='Validação')
+                    ax_acc.set_title("Curva de Acurácia")
+                    ax_acc.set_xlabel("Épocas")
+                    ax_acc.set_ylabel("Acurácia")
+                    ax_acc.legend()
+
+                    st.pyplot(fig_hist)
+                    plt.close(fig_hist)
+
+                    st.markdown("### Explicabilidade com SHAP")
+                    st.write("Selecionando amostras de teste para análise SHAP.")
+                    X_sample = X_test[:50]
+                    try:
+                        explainer = shap.DeepExplainer(modelo, X_train_final[:100])
+                        shap_values = explainer.shap_values(X_sample)
+
+                        st.write("Plot SHAP Summary por Classe:")
+
+                        num_shap_values = len(shap_values)
+                        num_classes = len(classes)
+                        st.write(f"Número de shap_values: {num_shap_values}, Número de classes: {num_classes}")
+
+                        if num_shap_values == num_classes:
+                            for class_idx, class_name in enumerate(classes):
+                                st.write(f"**Classe: {class_name}**")
+                                fig_shap = plt.figure()
+                                shap.summary_plot(shap_values[class_idx], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
+                                st.pyplot(fig_shap)
+                                plt.close(fig_shap)
+                        elif num_shap_values == 1 and num_classes == 2:
+                            # Classificação binária, shap_values[0] corresponde à classe positiva
+                            st.write(f"**Classe: {classes[1]}**")
+                            fig_shap = plt.figure()
+                            shap.summary_plot(shap_values[0], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
+                            st.pyplot(fig_shap)
+                            plt.close(fig_shap)
+                        else:
+                            st.warning("Número de shap_values não corresponde ao número de classes.")
+                            st.write(f"shap_values length: {num_shap_values}, classes length: {num_classes}")
+                        st.write("""
+                        **Interpretação SHAP:**  
+                        MFCCs com valor SHAP alto contribuem significativamente para a classe.  
+                        Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
+                        """)
+                    except Exception as e:
+                        st.write("SHAP não pôde ser gerado:", e)
+                        logging.error(f"Erro ao gerar SHAP: {e}")
+
+                    st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
+                    st.write("""
+                    Clustering revela como dados se agrupam.  
+                    Determinaremos k automaticamente usando o coeficiente de silhueta.
+                    """)
+
+                    melhor_k = escolher_k_kmeans(X_original, max_k=10)
+                    sil_score = silhouette_score(X_original, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_original))
+                    st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
+
+                    kmeans = KMeans(n_clusters=melhor_k, random_state=42)
+                    kmeans_labels = kmeans.fit_predict(X_original)
+                    st.write("Classes por Cluster (K-Means):")
+                    cluster_dist = []
+                    for cidx in range(melhor_k):
+                        cluster_classes = y_original[kmeans_labels == cidx]
+                        counts = pd.Series(cluster_classes).value_counts()
+                        cluster_dist.append(counts)
+                    for idx, dist in enumerate(cluster_dist):
+                        st.write(f"**Cluster {idx+1}:**")
+                        st.write(dist)
+
+                    st.write("Análise Hierárquica:")
+                    Z = linkage(X_original, 'ward')
+                    fig_dend, ax_dend = plt.subplots(figsize=(10,5))
+                    dendrogram(Z, ax=ax_dend, truncate_mode='level', p=5)
+                    ax_dend.set_title("Dendrograma Hierárquico")
+                    ax_dend.set_xlabel("Amostras")
+                    ax_dend.set_ylabel("Distância")
+                    st.pyplot(fig_dend)
+                    plt.close(fig_dend)
+
+                    hier = AgglomerativeClustering(n_clusters=2)
+                    hier_labels = hier.fit_predict(X_original)
+                    st.write("Classes por Cluster (Hierárquico):")
+                    cluster_dist_h = []
+                    for cidx in range(2):
+                        cluster_classes = y_original[hier_labels == cidx]
+                        counts_h = pd.Series(cluster_classes).value_counts()
+                        cluster_dist_h.append(counts_h)
+                    for idx, dist in enumerate(cluster_dist_h):
+                        st.write(f"**Cluster {idx+1}:**")
+                        st.write(dist)
+
+                    visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050)
+
+                # Limpeza de memória e arquivos temporários
+                gc.collect()
+                os.remove(caminho_zip)
+                for cat in categorias:
+                    caminho_cat = os.path.join(caminho_base, cat)
+                    for arquivo in os.listdir(caminho_cat):
+                        os.remove(os.path.join(caminho_cat, arquivo))
+                    os.rmdir(caminho_cat)
+                os.rmdir(caminho_base)
+                logging.info("Processo concluído.")
+
+            except Exception as e:
+                st.error(f"Erro: {e}")
+                logging.error(f"Erro: {e}")
+
+with st.expander("Contexto e Descrição Completa"):
+    st.markdown("""
+    **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN**
+
+    (Descrição e fórmulas mantidas conforme exemplo anterior)
+    """)
+
+st.sidebar.header("Configurações Gerais")
+with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
+    st.markdown("**SEED** garante resultados reproduzíveis.")
+
+seed_selection = st.sidebar.selectbox(
+    "Escolha o valor do SEED:",
+    options=seed_options,
+    index=seed_options.index(default_seed),
+    help="Define a semente para reprodutibilidade."
+)
+SEED = seed_selection
+set_seeds(SEED)
+
+with st.sidebar.expander("Sobre o SEED"):
+    st.markdown("""
+    **SEED** garante replicabilidade de resultados, permitindo que os experimentos sejam reproduzidos com os mesmos dados e parâmetros.
+    """)
+
+eu_icon_path = "eu.ico"
+if os.path.exists(eu_icon_path):
+    try:
+        st.sidebar.image(eu_icon_path, width=80)
+    except UnidentifiedImageError:
+        st.sidebar.text("Ícone 'eu.ico' corrompido.")
+else:
+    st.sidebar.text("Ícone 'eu.ico' não encontrado.")
+
+st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
+
+app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
+
+if app_mode == "Classificar Áudio":
+    classificar_audio(SEED)
+elif app_mode == "Treinar Modelo":
+    treinar_modelo(SEED)
