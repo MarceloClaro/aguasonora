@@ -334,6 +334,41 @@ def escolher_k_kmeans(X_original: np.ndarray, y: np.ndarray, max_k: int = 10):
                 melhor_k = k
     return melhor_k
 
+# ============================ Função de Verificação de Contagem de Classes ============================
+
+def verificar_contagem_classes(y: np.ndarray, k_folds: int = 5):
+    """
+    Verifica se todas as classes têm pelo menos k_folds amostras.
+    
+    Args:
+        y (np.ndarray): Labels.
+        k_folds (int, optional): Número de folds para cross-validation.
+    
+    Returns:
+        bool: True se todas as classes têm pelo menos k_folds amostras, False caso contrário.
+    """
+    counts = np.bincount(y)
+    if np.any(counts < k_folds):
+        return False
+    return True
+
+# ============================ Função de Collate Personalizado ============================
+
+def custom_collate(batch):
+    """
+    Função de collate personalizada para DataLoader.
+    
+    Args:
+        batch (list): Lista de tuplas (imagem, label).
+    
+    Returns:
+        tuple: Tensores de imagens e labels.
+    """
+    inputs, labels = zip(*batch)
+    inputs = torch.stack(inputs, dim=0)
+    labels = torch.tensor(labels)
+    return inputs, labels
+
 # ============================ Função de Carregamento de Dados ============================
 
 def carregar_dados(zip_path: str):
@@ -377,7 +412,8 @@ def visualizar_exemplos_classe(df: pd.DataFrame, y_valid: np.ndarray, classes: l
         st.markdown("### Exemplos por Classe")
         for cls in classes:
             st.subheader(f"Classe: {cls}")
-            indices = np.where(y_valid == np.where(classes == cls)[0][0])[0]
+            class_idx = np.where(classes == cls)[0][0]
+            indices = np.where(y_valid == class_idx)[0]
             if len(indices) == 0:
                 st.write("Nenhum exemplo disponível.")
                 continue
@@ -421,8 +457,8 @@ def classificar_audio(SEED: int):
                 if metodo_classificacao == "CNN Personalizada":
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
-                    modelo = models.resnet18(weights='IMAGENET1K_V1')
-                    # Ajustar a última camada após carregar as classes
+                    modelo = models.resnet18(pretrained=False)
+                    # A última camada será ajustada após carregar as classes
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
@@ -460,7 +496,8 @@ def classificar_audio(SEED: int):
                     return
             elif metodo_classificacao == "ResNet-18":
                 try:
-                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, len(classes))
+                    num_classes = len(classes)
+                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, num_classes)
                     dispositivo = 'cuda' if torch.cuda.is_available() else 'cpu'
                     modelo = modelo.to(dispositivo)
                     logging.info("Última camada da ResNet-18 ajustada para o número de classes.")
@@ -974,9 +1011,9 @@ def treinar_modelo(SEED: int):
                     )
 
                     # Use num_workers=0 para facilitar a depuração
-                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=lambda x: custom_collate(x))
-                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=lambda x: custom_collate(x))
-                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=lambda x: custom_collate(x))
+                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=custom_collate)
+                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate)
+                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate)
                 else:
                     # Para CNN Personalizada, reshape os dados para (samples, features, 1)
                     X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
@@ -1472,6 +1509,7 @@ import unittest
 
 class TestAudioFunctions(unittest.TestCase):
     def test_carregar_audio_valido(self):
+        # Substitua 'caminho/para/audio_valido.wav' por um caminho válido no seu sistema de arquivos
         data, sr = carregar_audio('caminho/para/audio_valido.wav')
         self.assertIsNotNone(data)
         self.assertIsNotNone(sr)
