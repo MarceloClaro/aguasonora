@@ -143,7 +143,7 @@ def gerar_espectrograma(data, sr):
 
         S = librosa.stft(data, n_fft=1024, hop_length=512)
         S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
-        
+
         plt.figure(figsize=(10, 4), dpi=100)  # Aumentando o tamanho para melhor visualização
         librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='log', cmap='gray')
         plt.axis('off')
@@ -152,6 +152,7 @@ def gerar_espectrograma(data, sr):
         plt.close()
         buf.seek(0)
         img = Image.open(buf).convert('RGB')
+        logging.info("Espectrograma gerado com sucesso.")
         return img
     except Exception as e:
         logging.error(f"Erro ao gerar espectrograma: {e}")
@@ -406,6 +407,7 @@ def carregar_dados(zip_path):
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(diretorio_extracao)
         categorias = [d for d in os.listdir(diretorio_extracao) if os.path.isdir(os.path.join(diretorio_extracao, d))]
+        logging.info(f"ZIP extraído para {diretorio_extracao} com categorias: {categorias}")
         return diretorio_extracao, categorias
     except Exception as e:
         st.error(f"Erro ao extrair o ZIP: {e}")
@@ -440,9 +442,7 @@ def classificar_audio(SEED):
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
                     modelo = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-                    # 'classes' ainda não está definido aqui, correção necessária
-                    # Precisamos mover a leitura das classes antes de definir o modelo
-                    # Será corrigido mais adiante
+                    # Última camada será ajustada após carregar as classes
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
@@ -553,6 +553,7 @@ def classificar_audio(SEED):
                                         st.audio(caminho_audio)
                                         visualizar_audio(data, sr)
 
+                                        # Convertendo o espectrograma para visualização
                                         espectrograma_img = espectrograma.cpu().squeeze().permute(1,2,0).numpy()
                                         espectrograma_img = np.clip(espectrograma_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406]), 0, 1)
                                         st.image(espectrograma_img, caption="Espectrograma Classificado", use_column_width=True)
@@ -1055,7 +1056,7 @@ def treinar_modelo(SEED):
 
                 elif metodo_treinamento == "ResNet-18":
                     # Definindo a função de perda e otimizador
-                    criterion = torch.nn.CrossEntropyLoss()
+                    criterion = torch.nn.CrossEntropyLoss(weight=class_weight if balance_classes == "Balanced" else None)
                     optimizer = torch.optim.Adam(modelo.parameters(), lr=learning_rate)
 
                 st.sidebar.markdown("**Configurações de Treinamento Adicionais:**")
