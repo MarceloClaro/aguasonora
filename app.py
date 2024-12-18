@@ -37,6 +37,10 @@ def audio_to_spectrogram(audio_path, output_dir, sr=22050, img_size=(224, 224)):
         import librosa
         import librosa.display
 
+        if not audio_path.lower().endswith(('.wav', '.mp3', '.flac', '.ogg')):
+            print(f"Arquivo ignorado (não é um áudio): {audio_path}")
+            return
+
         y, sr = librosa.load(audio_path, sr=sr)
         spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
         spectrogram_db = librosa.power_to_db(spectrogram, ref=np.max)
@@ -72,7 +76,12 @@ class SpectrogramDataset(torch.utils.data.Dataset):
         image_path = self.image_paths[idx]
         label = self.labels[idx]
 
-        image = Image.open(image_path).convert("RGB")
+        try:
+            image = Image.open(image_path).convert("RGB")
+        except Exception as e:
+            print(f"Erro ao abrir imagem {image_path}: {e}")
+            raise
+
         if self.transform:
             image = self.transform(image)
         return image, label
@@ -96,15 +105,27 @@ test_transforms = transforms.Compose([
 def train_model(image_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split):
     set_seed(42)
 
+    # Verificar se o diretório de imagens existe
+    if not os.path.exists(image_dir):
+        raise FileNotFoundError(f"Diretório de imagens não encontrado: {image_dir}")
+
     # Listar imagens e classes
-    classes = sorted(os.listdir(image_dir))
+    classes = sorted([d for d in os.listdir(image_dir) if os.path.isdir(os.path.join(image_dir, d))])
+    if not classes:
+        raise ValueError("Nenhuma classe encontrada no diretório de imagens.")
+
     image_paths = []
     labels = []
     for label_idx, class_name in enumerate(classes):
         class_dir = os.path.join(image_dir, class_name)
         for image_name in os.listdir(class_dir):
-            image_paths.append(os.path.join(class_dir, image_name))
-            labels.append(label_idx)
+            image_path = os.path.join(class_dir, image_name)
+            if os.path.isfile(image_path):
+                image_paths.append(image_path)
+                labels.append(label_idx)
+
+    if not image_paths:
+        raise ValueError("Nenhuma imagem encontrada no diretório de imagens.")
 
     # Dividir os dados em treino, validação e teste
     indices = list(range(len(image_paths)))
@@ -233,11 +254,17 @@ def main():
     # Converter áudios em espectrogramas
     for class_name in os.listdir(audio_dir):
         class_dir = os.path.join(audio_dir, class_name)
+        if not os.path.isdir(class_dir):
+            print(f"Ignorando {class_name}: não é um diretório.")
+            continue
+
         output_class_dir = os.path.join(spectrogram_dir, class_name)
         os.makedirs(output_class_dir, exist_ok=True)
 
         for audio_file in os.listdir(class_dir):
-            audio_to_spectrogram(os.path.join(class_dir, audio_file), output_class_dir)
+            audio_path = os.path.join(class_dir, audio_file)
+            if os.path.isfile(audio_path):
+                audio_to_spectrogram(audio_path, output_class_dir)
 
     # Treinar o modelo
     model, classes = train_model(spectrogram_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split)
