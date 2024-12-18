@@ -589,7 +589,9 @@ def classificar_audio(SEED):
 
                                         # Convertendo o espectrograma para visualização
                                         # Como o modelo espera 3 canais (RGB), precisamos duplicar a imagem em 3 canais
+                                        # Note que a transformação já converteu para tensor, então precisamos reverter
                                         espectrograma_img = espectrograma.cpu().squeeze().permute(1,2,0).numpy()
+                                        # Revertendo a normalização
                                         espectrograma_img = np.clip(espectrograma_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406]), 0, 1)
                                         st.image(espectrograma_img, caption="Espectrograma Classificado", use_column_width=True)
                             except Exception as e:
@@ -1024,6 +1026,7 @@ def treinar_modelo(SEED):
 
                 st.sidebar.markdown("**Configurações de Treinamento Adicionais:**")
 
+                # Configurações de balanceamento de classes
                 if balance_classes == "Balanced":
                     if metodo_treinamento == "CNN Personalizada":
                         class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
@@ -1052,10 +1055,10 @@ def treinar_modelo(SEED):
                     conv_filters = [int(f.strip()) for f in conv_filters_str.split(',')]
                     conv_kernel_size = [int(k.strip()) for k in conv_kernel_size_str.split(',')]
 
-                    input_length = X_train_final.shape[1]
-                    for i in range(num_conv_layers):
-                        if conv_kernel_size[i] > input_length:
-                            conv_kernel_size[i] = input_length
+                    # Garantir que o número de filtros e kernels corresponda ao número de camadas
+                    if len(conv_filters) != num_conv_layers or len(conv_kernel_size) != num_conv_layers:
+                        st.sidebar.error("O número de filtros e tamanhos de kernel deve corresponder ao número de camadas convolucionais.")
+                        st.stop()
 
                     num_dense_layers = st.sidebar.slider(
                         "Dense Layers:",
@@ -1119,7 +1122,14 @@ def treinar_modelo(SEED):
                 elif metodo_treinamento == "ResNet-18":
                     # Definindo a função de perda e otimizador
                     criterion = torch.nn.CrossEntropyLoss(weight=class_weight if balance_classes == "Balanced" else None)
-                    optimizer = torch.optim.Adam(modelo.parameters(), lr=learning_rate)
+                    if optimizer_choice == "Adam":
+                        optimizer = torch.optim.Adam(modelo.parameters(), lr=learning_rate)
+                    elif optimizer_choice == "SGD":
+                        optimizer = torch.optim.SGD(modelo.parameters(), lr=learning_rate)
+                    elif optimizer_choice == "RMSprop":
+                        optimizer = torch.optim.RMSprop(modelo.parameters(), lr=learning_rate)
+                    else:
+                        optimizer = torch.optim.Adam(modelo.parameters(), lr=learning_rate)
 
                 st.sidebar.markdown("**Configurações de Treinamento Adicionais:**")
 
@@ -1142,6 +1152,7 @@ def treinar_modelo(SEED):
                 # Configurações de callbacks
                 if metodo_treinamento == "CNN Personalizada":
                     try:
+                        os.makedirs('modelos_salvos', exist_ok=True)
                         checkpointer = ModelCheckpoint(
                             os.path.join('modelos_salvos','modelo_agua_aumentado.keras'),
                             monitor='val_loss',
@@ -1411,7 +1422,7 @@ def treinar_modelo(SEED):
                 st.warning(error_msg)
 
 # Interface do Streamlit
-def main():
+def main_app():
     """
     Função principal que define a interface do Streamlit.
     """
@@ -1492,4 +1503,4 @@ def main():
         """)
 
 if __name__ == "__main__":
-    main()
+    main_app()
