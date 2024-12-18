@@ -204,15 +204,15 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050):
                     continue
                 arquivo_aug = df.iloc[idx_aug]['caminho_arquivo']
                 data_aug, sr_aug = carregar_audio(arquivo_aug, sr=None)
-                if data_aug is not None e sr_aug is not None:
+                if data_aug is not None and sr_aug is not None:
                     aug_data = aumentar_audio(data_aug, sr_aug, transforms)
                     st.markdown(f"**Exemplo Aumentado a partir de:** {os.path.basename(arquivo_aug)}")
                     visualizar_audio(aug_data, sr_aug)
                 else:
                     st.warning(f"**Não foi possível carregar o áudio para augmentation da classe {c}.**")
-            except Exception as e:
-                st.warning(f"**Erro ao aplicar augmentation na classe {c}: {e}**")
-                logging.error(f"Erro ao aplicar augmentation na classe {c}: {e}")
+            except Exception as and:
+                st.warning(f"**Erro ao aplicar augmentation na classe {c}: {and}**")
+                logging.error(f"Erro ao aplicar augmentation na classe {c}: {and}")
 
 def escolher_k_kmeans(X_original, max_k=10):
     """
