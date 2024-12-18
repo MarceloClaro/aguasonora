@@ -253,7 +253,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                 st.warning(f"**Erro ao aplicar augmentation na classe {c}: {e}**")
                 logging.error(f"Erro ao aplicar augmentation na classe {c}: {e}")
 
-def escolher_k_kmeans(X_original, max_k=10):
+def escolher_k_kmeans(X_original, y, max_k=10):
     """
     Escolher k para K-Means automaticamente de acordo com o dataset.
     Usaremos o coeficiente de silhueta para determinar o melhor k entre 2 e max_k.
@@ -303,12 +303,9 @@ class AudioSpectrogramDataset(Dataset):
 def verificar_contagem_classes(y, k_folds=1):
     """Verifica se todas as classes têm pelo menos k_folds amostras."""
     classes, counts = np.unique(y, return_counts=True)
-    min_count = counts.min()
-    if min_count < 2:
-        st.error(f"A classe '{classes[counts.argmin()]}' tem apenas {min_count} amostra(s). Cada classe deve ter pelo menos 2 amostras.")
-        return False
-    if k_folds > min_count:
-        st.error(f"O número de folds ({k_folds}) é maior que o número mínimo de amostras em qualquer classe ({min_count}). Reduza o número de folds.")
+    insufficient_classes = classes[counts < k_folds]
+    if len(insufficient_classes) > 0:
+        st.error(f"As seguintes classes têm menos de {k_folds} amostras: {', '.join(insufficient_classes)}. Cada classe deve ter pelo menos {k_folds} amostras.")
         return False
     return True
 
@@ -653,8 +650,8 @@ def treinar_modelo(SEED):
 
                 balance_classes = st.sidebar.selectbox("Balanceamento:",["Balanced","None"],0)
 
-                if enable_augmentation and metodo_treinamento == "CNN Personalizada":
-                    st.write("Aumentando Dados...")
+                if metodo_treinamento == "CNN Personalizada" and enable_augmentation:
+                    st.write("Aumentando Dados para CNN Personalizada...")
                     # Transformações para aumento de dados
                     transforms_aug = []
                     if adicionar_ruido:
@@ -682,6 +679,31 @@ def treinar_modelo(SEED):
                                         X_aug.append(ftrs)
                                         y_aug.append(y[i])
 
+                if metodo_treinamento == "ResNet-18" and enable_augmentation:
+                    st.write("Aumentando Dados para ResNet-18...")
+                    # Transformações para aumento de dados
+                    transforms_aug_resnet = Compose([
+                        AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
+                        TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
+                        PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
+                        Shift(min_shift=-0.5, max_shift=0.5, p=0.5),
+                    ])
+                    for i, row in df.iterrows():
+                        if st.session_state.stop_training:
+                            break
+                        arquivo = row['caminho_arquivo']
+                        data, sr = carregar_audio(arquivo, sr=None)
+                        if data is not None:
+                            aug_data = aumentar_audio(data, sr, transforms_aug_resnet)
+                            espectrograma_aug = gerar_espectrograma(aug_data, sr)
+                            if espectrograma_aug:
+                                # Salvar espectrograma temporariamente
+                                temp_dir = tempfile.mkdtemp()
+                                img_path = os.path.join(temp_dir, f"class_{y[i]}_aug_img_{i}.png")
+                                espectrograma_aug.save(img_path)
+                                X_aug.append(img_path)
+                                y_aug.append(y[i])
+
                 # Concatenar dados aumentados se existirem
                 if metodo_treinamento == "CNN Personalizada" and enable_augmentation and len(X_aug) > 0 and len(y_aug) > 0:
                     X_aug = np.array(X_aug)
@@ -690,10 +712,12 @@ def treinar_modelo(SEED):
                     X_combined = np.concatenate((X, X_aug), axis=0)
                     y_combined = np.concatenate((y_valid, y_aug), axis=0)
                 elif metodo_treinamento == "ResNet-18" and enable_augmentation and len(X_aug) > 0 and len(y_aug) > 0:
-                    # Aumento de dados para ResNet-18 (espectrogramas)
-                    st.write("Aumento de dados para ResNet-18 não implementado.")
-                    X_combined = X
-                    y_combined = y_valid
+                    # Para ResNet-18, X_aug contém caminhos de imagens aumentadas
+                    X_aug = np.array(X_aug)
+                    y_aug = np.array(y_aug)
+                    st.write(f"Dados Aumentados: {X_aug.shape}")
+                    X_combined = np.concatenate((X, X_aug), axis=0)
+                    y_combined = np.concatenate((y_valid, y_aug), axis=0)
                 else:
                     X_combined = X
                     y_combined = y_valid
@@ -1103,7 +1127,7 @@ def treinar_modelo(SEED):
                                 Determinaremos k automaticamente usando o coeficiente de silhueta.
                                 """)
 
-                                melhor_k = escolher_k_kmeans(X_combined, max_k=10)
+                                melhor_k = escolher_k_kmeans(X_combined, y_combined, max_k=10)
                                 sil_score = silhouette_score(X_combined, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_combined))
                                 st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
 
@@ -1331,7 +1355,7 @@ def treinar_modelo(SEED):
                                 Determinaremos k automaticamente usando o coeficiente de silhueta.
                                 """)
 
-                                melhor_k = escolher_k_kmeans(X_combined, max_k=10)
+                                melhor_k = escolher_k_kmeans(X_combined, y_combined, max_k=10)
                                 sil_score = silhouette_score(X_combined, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_combined))
                                 st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
 
