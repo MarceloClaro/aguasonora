@@ -1,3 +1,5 @@
+# Parte 1: Importações e Configurações Iniciais
+
 import random 
 import numpy as np
 import pandas as pd
@@ -54,7 +56,11 @@ def set_seeds(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-# Funções auxiliares
+
+#==================================================================
+
+# Parte 2: Funções Auxiliares
+
 def carregar_audio(caminho_arquivo, sr=None):
     """
     Carrega um arquivo de áudio usando Librosa com logs detalhados.
@@ -228,100 +234,9 @@ def visualizar_audio(data, sr):
         error_msg = f"Erro ao visualizar áudio: {e}"
         logging.error(error_msg)
         st.warning(error_msg)
+#===================================================================================
 
-def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, metodo='CNN'):
-    """
-    Visualiza exemplos de cada classe, tanto originais quanto aumentados.
-
-    Args:
-        df (pd.DataFrame): DataFrame com caminhos dos arquivos e classes.
-        y (np.array): Labels codificados.
-        classes (list): Lista de classes.
-        augmentation (bool, optional): Se True, mostra exemplos aumentados.
-        sr (int, optional): Taxa de amostragem.
-        metodo (str, optional): Método de treinamento utilizado.
-    """
-    classes_indices = {c: np.where(y == i)[0] for i, c in enumerate(classes)}
-    st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 de cada classe aumentada)")
-    
-    transforms_aug = None
-    if metodo in ['CNN Personalizada', 'ResNet18', 'ResNet-18']:
-        transforms_aug = Compose([
-            AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
-            TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
-            PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
-            Shift(min_shift=-0.5, max_shift=0.5, p=0.5),
-        ])
-    
-    for c in classes:
-        st.markdown(f"#### Classe: {c}")
-        indices_classe = classes_indices[c]
-        if len(indices_classe) == 0:
-            logging.warning(f"Nenhuma amostra encontrada para a classe: {c}")
-            st.write(f"Nenhuma amostra encontrada para a classe: {c}")
-            continue
-        idx_original = random.choice(indices_classe)
-        arquivo_original = df.iloc[idx_original]['caminho_arquivo']
-        data_original, sr_original = carregar_audio(arquivo_original, sr=None)
-        if data_original is not None and sr_original is not None:
-            st.write(f"**Original:** {os.path.basename(arquivo_original)}")
-            visualizar_audio(data_original, sr_original)
-            if metodo in ['ResNet18', 'ResNet-18']:
-                espectrograma = gerar_espectrograma(data_original, sr_original)
-                if espectrograma:
-                    st.image(espectrograma, caption="Espectrograma Original", use_column_width=True)
-        else:
-            logging.warning(f"Dados inválidos para a amostra original da classe: {c}")
-            st.write(f"Dados inválidos para a amostra original da classe: {c}")
-        
-        if augmentation and transforms_aug is not None:
-            try:
-                if len(indices_classe) > 1:
-                    idx_aug = random.choice(indices_classe)
-                else:
-                    idx_aug = idx_original
-                arquivo_aug = df.iloc[idx_aug]['caminho_arquivo']
-                data_aug, sr_aug = carregar_audio(arquivo_aug, sr=None)
-                if data_aug is not None and sr_aug is not None:
-                    aug_data = aumentar_audio(data_aug, sr_aug, transforms_aug)
-                    st.write(f"**Aumentado:** {os.path.basename(arquivo_aug)}")
-                    visualizar_audio(aug_data, sr_aug)
-                    if metodo in ['ResNet18', 'ResNet-18']:
-                        espectrograma_aug = gerar_espectrograma(aug_data, sr_aug)
-                        if espectrograma_aug:
-                            st.image(espectrograma_aug, caption="Espectrograma Aumentado", use_column_width=True)
-            except Exception as e:
-                error_msg = f"Erro ao aumentar áudio para a classe {c}: {e}"
-                logging.error(error_msg)
-                st.warning(error_msg)
-
-def escolher_k_kmeans(X_original, y, max_k=10):
-    """
-    Determina o melhor número de clusters usando o coeficiente de silhueta.
-
-    Args:
-        X_original (np.array): Features.
-        y (np.array): Labels.
-        max_k (int, optional): Número máximo de clusters a considerar.
-
-    Returns:
-        int: Melhor valor de k.
-    """
-    melhor_k = 2
-    melhor_sil = -1
-    n_amostras = X_original.shape[0]
-    max_k = min(max_k, n_amostras-1)
-    if max_k < 2:
-        max_k = 2
-    for k in range(2, max_k+1):
-        kmeans_test = KMeans(n_clusters=k, random_state=42)
-        labels_test = kmeans_test.fit_predict(X_original)
-        if len(np.unique(labels_test)) > 1:
-            sil = silhouette_score(X_original, labels_test)
-            if sil > melhor_sil:
-                melhor_sil = sil
-                melhor_k = k
-    return melhor_k
+# Parte 3: Classe de Dataset Personalizado e Outras Funções
 
 class AudioSpectrogramDataset(Dataset):
     """
@@ -443,7 +358,36 @@ def carregar_dados(zip_path):
         st.error(error_msg)
         return None, None
 
-# Funções principais
+def escolher_k_kmeans(X_original, y, max_k=10):
+    """
+    Determina o melhor número de clusters usando o coeficiente de silhueta.
+
+    Args:
+        X_original (np.array): Features.
+        y (np.array): Labels.
+        max_k (int, optional): Número máximo de clusters a considerar.
+
+    Returns:
+        int: Melhor valor de k.
+    """
+    melhor_k = 2
+    melhor_sil = -1
+    n_amostras = X_original.shape[0]
+    max_k = min(max_k, n_amostras-1)
+    if max_k < 2:
+        max_k = 2
+    for k in range(2, max_k+1):
+        kmeans_test = KMeans(n_clusters=k, random_state=42)
+        labels_test = kmeans_test.fit_predict(X_original)
+        if len(np.unique(labels_test)) > 1:
+            sil = silhouette_score(X_original, labels_test)
+            if sil > melhor_sil:
+                melhor_sil = sil
+                melhor_k = k
+    return melhor_k
+#================================================================================
+# Parte 4: Função para Classificar Áudio
+
 def classificar_audio(SEED):
     """
     Função para classificar novos áudios usando um modelo treinado.
@@ -560,6 +504,7 @@ def classificar_audio(SEED):
                                 if espectrograma:
                                     transform = torch_transforms.Compose([
                                         torch_transforms.Resize((224, 224)),
+                                        torch_transforms.RandomHorizontalFlip(),
                                         torch_transforms.ToTensor(),
                                         torch_transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                                   std=[0.229, 0.224, 0.225])
@@ -605,6 +550,8 @@ def classificar_audio(SEED):
                     error_msg = f"Erro ao processar o áudio: {e}"
                     st.error(error_msg)
                     logging.error(error_msg)
+#==================================================================================================
+# Parte 5: Função para Treinar o Modelo
 
 def treinar_modelo(SEED):
     """
@@ -1420,8 +1367,9 @@ def treinar_modelo(SEED):
                 error_msg = f"Erro ao limpar arquivos temporários: {e}"
                 logging.error(error_msg)
                 st.warning(error_msg)
+#=============================================================================================
+# Parte 6: Função Principal e Interface do Streamlit
 
-# Interface do Streamlit
 def main_app():
     """
     Função principal que define a interface do Streamlit.
@@ -1501,6 +1449,8 @@ def main_app():
 
         Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, proporcionando uma ferramenta poderosa e intuitiva para classificação de sons de água em copos de vidro.
         """)
+#==============================================================================================
+# Parte 7: Execução da Aplicação
 
 if __name__ == "__main__":
     main_app()
