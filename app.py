@@ -31,7 +31,6 @@ import torchvision.transforms as torch_transforms
 from torchvision import models
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
-from PIL import Image
 
 logging.basicConfig(
     filename='experiment_logs.log',
@@ -1173,19 +1172,19 @@ def treinar_modelo(SEED):
                                 st.error(f"Erro durante a avaliação do modelo ResNet-18: {e}")
                                 logging.error(f"Erro durante a avaliação do modelo ResNet-18: {e}")
 
-                        try:
-                            gc.collect()
-                            os.remove(caminho_zip)
-                            for cat in categorias:
-                                caminho_cat = os.path.join(caminho_base, cat)
-                                for arquivo in os.listdir(caminho_cat):
-                                    os.remove(os.path.join(caminho_cat, arquivo))
-                                os.rmdir(caminho_cat)
-                            os.rmdir(caminho_base)
-                            logging.info("Processo concluído.")
-                        except Exception as e:
-                            logging.error(f"Erro ao limpar arquivos temporários: {e}")
-
+                    try:
+                        gc.collect()
+                        os.remove(caminho_zip)
+                        for cat in categorias:
+                            caminho_cat = os.path.join(caminho_base, cat)
+                            for arquivo in os.listdir(caminho_cat):
+                                os.remove(os.path.join(caminho_cat, arquivo))
+                            os.rmdir(caminho_cat)
+                        os.rmdir(caminho_base)
+                        logging.info("Processo concluído.")
+                    except Exception as e:
+                        logging.error(f"Erro ao limpar arquivos temporários: {e}")
+    
     with st.expander("Contexto e Descrição Completa"):
         st.markdown("""
         **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados, CNN Personalizada e ResNet-18**
