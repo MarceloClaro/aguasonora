@@ -7,8 +7,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image
-import streamlit as st
-import io
 
 try:
     import torch
@@ -17,7 +15,7 @@ try:
     from torchvision import transforms, models
     from sklearn.metrics import confusion_matrix, classification_report
 except ImportError as e:
-    st.error(f"Erro ao importar bibliotecas: {e}. Por favor, certifique-se de que todos os pacotes necessários estejam instalados.")
+    print(f"Erro ao importar bibliotecas: {e}. Por favor, certifique-se de que todos os pacotes necessários estejam instalados.")
     raise
 
 # Definir o dispositivo (CPU ou GPU)
@@ -55,7 +53,7 @@ def audio_to_spectrogram(audio_path, output_dir, sr=22050, img_size=(224, 224)):
         image = Image.open(temp_image).resize(img_size)
         image.save(temp_image)
     except ImportError as e:
-        st.error("O pacote 'librosa' não está instalado. Por favor, instale-o para processar áudios.")
+        print("O pacote 'librosa' não está instalado. Por favor, instale-o para processar áudios.")
         raise
     except Exception as e:
         print(f"Erro ao processar {audio_path}: {e}")
@@ -216,50 +214,37 @@ def train_model(image_dir, num_classes, model_name, epochs, learning_rate, batch
     return model, classes
 
 def main():
-    st.title("Classificação de Áudio usando Espectrogramas")
-    st.sidebar.header("Configurações de Treinamento")
+    print("Classificação de Áudio usando Espectrogramas")
 
     # Configurações
-    model_name = st.sidebar.selectbox("Modelo Pré-treinado", ["ResNet18", "ResNet50"])
-    num_classes = st.sidebar.number_input("Número de Classes", min_value=2, step=1, value=5)
-    epochs = st.sidebar.slider("Épocas", min_value=1, max_value=50, value=10)
-    learning_rate = st.sidebar.select_slider("Taxa de Aprendizado", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
-    batch_size = st.sidebar.selectbox("Tamanho do Lote", options=[4, 8, 16, 32], index=1)
-    train_split = st.sidebar.slider("Divisão de Treinamento", min_value=0.5, max_value=0.9, value=0.7, step=0.05)
-    valid_split = st.sidebar.slider("Divisão de Validação", min_value=0.05, max_value=0.4, value=0.15, step=0.05)
+    model_name = 'ResNet18'
+    num_classes = 5
+    epochs = 10
+    learning_rate = 0.001
+    batch_size = 16
+    train_split = 0.7
+    valid_split = 0.15
 
-    # Upload do arquivo ZIP
-    zip_file = st.file_uploader("Faça upload do arquivo ZIP com áudios", type=["zip"])
+    # Caminho para o diretório de áudios
+    audio_dir = "audios"
+    spectrogram_dir = "spectrograms"
+    os.makedirs(spectrogram_dir, exist_ok=True)
 
-    if zip_file:
-        temp_dir = tempfile.mkdtemp()
-        zip_path = os.path.join(temp_dir, "uploaded.zip")
-        with open(zip_path, "wb") as f:
-            f.write(zip_file.read())
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_dir)
+    # Converter áudios em espectrogramas
+    for class_name in os.listdir(audio_dir):
+        class_dir = os.path.join(audio_dir, class_name)
+        output_class_dir = os.path.join(spectrogram_dir, class_name)
+        os.makedirs(output_class_dir, exist_ok=True)
 
-        audio_dir = os.path.join(temp_dir, "audios")
-        spectrogram_dir = os.path.join(temp_dir, "spectrograms")
-        os.makedirs(spectrogram_dir, exist_ok=True)
+        for audio_file in os.listdir(class_dir):
+            audio_to_spectrogram(os.path.join(class_dir, audio_file), output_class_dir)
 
-        # Converter áudios em espectrogramas
-        for class_name in os.listdir(audio_dir):
-            class_dir = os.path.join(audio_dir, class_name)
-            output_class_dir = os.path.join(spectrogram_dir, class_name)
-            os.makedirs(output_class_dir, exist_ok=True)
+    # Treinar o modelo
+    model, classes = train_model(spectrogram_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split)
 
-            for audio_file in os.listdir(class_dir):
-                audio_to_spectrogram(os.path.join(class_dir, audio_file), output_class_dir)
-
-        # Treinar o modelo
-        model, classes = train_model(spectrogram_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split)
-
-        # Opção para baixar o modelo treinado
-        buffer = io.BytesIO()
-        torch.save(model.state_dict(), buffer)
-        buffer.seek(0)
-        st.download_button("Download do Modelo", data=buffer, file_name="modelo_treinado.pth", mime="application/octet-stream")
+    # Salvar o modelo treinado
+    torch.save(model.state_dict(), "modelo_treinado.pth")
+    print("Modelo treinado salvo como 'modelo_treinado.pth'")
 
 if __name__ == "__main__":
     main()
