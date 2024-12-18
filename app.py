@@ -318,7 +318,7 @@ def classificar_audio(SEED):
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
                     modelo = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, 1)  # Atualizar conforme necessário
+                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, len(classes_file))
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
                 if metodo_classificacao == "CNN Personalizada":
@@ -813,9 +813,9 @@ def treinar_modelo(SEED):
                     )
 
                     # Use num_workers=0 para facilitar a depuração
-                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=custom_collate)
-                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate)
-                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate)
+                    loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, num_workers=0)
+                    loader_val = DataLoader(dataset_val, batch_size=batch_size, shuffle=False, num_workers=0)
+                    loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False, num_workers=0)
                 else:
                     X_train_final = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
                     X_val_final = X_val.reshape((X_val.shape[0], X_val.shape[1], 1))
@@ -939,31 +939,26 @@ def treinar_modelo(SEED):
 
                 # Configurações de callbacks
                 if metodo_treinamento == "CNN Personalizada":
-                    try:
-                        checkpointer = ModelCheckpoint(
-                            os.path.join('modelos_salvos','modelo_agua_aumentado.keras'),
-                            monitor='val_loss',
-                            verbose=1,
-                            save_best_only=True
-                        )
-                        earlystop = EarlyStopping(
-                            monitor=es_monitor,
-                            patience=es_patience,
-                            restore_best_weights=True,
-                            mode=es_mode,
-                            verbose=1
-                        )
-                        lr_scheduler = ReduceLROnPlateau(
-                            monitor='val_loss', 
-                            factor=0.5, 
-                            patience=3, 
-                            verbose=1
-                        )
-                        callbacks = [checkpointer, earlystop, lr_scheduler]
-                    except Exception as e:
-                        st.error(f"Erro ao configurar callbacks: {e}")
-                        logging.error(f"Erro ao configurar callbacks: {e}")
-                        return
+                    checkpointer = ModelCheckpoint(
+                        os.path.join('modelos_salvos','modelo_agua_aumentado.keras'),
+                        monitor='val_loss',
+                        verbose=1,
+                        save_best_only=True
+                    )
+                    earlystop = EarlyStopping(
+                        monitor=es_monitor,
+                        patience=es_patience,
+                        restore_best_weights=True,
+                        mode=es_mode,
+                        verbose=1
+                    )
+                    lr_scheduler = ReduceLROnPlateau(
+                        monitor='val_loss', 
+                        factor=0.5, 
+                        patience=3, 
+                        verbose=1
+                    )
+                    callbacks = [checkpointer, earlystop, lr_scheduler]
                 elif metodo_treinamento == "ResNet-18":
                     # Pode-se adicionar callbacks para PyTorch, se desejado
                     callbacks = []
@@ -1262,88 +1257,74 @@ def treinar_modelo(SEED):
                 except Exception as e:
                     logging.error(f"Erro ao limpar arquivos temporários: {e}")
 
-def verificar_contagem_classes(y, k_folds=1):
-    """Verifica se todas as classes têm pelo menos k_folds amostras."""
-    classes, counts = np.unique(y, return_counts=True)
-    insufficient_classes = classes[counts < k_folds]
-    if len(insufficient_classes) > 0:
-        logging.warning(f"Classes com menos de {k_folds} amostras: {insufficient_classes}")
-        return False
-    return True
+    with st.expander("Contexto e Descrição Completa"):
+        st.markdown("""
+        **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados, CNN Personalizada e ResNet-18**
 
-def custom_collate(batch):
-    """Função de colagem personalizada para ignorar amostras inválidas."""
-    batch = list(filter(lambda x: x is not None, batch))
-    return torch.utils.data.dataloader.default_collate(batch)
+        Este aplicativo realiza duas tarefas principais:
 
-with st.expander("Contexto e Descrição Completa"):
-    st.markdown("""
-    **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados, CNN Personalizada e ResNet-18**
+        1. **Treinar Modelo:**  
+           - Você faz upload de um dataset .zip contendo pastas, cada pasta representando uma classe (estado físico do fluido-copo).
+           - Escolhe entre treinar uma CNN personalizada ou utilizar a ResNet-18 pré-treinada.
+           - O app extrai características do áudio (MFCCs, centróide espectral ou espectrogramas), normaliza, aplica (opcionalmente) Data Augmentation.
+           - Treina o modelo escolhido para classificar os sons.
+           - Mostra métricas (acurácia, F1, precisão, recall) e histórico de treinamento, bem como gráficos das curvas de perda e acurácia.
+           - Plota a Matriz de Confusão, permitindo visualizar onde o modelo se confunde.
+           - Utiliza SHAP para interpretar quais features são mais importantes (apenas para CNN personalizada).
+           - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
+           - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
+           - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
+           - Mostra exemplos de cada classe do dataset original e exemplos aumentados.
 
-    Este aplicativo realiza duas tarefas principais:
+        2. **Classificar Áudio com Modelo Treinado:**  
+           - Você faz upload de um modelo já treinado (.keras, .h5 para CNN personalizada ou .pth para ResNet-18) e do arquivo de classes (classes.txt).
+           - Escolhe o método de classificação utilizado no treinamento.
+           - Envia um arquivo de áudio para classificação.
+           - O app extrai as mesmas features ou gera espectrogramas e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
+           - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs ou espectrograma correspondente.
 
-    1. **Treinar Modelo:**  
-       - Você faz upload de um dataset .zip contendo pastas, cada pasta representando uma classe (estado físico do fluido-copo).
-       - Escolhe entre treinar uma CNN personalizada ou utilizar a ResNet-18 pré-treinada.
-       - O app extrai características do áudio (MFCCs, centróide espectral ou espectrogramas), normaliza, aplica (opcionalmente) Data Augmentation.
-       - Treina o modelo escolhido para classificar os sons.
-       - Mostra métricas (acurácia, F1, precisão, recall) e histórico de treinamento, bem como gráficos das curvas de perda e acurácia.
-       - Plota a Matriz de Confusão, permitindo visualizar onde o modelo se confunde.
-       - Utiliza SHAP para interpretar quais features são mais importantes (apenas para CNN personalizada).
-       - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
-       - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
-       - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
-       - Mostra exemplos de cada classe do dataset original e exemplos aumentados.
+        **Contexto Físico (Fluidos, Ondas, Calor):**
+        Ao perturbar um copo com água, surgem modos ressonantes. A quantidade de água e a temperatura influenciam as frequências ressonantes. As MFCCs e centróide refletem a distribuição espectral, e os espectrogramas capturam a variação tempo-frequência do som. A CNN personalizada ou a ResNet-18 aprendem padrões ligados ao estado do fluido-copo.
 
-    2. **Classificar Áudio com Modelo Treinado:**  
-       - Você faz upload de um modelo já treinado (.keras, .h5 para CNN personalizada ou .pth para ResNet-18) e do arquivo de classes (classes.txt).
-       - Escolhe o método de classificação utilizado no treinamento.
-       - Envia um arquivo de áudio para classificação.
-       - O app extrai as mesmas features ou gera espectrogramas e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
-       - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs ou espectrograma correspondente.
+        **Explicação para Leigos:**
+        Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide ou espectrogramas), a CNN ou ResNet aprende a relacioná-los à quantidade de água e outras condições. SHAP explica quais características importam, clustering mostra agrupamentos de sons. Visualizações tornam tudo compreensível.
 
-    **Contexto Físico (Fluidos, Ondas, Calor):**
-    Ao perturbar um copo com água, surgem modos ressonantes. A quantidade de água e a temperatura influenciam as frequências ressonantes. As MFCCs e centróide refletem a distribuição espectral, e os espectrogramas capturam a variação tempo-frequência do som. A CNN personalizada ou a ResNet-18 aprendem padrões ligados ao estado do fluido-copo.
+        Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, proporcionando uma ferramenta poderosa e intuitiva para classificação de sons de água em copos de vidro.
+        """)
 
-    **Explicação para Leigos:**
-    Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide ou espectrogramas), a CNN ou ResNet aprende a relacioná-los à quantidade de água e outras condições. SHAP explica quais características importam, clustering mostra agrupamentos de sons. Visualizações tornam tudo compreensível.
+    st.sidebar.header("Configurações Gerais")
+    with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
+        st.markdown("**SEED** garante resultados reproduzíveis.")
 
-    Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, proporcionando uma ferramenta poderosa e intuitiva para classificação de sons de água em copos de vidro.
-    """)
+    seed_selection = st.sidebar.selectbox(
+        "Escolha o valor do SEED:",
+        options=seed_options,
+        index=seed_options.index(default_seed),
+        help="Define a semente para reprodutibilidade.",
+        key='seed_selection'
+    )
+    SEED = seed_selection
+    set_seeds(SEED)
 
-st.sidebar.header("Configurações Gerais")
-with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
-    st.markdown("**SEED** garante resultados reproduzíveis.")
+    with st.sidebar.expander("Sobre o SEED"):
+        st.markdown("""
+        **SEED** garante replicabilidade de resultados, permitindo que os experimentos sejam reproduzidos com os mesmos dados e parâmetros.
+        """)
 
-seed_selection = st.sidebar.selectbox(
-    "Escolha o valor do SEED:",
-    options=seed_options,
-    index=seed_options.index(default_seed),
-    help="Define a semente para reprodutibilidade.",
-    key='seed_selection'
-)
-SEED = seed_selection
-set_seeds(SEED)
+    eu_icon_path = "eu.ico"
+    if os.path.exists(eu_icon_path):
+        try:
+            st.sidebar.image(eu_icon_path, width=80)
+        except UnidentifiedImageError:
+            st.sidebar.text("Ícone 'eu.ico' corrompido.")
+    else:
+        st.sidebar.text("Ícone 'eu.ico' não encontrado.")
 
-with st.sidebar.expander("Sobre o SEED"):
-    st.markdown("""
-    **SEED** garante replicabilidade de resultados, permitindo que os experimentos sejam reproduzidos com os mesmos dados e parâmetros.
-    """)
+    st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
 
-eu_icon_path = "eu.ico"
-if os.path.exists(eu_icon_path):
-    try:
-        st.sidebar.image(eu_icon_path, width=80)
-    except UnidentifiedImageError:
-        st.sidebar.text("Ícone 'eu.ico' corrompido.")
-else:
-    st.sidebar.text("Ícone 'eu.ico' não encontrado.")
+    app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"], key='app_mode')
 
-st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
-
-app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"], key='app_mode')
-
-if app_mode == "Classificar Áudio":
-    classificar_audio(SEED)
-elif app_mode == "Treinar Modelo":
-    treinar_modelo(SEED)
+    if app_mode == "Classificar Áudio":
+        classificar_audio(SEED)
+    elif app_mode == "Treinar Modelo":
+        treinar_modelo(SEED)
