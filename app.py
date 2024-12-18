@@ -5,24 +5,26 @@ import shutil
 import random
 import numpy as np
 import pandas as pd
-import librosa
-import librosa.display
 import matplotlib.pyplot as plt
 from PIL import Image
-import torch
-from torch import nn, optim
-from torch.utils.data import DataLoader, random_split
-from torchvision import transforms, models, datasets
-from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score
-from sklearn.preprocessing import label_binarize
 import streamlit as st
 import io
+
+try:
+    import torch
+    from torch import nn, optim
+    from torch.utils.data import DataLoader
+    from torchvision import transforms, models
+    from sklearn.metrics import confusion_matrix, classification_report
+except ImportError as e:
+    st.error(f"Erro ao importar bibliotecas: {e}. Por favor, certifique-se de que todos os pacotes necessários estejam instalados.")
+    raise
 
 # Definir o dispositivo (CPU ou GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def set_seed(seed):
-    """Define a seed para garantir a reprodutibilidade."""
+    """Define uma seed para garantir a reprodutibilidade."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -34,6 +36,9 @@ set_seed(42)
 # Função para converter áudio em imagens (espectrogramas)
 def audio_to_spectrogram(audio_path, output_dir, sr=22050, img_size=(224, 224)):
     try:
+        import librosa
+        import librosa.display
+
         y, sr = librosa.load(audio_path, sr=sr)
         spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
         spectrogram_db = librosa.power_to_db(spectrogram, ref=np.max)
@@ -49,6 +54,9 @@ def audio_to_spectrogram(audio_path, output_dir, sr=22050, img_size=(224, 224)):
         # Redimensionar a imagem
         image = Image.open(temp_image).resize(img_size)
         image.save(temp_image)
+    except ImportError as e:
+        st.error("O pacote 'librosa' não está instalado. Por favor, instale-o para processar áudios.")
+        raise
     except Exception as e:
         print(f"Erro ao processar {audio_path}: {e}")
 
