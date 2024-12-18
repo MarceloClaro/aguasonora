@@ -187,14 +187,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
 
     st.markdown("### Visualizações Espectrais e MFCCs de Exemplos do Dataset (1 de cada classe original e 1 de cada classe aumentada)")
 
-    if metodo == 'CNN':
-        transforms_aug = Compose([
-            AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
-            TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0),
-            PitchShift(min_semitones=-4, max_semitones=4, p=1.0),
-            Shift(min_shift=-0.5, max_shift=0.5, p=1.0),
-        ])
-    elif metodo == 'ResNet18':
+    if metodo == 'CNN' or metodo == 'ResNet18':
         transforms_aug = Compose([
             AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1.0),
             TimeStretch(min_rate=0.8, max_rate=1.25, p=1.0),
@@ -223,7 +216,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
         if data_original is not None and sr_original is not None:
             st.markdown(f"**Exemplo Original:** {os.path.basename(arquivo_original)}")
             visualizar_audio(data_original, sr_original)
-            if metodo == 'ResNet18':
+            if metodo == 'ResNet18' or metodo == 'ResNet-18':
                 # Gerar e exibir espectrograma
                 espectrograma = gerar_espectrograma(data_original, sr_original)
                 if espectrograma:
@@ -246,7 +239,7 @@ def visualizar_exemplos_classe(df, y, classes, augmentation=False, sr=22050, met
                     aug_data = aumentar_audio(data_aug, sr_aug, transforms_aug)
                     st.markdown(f"**Exemplo Aumentado a partir de:** {os.path.basename(arquivo_aug)}")
                     visualizar_audio(aug_data, sr_aug)
-                    if metodo == 'ResNet18':
+                    if metodo == 'ResNet18' or metodo == 'ResNet-18':
                         # Gerar e exibir espectrograma aumentado
                         espectrograma_aug = gerar_espectrograma(aug_data, sr_aug)
                         if espectrograma_aug:
@@ -308,7 +301,7 @@ def classificar_audio(SEED):
     with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
         st.markdown("### Instruções para Classificar Áudio")
         st.markdown("""
-        **Passo 1:** Upload do modelo treinado (.keras, .h5, ou .pt) e classes (classes.txt).  
+        **Passo 1:** Upload do modelo treinado (.keras, .h5, ou .pth) e classes (classes.txt).  
         **Passo 2:** Escolha o método de classificação (CNN personalizada ou ResNet-18).  
         **Passo 3:** Upload do áudio a ser classificado.  
         **Passo 4:** O app extrai features ou gera espectrogramas e prediz a classe.
@@ -320,7 +313,7 @@ def classificar_audio(SEED):
             help="Selecione entre a CNN personalizada ou a ResNet-18 pré-treinada para classificação."
         )
 
-        modelo_file = st.file_uploader("Upload do Modelo (.keras, .h5, .pt)", type=["keras","h5","pt"])
+        modelo_file = st.file_uploader("Upload do Modelo (.keras, .h5, .pt)", type=["keras","h5","pth"])
         classes_file = st.file_uploader("Upload do Arquivo de Classes (classes.txt)", type=["txt"])
 
         if modelo_file is not None and classes_file is not None:
@@ -362,16 +355,21 @@ def classificar_audio(SEED):
             # Verificar se o número de classes corresponde ao número de saídas do modelo
             num_classes_file = len(classes)
             if metodo_classificacao == "CNN Personalizada":
-                num_classes_model = modelo.output_shape[-1]
-                st.write(f"Número de classes no arquivo: {num_classes_file}")
-                st.write(f"Número de saídas no modelo: {num_classes_model}")
-                if num_classes_file != num_classes_model:
-                    st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
-                    logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                try:
+                    num_classes_model = modelo.output_shape[-1]
+                    st.write(f"Número de classes no arquivo: {num_classes_file}")
+                    st.write(f"Número de saídas no modelo: {num_classes_model}")
+                    if num_classes_file != num_classes_model:
+                        st.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                        logging.error(f"Número de classes ({num_classes_file}) não corresponde ao número de saídas do modelo ({num_classes_model}).")
+                        return
+                except AttributeError as e:
+                    st.error(f"Erro ao verificar a saída do modelo: {e}")
+                    logging.error(f"Erro ao verificar a saída do modelo: {e}")
                     return
             elif metodo_classificacao == "ResNet-18":
-                # Ajustar a última camada para o número de classes
                 try:
+                    # Ajustar a última camada para o número de classes
                     modelo.fc = torch.nn.Linear(modelo.fc.in_features, num_classes_file)
                     modelo = modelo.to('cuda' if torch.cuda.is_available() else 'cpu')
                     logging.info("Última camada da ResNet-18 ajustada para o número de classes.")
@@ -461,7 +459,11 @@ def classificar_audio(SEED):
                                 visualizar_audio(data, sr)
 
                                 # Exibir espectrograma
-                                st.image(espectrograma.cpu().squeeze().permute(1,2,0).numpy(), caption="Espectrograma Classificado", use_column_width=True)
+                                # Converter tensor para imagem para exibição
+                                espectrograma_img = espectrograma.cpu().squeeze().permute(1,2,0).numpy()
+                                # Desnormalizar para visualização
+                                espectrograma_img = np.clip(espectrograma_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406]), 0, 1)
+                                st.image(espectrograma_img, caption="Espectrograma Classificado", use_column_width=True)
                         else:
                             st.error("Não foi possível gerar o espectrograma do áudio.")
                             logging.warning("Não foi possível gerar o espectrograma do áudio.")
@@ -544,33 +546,40 @@ def treinar_modelo(SEED):
 
                 st.write(f"Classes codificadas: {', '.join(classes)}")
 
-                st.write("Extraindo Features (MFCCs, Centróide)...")
-                X = []
-                y_valid = []
-                for i, row in df.iterrows():
-                    arquivo = row['caminho_arquivo']
-                    data, sr = carregar_audio(arquivo, sr=None)
-                    if data is not None:
-                        if metodo_treinamento == "CNN Personalizada":
-                            ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
-                        elif metodo_treinamento == "ResNet-18":
-                            ftrs = gerar_espectrograma(data, sr)
-                        else:
-                            ftrs = None
-                        if ftrs is not None:
-                            X.append(ftrs)
-                            y_valid.append(y[i])
-
                 if metodo_treinamento == "CNN Personalizada":
+                    st.write("Extraindo Features (MFCCs, Centróide)...")
+                    X = []
+                    y_valid = []
+                    for i, row in df.iterrows():
+                        arquivo = row['caminho_arquivo']
+                        data, sr = carregar_audio(arquivo, sr=None)
+                        if data is not None:
+                            ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+                            if ftrs is not None:
+                                X.append(ftrs)
+                                y_valid.append(y[i])
+
                     X = np.array(X)
                     y_valid = np.array(y_valid)
                 elif metodo_treinamento == "ResNet-18":
-                    # Salvar espectrogramas temporariamente
-                    temp_dir = tempfile.mkdtemp()
-                    for idx, img in enumerate(X):
-                        img_path = os.path.join(temp_dir, f"class_{y_valid[idx]}_img_{idx}.png")
-                        img.save(img_path)
-                        X[idx] = img_path  # Substituir caminho do arquivo
+                    st.write("Gerando Espectrogramas...")
+                    X = []
+                    y_valid = []
+                    for i, row in df.iterrows():
+                        if st.session_state.stop_training:
+                            break
+                        arquivo = row['caminho_arquivo']
+                        data, sr = carregar_audio(arquivo, sr=None)
+                        if data is not None:
+                            espectrograma = gerar_espectrograma(data, sr)
+                            if espectrograma is not None:
+                                # Salvar espectrograma temporariamente
+                                temp_dir = tempfile.mkdtemp()
+                                img_path = os.path.join(temp_dir, f"class_{y[i]}_img_{i}.png")
+                                espectrograma.save(img_path)
+                                X.append(img_path)
+                                y_valid.append(y[i])
+
                 st.write(f"Dados Processados: {len(X)} amostras.")
 
                 st.sidebar.markdown("**Configurações de Treinamento:**")
@@ -744,10 +753,6 @@ def treinar_modelo(SEED):
 
                 balance_classes = st.sidebar.selectbox("Balanceamento:",["Balanced","None"],0)
 
-                if metodo_treinamento == "CNN Personalizada":
-                    # Opções de Augmentation já aplicadas anteriormente
-                    pass
-
                 # Balanceamento de classes
                 if balance_classes == "Balanced":
                     if metodo_treinamento == "CNN Personalizada":
@@ -759,6 +764,10 @@ def treinar_modelo(SEED):
                 else:
                     class_weight_dict = None
                     class_weight = None
+
+                if metodo_treinamento == "CNN Personalizada":
+                    # Opções de Augmentation já aplicadas anteriormente
+                    pass
 
                 if metodo_treinamento == "CNN Personalizada":
                     # Definir a arquitetura da CNN personalizada
@@ -870,7 +879,7 @@ def treinar_modelo(SEED):
 
                     # Definir critério de perda
                     criterion = torch.nn.CrossEntropyLoss(weight=class_weight if balance_classes == "Balanced" else None)
-                
+
                 # Callbacks e outros
                 diretorio_salvamento = 'modelos_salvos'
                 if not os.path.exists(diretorio_salvamento):
@@ -910,298 +919,330 @@ def treinar_modelo(SEED):
                 st.write("Treinando...")
                 with st.spinner('Treinando...'):
                     if metodo_treinamento == "CNN Personalizada":
-                        if cross_validation and k_folds > 1:
-                            kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
-                            fold_no = 1
-                            val_scores = []
-                            for train_index, val_index in kf.split(X_train_final):
-                                if st.session_state.stop_training:
-                                    st.warning("Treinamento Parado pelo Usuário!")
-                                    break
-                                st.write(f"Fold {fold_no}")
-                                X_train_cv, X_val_cv = X_train_final[train_index], X_train_final[val_index]
-                                y_train_cv, y_val_cv = y_train[train_index], y_train[val_index]
+                        try:
+                            if cross_validation and k_folds > 1:
+                                kf = KFold(n_splits=k_folds, shuffle=True, random_state=SEED)
+                                fold_no = 1
+                                val_scores = []
+                                for train_index, val_index in kf.split(X_train_final):
+                                    if st.session_state.stop_training:
+                                        st.warning("Treinamento Parado pelo Usuário!")
+                                        break
+                                    st.write(f"Fold {fold_no}")
+                                    X_train_cv, X_val_cv = X_train_final[train_index], X_train_final[val_index]
+                                    y_train_cv, y_val_cv = y_train[train_index], y_train[val_index]
+                                    historico = modelo_cnn.fit(
+                                        X_train_cv, to_categorical(y_train_cv),
+                                        epochs=num_epochs,
+                                        batch_size=batch_size,
+                                        validation_data=(X_val_cv, to_categorical(y_val_cv)),
+                                        callbacks=callbacks,
+                                        class_weight=class_weight_dict,
+                                        verbose=1
+                                    )
+                                    score = modelo_cnn.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
+                                    val_scores.append(score[1]*100)
+                                    fold_no += 1
+                                if not st.session_state.stop_training:
+                                    st.write(f"Acurácia Média CV: {np.mean(val_scores):.2f}%")
+                            else:
                                 historico = modelo_cnn.fit(
-                                    X_train_cv, to_categorical(y_train_cv),
+                                    X_train_final, to_categorical(y_train),
                                     epochs=num_epochs,
                                     batch_size=batch_size,
-                                    validation_data=(X_val_cv, to_categorical(y_val_cv)),
+                                    validation_data=(X_val_final, to_categorical(y_val)),
                                     callbacks=callbacks,
                                     class_weight=class_weight_dict,
                                     verbose=1
                                 )
-                                score = modelo_cnn.evaluate(X_val_cv, to_categorical(y_val_cv), verbose=0)
-                                val_scores.append(score[1]*100)
-                                fold_no += 1
-                            if not st.session_state.stop_training:
-                                st.write(f"Acurácia Média CV: {np.mean(val_scores):.2f}%")
-                        else:
-                            historico = modelo_cnn.fit(
-                                X_train_final, to_categorical(y_train),
-                                epochs=num_epochs,
-                                batch_size=batch_size,
-                                validation_data=(X_val_final, to_categorical(y_val)),
-                                callbacks=callbacks,
-                                class_weight=class_weight_dict,
-                                verbose=1
-                            )
-                            if st.session_state.stop_training:
-                                st.warning("Treinamento Parado pelo Usuário!")
-                            else:
-                                st.success("Treino concluído!")
-
-                        # Salvando o modelo
-                        with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
-                            modelo_cnn.save(tmp_model.name)
-                            caminho_tmp_model = tmp_model.name
-                        with open(caminho_tmp_model, 'rb') as f:
-                            modelo_bytes = f.read()
-                        buffer = io.BytesIO(modelo_bytes)
-                        st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
-                        os.remove(caminho_tmp_model)
-
-                        # Salvando as classes
-                        classes_str = "\n".join(classes)
-                        st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
-
-                        if not st.session_state.stop_training:
-                            st.markdown("### Avaliação do Modelo")
-                            score_train = modelo_cnn.evaluate(X_train_final, to_categorical(y_train), verbose=0)
-                            score_val = modelo_cnn.evaluate(X_val_final, to_categorical(y_val), verbose=0)
-                            score_test = modelo_cnn.evaluate(X_test_final, to_categorical(y_test), verbose=0)
-
-                            st.write(f"Acurácia Treino: {score_train[1]*100:.2f}%")
-                            st.write(f"Acurácia Validação: {score_val[1]*100:.2f}%")
-                            st.write(f"Acurácia Teste: {score_test[1]*100:.2f}%")
-
-                            y_pred = modelo_cnn.predict(X_test_final)
-                            y_pred_classes = np.argmax(y_pred, axis=1)
-                            f1_val = f1_score(y_test, y_pred_classes, average='weighted', zero_division=0)
-                            prec = precision_score(y_test, y_pred_classes, average='weighted', zero_division=0)
-                            rec = recall_score(y_test, y_pred_classes, average='weighted', zero_division=0)
-
-                            st.write(f"F1-score: {f1_val*100:.2f}%")
-                            st.write(f"Precisão: {prec*100:.2f}%")
-                            st.write(f"Recall: {rec*100:.2f}%")
-
-                            st.markdown("### Matriz de Confusão")
-                            cm = confusion_matrix(y_test, y_pred_classes, labels=range(len(classes)))
-                            cm_df = pd.DataFrame(cm, index=classes, columns=classes)
-                            fig_cm, ax_cm = plt.subplots(figsize=(12,8))
-                            sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-                            ax_cm.set_title("Matriz de Confusão", fontsize=16)
-                            ax_cm.set_xlabel("Classe Prevista", fontsize=14)
-                            ax_cm.set_ylabel("Classe Real", fontsize=14)
-                            st.pyplot(fig_cm)
-                            plt.close(fig_cm)
-
-                            st.markdown("### Histórico de Treinamento")
-                            hist_df = pd.DataFrame(historico.history)
-                            st.dataframe(hist_df)
-
-                            # Plot das curvas de treinamento
-                            fig_hist, (ax_loss, ax_acc) = plt.subplots(1,2, figsize=(12,4))
-                            ax_loss.plot(hist_df.index, hist_df['loss'], label='Treino')
-                            ax_loss.plot(hist_df.index, hist_df['val_loss'], label='Validação')
-                            ax_loss.set_title("Curva de Perda")
-                            ax_loss.set_xlabel("Épocas")
-                            ax_loss.set_ylabel("Loss")
-                            ax_loss.legend()
-
-                            ax_acc.plot(hist_df.index, hist_df['accuracy'], label='Treino')
-                            ax_acc.plot(hist_df.index, hist_df['val_accuracy'], label='Validação')
-                            ax_acc.set_title("Curva de Acurácia")
-                            ax_acc.set_xlabel("Épocas")
-                            ax_acc.set_ylabel("Acurácia")
-                            ax_acc.legend()
-
-                            st.pyplot(fig_hist)
-                            plt.close(fig_hist)
-
-                            st.markdown("### Explicabilidade com SHAP")
-                            st.write("Selecionando amostras de teste para análise SHAP.")
-                            X_sample = X_test_final[:50]
-                            try:
-                                explainer = shap.DeepExplainer(modelo_cnn, X_train_final[:100])
-                                shap_values = explainer.shap_values(X_sample)
-
-                                st.write("Plot SHAP Summary por Classe:")
-
-                                num_shap_values = len(shap_values)
-                                num_classes = len(classes)
-                                st.write(f"Número de shap_values: {num_shap_values}, classes: {num_classes}")
-
-                                if num_shap_values == num_classes:
-                                    for class_idx, class_name in enumerate(classes):
-                                        st.write(f"**Classe: {class_name}**")
-                                        fig_shap = plt.figure()
-                                        shap.summary_plot(shap_values[class_idx], X_sample, show=False)
-                                        st.pyplot(fig_shap)
-                                        plt.close(fig_shap)
-                                elif num_shap_values == 1 and num_classes == 2:
-                                    # Classificação binária, shap_values[0] corresponde à classe positiva
-                                    st.write(f"**Classe: {classes[1]}**")
-                                    fig_shap = plt.figure()
-                                    shap.summary_plot(shap_values[0], X_sample, show=False)
-                                    st.pyplot(fig_shap)
-                                    plt.close(fig_shap)
-                                else:
-                                    st.warning("Número de shap_values não corresponde ao número de classes.")
-                                    st.write(f"shap_values length: {num_shap_values}, classes length: {num_classes}")
-                                st.write("""
-                                **Interpretação SHAP:**  
-                                MFCCs com valor SHAP alto contribuem significativamente para a classe.  
-                                Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
-                                """)
-                            except Exception as e:
-                                st.write("SHAP não pôde ser gerado:", e)
-                                logging.error(f"Erro ao gerar SHAP: {e}")
-
-                            st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
-                            st.write("""
-                            Clustering revela como dados se agrupam.  
-                            Determinaremos k automaticamente usando o coeficiente de silhueta.
-                            """)
-
-                            melhor_k = escolher_k_kmeans(X_original, max_k=10)
-                            sil_score = silhouette_score(X_original, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_original))
-                            st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
-
-                            kmeans = KMeans(n_clusters=melhor_k, random_state=42)
-                            kmeans_labels = kmeans.fit_predict(X_original)
-                            st.write("Classes por Cluster (K-Means):")
-                            cluster_dist = []
-                            for cidx in range(melhor_k):
-                                cluster_classes = y_original[kmeans_labels == cidx]
-                                counts = pd.Series(cluster_classes).value_counts()
-                                cluster_dist.append(counts)
-                            for idx, dist in enumerate(cluster_dist):
-                                st.write(f"**Cluster {idx+1}:**")
-                                st.write(dist)
-
-                            st.write("Análise Hierárquica:")
-                            Z = linkage(X_original, 'ward')
-                            fig_dend, ax_dend = plt.subplots(figsize=(10,5))
-                            dendrogram(Z, ax=ax_dend, truncate_mode='level', p=5)
-                            ax_dend.set_title("Dendrograma Hierárquico")
-                            ax_dend.set_xlabel("Amostras")
-                            ax_dend.set_ylabel("Distância")
-                            st.pyplot(fig_dend)
-                            plt.close(fig_dend)
-
-                            hier = AgglomerativeClustering(n_clusters=2)
-                            hier_labels = hier.fit_predict(X_original)
-                            st.write("Classes por Cluster (Hierárquico):")
-                            cluster_dist_h = []
-                            for cidx in range(2):
-                                cluster_classes = y_original[hier_labels == cidx]
-                                counts_h = pd.Series(cluster_classes).value_counts()
-                                cluster_dist_h.append(counts_h)
-                            for idx, dist in enumerate(cluster_dist_h):
-                                st.write(f"**Cluster {idx+1}:**")
-                                st.write(dist)
-
-                            visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050, metodo=metodo_treinamento)
-
-                        elif metodo_treinamento == "ResNet-18":
-                            # Treinar modelo ResNet-18
-                            try:
-                                from torch.optim import lr_scheduler
-                            except ImportError:
-                                st.error("PyTorch não está instalado. Por favor, instale PyTorch para usar a ResNet-18.")
-                                return
-
-                            # Definir scheduler
-                            scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=1)
-
-                            best_acc = 0.0
-
-                            for epoch in range(num_epochs):
                                 if st.session_state.stop_training:
                                     st.warning("Treinamento Parado pelo Usuário!")
-                                    break
-                                st.write(f"Epoch {epoch+1}/{num_epochs}")
-                                st.write('-' * 10)
+                                else:
+                                    st.success("Treino concluído!")
+                        except Exception as e:
+                            st.error(f"Erro durante o treinamento da CNN: {e}")
+                            logging.error(f"Erro durante o treinamento da CNN: {e}")
 
-                                # Treinamento
-                                modelo_resnet.train()
-                                running_loss = 0.0
-                                running_corrects = 0
+                        # Salvando o modelo
+                        try:
+                            with tempfile.NamedTemporaryFile(suffix='.keras', delete=False) as tmp_model:
+                                modelo_cnn.save(tmp_model.name)
+                                caminho_tmp_model = tmp_model.name
+                            with open(caminho_tmp_model, 'rb') as f:
+                                modelo_bytes = f.read()
+                            buffer = io.BytesIO(modelo_bytes)
+                            st.download_button("Download Modelo (.keras)", data=buffer, file_name="modelo_agua_aumentado.keras")
+                            os.remove(caminho_tmp_model)
+                        except Exception as e:
+                            st.error(f"Erro ao salvar o modelo: {e}")
+                            logging.error(f"Erro ao salvar o modelo: {e}")
 
-                                for inputs, labels in loader_train:
+                        # Salvando as classes
+                        try:
+                            classes_str = "\n".join(classes)
+                            st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
+                        except Exception as e:
+                            st.error(f"Erro ao salvar o arquivo de classes: {e}")
+                            logging.error(f"Erro ao salvar o arquivo de classes: {e}")
+
+                        if not st.session_state.stop_training:
+                            try:
+                                st.markdown("### Avaliação do Modelo")
+                                score_train = modelo_cnn.evaluate(X_train_final, to_categorical(y_train), verbose=0)
+                                score_val = modelo_cnn.evaluate(X_val_final, to_categorical(y_val), verbose=0)
+                                score_test = modelo_cnn.evaluate(X_test_final, to_categorical(y_test), verbose=0)
+
+                                st.write(f"Acurácia Treino: {score_train[1]*100:.2f}%")
+                                st.write(f"Acurácia Validação: {score_val[1]*100:.2f}%")
+                                st.write(f"Acurácia Teste: {score_test[1]*100:.2f}%")
+
+                                y_pred = modelo_cnn.predict(X_test_final)
+                                y_pred_classes = np.argmax(y_pred, axis=1)
+                                f1_val = f1_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+                                prec = precision_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+                                rec = recall_score(y_test, y_pred_classes, average='weighted', zero_division=0)
+
+                                st.write(f"F1-score: {f1_val*100:.2f}%")
+                                st.write(f"Precisão: {prec*100:.2f}%")
+                                st.write(f"Recall: {rec*100:.2f}%")
+
+                                st.markdown("### Matriz de Confusão")
+                                cm = confusion_matrix(y_test, y_pred_classes, labels=range(len(classes)))
+                                cm_df = pd.DataFrame(cm, index=classes, columns=classes)
+                                fig_cm, ax_cm = plt.subplots(figsize=(12,8))
+                                sns.heatmap(cm_df, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
+                                ax_cm.set_title("Matriz de Confusão", fontsize=16)
+                                ax_cm.set_xlabel("Classe Prevista", fontsize=14)
+                                ax_cm.set_ylabel("Classe Real", fontsize=14)
+                                st.pyplot(fig_cm)
+                                plt.close(fig_cm)
+
+                                st.markdown("### Histórico de Treinamento")
+                                hist_df = pd.DataFrame(historico.history)
+                                st.dataframe(hist_df)
+
+                                # Plot das curvas de treinamento
+                                fig_hist, (ax_loss, ax_acc) = plt.subplots(1,2, figsize=(12,4))
+                                ax_loss.plot(hist_df.index, hist_df['loss'], label='Treino')
+                                ax_loss.plot(hist_df.index, hist_df['val_loss'], label='Validação')
+                                ax_loss.set_title("Curva de Perda")
+                                ax_loss.set_xlabel("Épocas")
+                                ax_loss.set_ylabel("Loss")
+                                ax_loss.legend()
+
+                                ax_acc.plot(hist_df.index, hist_df['accuracy'], label='Treino')
+                                ax_acc.plot(hist_df.index, hist_df['val_accuracy'], label='Validação')
+                                ax_acc.set_title("Curva de Acurácia")
+                                ax_acc.set_xlabel("Épocas")
+                                ax_acc.set_ylabel("Acurácia")
+                                ax_acc.legend()
+
+                                st.pyplot(fig_hist)
+                                plt.close(fig_hist)
+
+                                st.markdown("### Explicabilidade com SHAP")
+                                st.write("Selecionando amostras de teste para análise SHAP.")
+                                X_sample = X_test_final[:50]
+                                try:
+                                    explainer = shap.DeepExplainer(modelo_cnn, X_train_final[:100])
+                                    shap_values = explainer.shap_values(X_sample)
+
+                                    st.write("Plot SHAP Summary por Classe:")
+
+                                    num_shap_values = len(shap_values)
+                                    num_classes = len(classes)
+                                    st.write(f"Número de shap_values: {num_shap_values}, classes: {num_classes}")
+
+                                    if num_shap_values == num_classes:
+                                        for class_idx, class_name in enumerate(classes):
+                                            st.write(f"**Classe: {class_name}**")
+                                            fig_shap = plt.figure()
+                                            shap.summary_plot(shap_values[class_idx], X_sample, show=False)
+                                            st.pyplot(fig_shap)
+                                            plt.close(fig_shap)
+                                    elif num_shap_values == 1 and num_classes == 2:
+                                        # Classificação binária, shap_values[0] corresponde à classe positiva
+                                        st.write(f"**Classe: {classes[1]}**")
+                                        fig_shap = plt.figure()
+                                        shap.summary_plot(shap_values[0], X_sample, show=False)
+                                        st.pyplot(fig_shap)
+                                        plt.close(fig_shap)
+                                    else:
+                                        st.warning("Número de shap_values não corresponde ao número de classes.")
+                                        st.write(f"shap_values length: {num_shap_values}, classes length: {num_classes}")
+                                    st.write("""
+                                    **Interpretação SHAP:**  
+                                    MFCCs com valor SHAP alto contribuem significativamente para a classe.  
+                                    Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
+                                    """)
+                                except Exception as e:
+                                    st.write("SHAP não pôde ser gerado:", e)
+                                    logging.error(f"Erro ao gerar SHAP: {e}")
+
+                                st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
+                                st.write("""
+                                Clustering revela como dados se agrupam.  
+                                Determinaremos k automaticamente usando o coeficiente de silhueta.
+                                """)
+
+                                melhor_k = escolher_k_kmeans(X_combined, max_k=10)
+                                sil_score = silhouette_score(X_combined, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_combined))
+                                st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
+
+                                kmeans = KMeans(n_clusters=melhor_k, random_state=42)
+                                kmeans_labels = kmeans.fit_predict(X_combined)
+                                st.write("Classes por Cluster (K-Means):")
+                                cluster_dist = []
+                                for cidx in range(melhor_k):
+                                    cluster_classes = y_combined[kmeans_labels == cidx]
+                                    counts = pd.Series(cluster_classes).value_counts()
+                                    cluster_dist.append(counts)
+                                for idx, dist in enumerate(cluster_dist):
+                                    st.write(f"**Cluster {idx+1}:**")
+                                    st.write(dist)
+
+                                st.write("Análise Hierárquica:")
+                                Z = linkage(X_combined, 'ward')
+                                fig_dend, ax_dend = plt.subplots(figsize=(10,5))
+                                dendrogram(Z, ax=ax_dend, truncate_mode='level', p=5)
+                                ax_dend.set_title("Dendrograma Hierárquico")
+                                ax_dend.set_xlabel("Amostras")
+                                ax_dend.set_ylabel("Distância")
+                                st.pyplot(fig_dend)
+                                plt.close(fig_dend)
+
+                                hier = AgglomerativeClustering(n_clusters=2)
+                                hier_labels = hier.fit_predict(X_combined)
+                                st.write("Classes por Cluster (Hierárquico):")
+                                cluster_dist_h = []
+                                for cidx in range(2):
+                                    cluster_classes = y_combined[hier_labels == cidx]
+                                    counts_h = pd.Series(cluster_classes).value_counts()
+                                    cluster_dist_h.append(counts_h)
+                                for idx, dist in enumerate(cluster_dist_h):
+                                    st.write(f"**Cluster {idx+1}:**")
+                                    st.write(dist)
+
+                                st.markdown("### Visualização de Exemplos")
+                                visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050, metodo=metodo_treinamento)
+
+                            except Exception as e:
+                                st.error(f"Erro durante a avaliação do modelo CNN: {e}")
+                                logging.error(f"Erro durante a avaliação do modelo CNN: {e}")
+
+                    elif metodo_treinamento == "ResNet-18":
+                        # Treinar modelo ResNet-18
+                        try:
+                            from torch.optim import lr_scheduler
+                        except ImportError:
+                            st.error("PyTorch não está instalado. Por favor, instale PyTorch para usar a ResNet-18.")
+                            return
+
+                        # Definir scheduler
+                        scheduler_resnet = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=1)
+
+                        best_acc = 0.0
+
+                        for epoch in range(num_epochs):
+                            if st.session_state.stop_training:
+                                st.warning("Treinamento Parado pelo Usuário!")
+                                break
+                            st.write(f"Epoch {epoch+1}/{num_epochs}")
+                            st.write('-' * 10)
+
+                            # Treinamento
+                            modelo_resnet.train()
+                            running_loss = 0.0
+                            running_corrects = 0
+
+                            for inputs, labels in loader_train:
+                                if inputs is None:
+                                    continue
+                                inputs = inputs.to('cuda' if torch.cuda.is_available() else 'cpu')
+                                labels = labels.to('cuda' if torch.cuda.is_available() else 'cpu')
+
+                                optimizer.zero_grad()
+
+                                outputs = modelo_resnet(inputs)
+                                _, preds = torch.max(outputs, 1)
+                                loss = criterion(outputs, labels)
+
+                                loss.backward()
+                                optimizer.step()
+
+                                running_loss += loss.item() * inputs.size(0)
+                                running_corrects += torch.sum(preds == labels.data)
+
+                            epoch_loss = running_loss / len(loader_train.dataset)
+                            epoch_acc = running_corrects.double() / len(loader_train.dataset)
+
+                            st.write(f'Train Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+
+                            # Validação
+                            modelo_resnet.eval()
+                            val_loss = 0.0
+                            val_corrects = 0
+
+                            with torch.no_grad():
+                                for inputs, labels in loader_val:
                                     if inputs is None:
                                         continue
                                     inputs = inputs.to('cuda' if torch.cuda.is_available() else 'cpu')
                                     labels = labels.to('cuda' if torch.cuda.is_available() else 'cpu')
 
-                                    optimizer.zero_grad()
-
                                     outputs = modelo_resnet(inputs)
                                     _, preds = torch.max(outputs, 1)
                                     loss = criterion(outputs, labels)
 
-                                    loss.backward()
-                                    optimizer.step()
+                                    val_loss += loss.item() * inputs.size(0)
+                                    val_corrects += torch.sum(preds == labels.data)
 
-                                    running_loss += loss.item() * inputs.size(0)
-                                    running_corrects += torch.sum(preds == labels.data)
+                            epoch_val_loss = val_loss / len(loader_val.dataset)
+                            epoch_val_acc = val_corrects.double() / len(loader_val.dataset)
 
-                                epoch_loss = running_loss / len(loader_train.dataset)
-                                epoch_acc = running_corrects.double() / len(loader_train.dataset)
+                            st.write(f'Val Loss: {epoch_val_loss:.4f} Acc: {epoch_val_acc:.4f}')
 
-                                st.write(f'Train Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+                            # Scheduler step
+                            scheduler_resnet.step(epoch_val_loss)
 
-                                # Validação
-                                modelo_resnet.eval()
-                                val_loss = 0.0
-                                val_corrects = 0
+                            # Checkpoint
+                            if epoch_val_acc > best_acc:
+                                best_acc = epoch_val_acc
+                                torch.save(modelo_resnet.state_dict(), os.path.join(diretorio_salvamento, 'best_resnet18.pth'))
+                                st.write(f"Melhor acurácia atualizada: {best_acc:.4f}")
 
-                                with torch.no_grad():
-                                    for inputs, labels in loader_val:
-                                        if inputs is None:
-                                            continue
-                                        inputs = inputs.to('cuda' if torch.cuda.is_available() else 'cpu')
-                                        labels = labels.to('cuda' if torch.cuda.is_available() else 'cpu')
+                        if not st.session_state.stop_training:
+                            st.success("Treino concluído!")
 
-                                        outputs = modelo_resnet(inputs)
-                                        _, preds = torch.max(outputs, 1)
-                                        loss = criterion(outputs, labels)
-
-                                        val_loss += loss.item() * inputs.size(0)
-                                        val_corrects += torch.sum(preds == labels.data)
-
-                                epoch_val_loss = val_loss / len(loader_val.dataset)
-                                epoch_val_acc = val_corrects.double() / len(loader_val.dataset)
-
-                                st.write(f'Val Loss: {epoch_val_loss:.4f} Acc: {epoch_val_acc:.4f}')
-
-                                # Scheduler step
-                                scheduler.step(epoch_val_loss)
-
-                                # Checkpoint
-                                if epoch_val_acc > best_acc:
-                                    best_acc = epoch_val_acc
-                                    torch.save(modelo_resnet.state_dict(), os.path.join(diretorio_salvamento, 'best_resnet18.pth'))
-                                    st.write(f"Melhor acurácia atualizada: {best_acc:.4f}")
-
-                            if not st.session_state.stop_training:
-                                st.success("Treino concluído!")
-
-                                # Carregar o melhor modelo
+                            # Carregar o melhor modelo
+                            try:
                                 modelo_resnet.load_state_dict(torch.load(os.path.join(diretorio_salvamento, 'best_resnet18.pth')))
                                 modelo_resnet.eval()
+                            except Exception as e:
+                                st.error(f"Erro ao carregar o melhor modelo: {e}")
+                                logging.error(f"Erro ao carregar o melhor modelo: {e}")
+                                return
 
-                                # Salvando o modelo
+                            # Salvando o modelo
+                            try:
                                 buffer = io.BytesIO()
                                 torch.save(modelo_resnet.state_dict(), buffer)
                                 buffer.seek(0)
                                 st.download_button("Download Modelo ResNet-18 (.pth)", data=buffer, file_name="best_resnet18.pth")
+                            except Exception as e:
+                                st.error(f"Erro ao salvar o modelo ResNet-18: {e}")
+                                logging.error(f"Erro ao salvar o modelo ResNet-18: {e}")
 
-                                # Salvando as classes
+                            # Salvando as classes
+                            try:
                                 classes_str = "\n".join(classes)
                                 st.download_button("Download Classes (classes.txt)", data=classes_str, file_name="classes.txt")
+                            except Exception as e:
+                                st.error(f"Erro ao salvar o arquivo de classes: {e}")
+                                logging.error(f"Erro ao salvar o arquivo de classes: {e}")
 
-                                # Avaliação no conjunto de teste
+                            # Avaliação no conjunto de teste
+                            try:
                                 st.markdown("### Avaliação do Modelo")
                                 running_loss = 0.0
                                 running_corrects = 0
@@ -1272,16 +1313,16 @@ def treinar_modelo(SEED):
                                 Determinaremos k automaticamente usando o coeficiente de silhueta.
                                 """)
 
-                                melhor_k = escolher_k_kmeans(X_original, max_k=10)
-                                sil_score = silhouette_score(X_original, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_original))
+                                melhor_k = escolher_k_kmeans(X_combined, max_k=10)
+                                sil_score = silhouette_score(X_combined, KMeans(n_clusters=melhor_k, random_state=42).fit_predict(X_combined))
                                 st.write(f"Melhor k encontrado para K-Means: {melhor_k} (Silhueta={sil_score:.2f})")
 
                                 kmeans = KMeans(n_clusters=melhor_k, random_state=42)
-                                kmeans_labels = kmeans.fit_predict(X_original)
+                                kmeans_labels = kmeans.fit_predict(X_combined)
                                 st.write("Classes por Cluster (K-Means):")
                                 cluster_dist = []
                                 for cidx in range(melhor_k):
-                                    cluster_classes = y_original[kmeans_labels == cidx]
+                                    cluster_classes = y_combined[kmeans_labels == cidx]
                                     counts = pd.Series(cluster_classes).value_counts()
                                     cluster_dist.append(counts)
                                 for idx, dist in enumerate(cluster_dist):
@@ -1289,7 +1330,7 @@ def treinar_modelo(SEED):
                                     st.write(dist)
 
                                 st.write("Análise Hierárquica:")
-                                Z = linkage(X_original, 'ward')
+                                Z = linkage(X_combined, 'ward')
                                 fig_dend, ax_dend = plt.subplots(figsize=(10,5))
                                 dendrogram(Z, ax=ax_dend, truncate_mode='level', p=5)
                                 ax_dend.set_title("Dendrograma Hierárquico")
@@ -1301,81 +1342,25 @@ def treinar_modelo(SEED):
                                 st.markdown("### Visualização de Exemplos")
                                 visualizar_exemplos_classe(df, y_valid, classes, augmentation=enable_augmentation, sr=22050, metodo=metodo_treinamento)
 
-                    except Exception as e:
-                        st.error(f"Erro durante o treinamento: {e}")
-                        logging.error(f"Erro durante o treinamento: {e}")
+                            except Exception as e:
+                                st.error(f"Erro durante a avaliação do modelo ResNet-18: {e}")
+                                logging.error(f"Erro durante a avaliação do modelo ResNet-18: {e}")
 
-            except Exception as e:
-                st.error(f"Erro: {e}")
-                logging.error(f"Erro: {e}")
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+                    logging.error(f"Erro: {e}")
 
-with st.expander("Contexto e Descrição Completa"):
-    st.markdown("""
-    **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados, CNN Personalizada e ResNet-18**
+                # Limpeza de memória e arquivos temporários
+                try:
+                    gc.collect()
+                    os.remove(caminho_zip)
+                    for cat in categorias:
+                        caminho_cat = os.path.join(caminho_base, cat)
+                        for arquivo in os.listdir(caminho_cat):
+                            os.remove(os.path.join(caminho_cat, arquivo))
+                        os.rmdir(caminho_cat)
+                    os.rmdir(caminho_base)
+                    logging.info("Processo concluído.")
+                except Exception as e:
+                    logging.error(f"Erro ao limpar arquivos temporários: {e}")
 
-    Este aplicativo realiza duas tarefas principais:
-
-    1. **Treinar Modelo:**  
-       - Você faz upload de um dataset .zip contendo pastas, cada pasta representando uma classe (estado físico do fluido-copo).
-       - Escolhe entre treinar uma CNN personalizada ou utilizar a ResNet-18 pré-treinada.
-       - O app extrai características do áudio (MFCCs, centróide espectral ou espectrogramas), normaliza, aplica (opcionalmente) Data Augmentation.
-       - Treina o modelo escolhido para classificar os sons.
-       - Mostra métricas (acurácia, F1, precisão, recall) e histórico de treinamento, bem como gráficos das curvas de perda e acurácia.
-       - Plota a Matriz de Confusão, permitindo visualizar onde o modelo se confunde.
-       - Utiliza SHAP para interpretar quais features são mais importantes (apenas para CNN personalizada).
-       - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
-       - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
-       - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
-       - Mostra exemplos de cada classe do dataset original e exemplos aumentados.
-
-    2. **Classificar Áudio com Modelo Treinado:**  
-       - Você faz upload de um modelo já treinado (.keras, .h5 para CNN personalizada ou .pth para ResNet-18) e do arquivo de classes (classes.txt).
-       - Escolhe o método de classificação utilizado no treinamento.
-       - Envia um arquivo de áudio para classificação.
-       - O app extrai as mesmas features ou gera espectrogramas e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
-       - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs ou espectrograma correspondente.
-
-    **Contexto Físico (Fluidos, Ondas, Calor):**
-    Ao perturbar um copo com água, surgem modos ressonantes. A quantidade de água e a temperatura influenciam as frequências ressonantes. As MFCCs e centróide refletem a distribuição espectral, e os espectrogramas capturam a variação tempo-frequência do som. A CNN personalizada ou a ResNet-18 aprendem padrões ligados ao estado do fluido-copo.
-
-    **Explicação para Leigos:**
-    Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide ou espectrogramas), a CNN ou ResNet aprende a relacioná-los à quantidade de água e outras condições. SHAP explica quais características importam, clustering mostra agrupamentos de sons. Visualizações tornam tudo compreensível.
-
-    Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, proporcionando uma ferramenta poderosa e intuitiva para classificação de sons de água em copos de vidro.
-    """)
-
-st.sidebar.header("Configurações Gerais")
-with st.sidebar.expander("Parâmetro SEED e Reprodutibilidade"):
-    st.markdown("**SEED** garante resultados reproduzíveis.")
-
-seed_selection = st.sidebar.selectbox(
-    "Escolha o valor do SEED:",
-    options=seed_options,
-    index=seed_options.index(default_seed),
-    help="Define a semente para reprodutibilidade."
-)
-SEED = seed_selection
-set_seeds(SEED)
-
-with st.sidebar.expander("Sobre o SEED"):
-    st.markdown("""
-    **SEED** garante replicabilidade de resultados, permitindo que os experimentos sejam reproduzidos com os mesmos dados e parâmetros.
-    """)
-
-eu_icon_path = "eu.ico"
-if os.path.exists(eu_icon_path):
-    try:
-        st.sidebar.image(eu_icon_path, width=80)
-    except UnidentifiedImageError:
-        st.sidebar.text("Ícone 'eu.ico' corrompido.")
-else:
-    st.sidebar.text("Ícone 'eu.ico' não encontrado.")
-
-st.sidebar.write("Desenvolvido por Projeto Geomaker + IA")
-
-app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
-
-if app_mode == "Classificar Áudio":
-    classificar_audio(SEED)
-elif app_mode == "Treinar Modelo":
-    treinar_modelo(SEED)
