@@ -251,7 +251,12 @@ def main():
     spectrogram_dir = "spectrograms"
 
     if not os.path.exists(audio_dir):
-        raise FileNotFoundError(f"Diretório de áudios não encontrado: {audio_dir}")
+        print(f"O diretório {audio_dir} não foi encontrado. Criando uma estrutura de exemplo...")
+        os.makedirs(audio_dir, exist_ok=True)
+        sample_class = os.path.join(audio_dir, "classe_exemplo")
+        os.makedirs(sample_class, exist_ok=True)
+        print(f"Por favor, adicione arquivos de áudio no diretório: {sample_class}")
+        return
 
     os.makedirs(spectrogram_dir, exist_ok=True)
 
@@ -291,4 +296,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
