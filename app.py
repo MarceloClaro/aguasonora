@@ -249,29 +249,46 @@ def main():
     # Caminho para o diretório de áudios
     audio_dir = "audios"
     spectrogram_dir = "spectrograms"
+
+    if not os.path.exists(audio_dir):
+        raise FileNotFoundError(f"Diretório de áudios não encontrado: {audio_dir}")
+
     os.makedirs(spectrogram_dir, exist_ok=True)
 
     # Converter áudios em espectrogramas
     for class_name in os.listdir(audio_dir):
-        class_dir = os.path.join(audio_dir, class_name)
-        if not os.path.isdir(class_dir):
-            print(f"Ignorando {class_name}: não é um diretório.")
+        class_path = os.path.join(audio_dir, class_name)
+        if not os.path.isdir(class_path):
+            print(f"Ignorando {class_path}, pois não é um diretório.")
             continue
 
         output_class_dir = os.path.join(spectrogram_dir, class_name)
         os.makedirs(output_class_dir, exist_ok=True)
 
-        for audio_file in os.listdir(class_dir):
-            audio_path = os.path.join(class_dir, audio_file)
-            if os.path.isfile(audio_path):
-                audio_to_spectrogram(audio_path, output_class_dir)
+        for audio_file in os.listdir(class_path):
+            audio_file_path = os.path.join(class_path, audio_file)
+            try:
+                audio_to_spectrogram(audio_file_path, output_class_dir)
+            except Exception as e:
+                print(f"Erro ao converter {audio_file}: {e}")
 
-    # Treinar o modelo
-    model, classes = train_model(spectrogram_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split)
+    # Treinar o modelo com os espectrogramas gerados
+    model, classes = train_model(
+        spectrogram_dir, num_classes, model_name, epochs, learning_rate, batch_size, train_split, valid_split
+    )
 
     # Salvar o modelo treinado
-    torch.save(model.state_dict(), "modelo_treinado.pth")
-    print("Modelo treinado salvo como 'modelo_treinado.pth'")
+    model_save_path = "trained_model.pth"
+    torch.save(model.state_dict(), model_save_path)
+    print(f"Modelo salvo em {model_save_path}")
+
+    # Salvar as classes em um arquivo
+    classes_save_path = "classes.txt"
+    with open(classes_save_path, "w") as f:
+        for class_name in classes:
+            f.write(f"{class_name}\n")
+    print(f"Classes salvas em {classes_save_path}")
 
 if __name__ == "__main__":
     main()
+
