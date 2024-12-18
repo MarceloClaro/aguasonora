@@ -256,7 +256,6 @@ def classificar_audio(SEED):
                 modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
-                # Verificar a saída do modelo
                 st.write(f"Modelo carregado com saída: {modelo.output_shape}")
             except Exception as e:
                 st.error(f"Erro ao carregar o modelo: {e}")
@@ -493,7 +492,7 @@ def treinar_modelo(SEED):
                                         X_aug.append(ftrs)
                                         y_aug.append(y[i])
 
-                if enable_augmentation and X_aug and y_aug:
+                if enable_augmentation and 'X_aug' in locals() and X_aug and y_aug:
                     X_aug = np.array(X_aug)
                     y_aug = np.array(y_aug)
                     st.write(f"Dados Aumentados: {X_aug.shape}")
@@ -580,7 +579,7 @@ def treinar_modelo(SEED):
                     modelo.add(Dropout(dropout_rate))
                 modelo.add(Dense(len(classes), activation='softmax'))
 
-                # Configuração do Otimizador com Taxa de Aprendizado
+                # Configuração do Otimizador
                 if optimizer_choice == "Adam":
                     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
                 elif optimizer_choice == "SGD":
@@ -742,13 +741,11 @@ def treinar_modelo(SEED):
                     st.write("Selecionando amostras de teste para análise SHAP.")
                     X_sample = X_test[:50]
                     try:
-                        # Atualize para usar um explainer compatível ou atualize o SHAP
                         explainer = shap.DeepExplainer(modelo, X_train_final[:100])
                         shap_values = explainer.shap_values(X_sample)
 
                         st.write("Plot SHAP Summary por Classe:")
 
-                        # Debugging: Verificar o número de shap_values e classes
                         num_shap_values = len(shap_values)
                         num_classes = len(classes)
                         st.write(f"Número de shap_values: {num_shap_values}, Número de classes: {num_classes}")
@@ -761,7 +758,7 @@ def treinar_modelo(SEED):
                                 st.pyplot(fig_shap)
                                 plt.close(fig_shap)
                         elif num_shap_values == 1 and num_classes == 2:
-                            # Classificação binária, shap_values[0] corresponde à classe positiva
+                            # Classificação binária
                             st.write(f"**Classe: {classes[1]}**")
                             fig_shap = plt.figure()
                             shap.summary_plot(shap_values[0], X_sample.reshape((X_sample.shape[0], X_sample.shape[1])), show=False)
@@ -772,8 +769,7 @@ def treinar_modelo(SEED):
                             st.write(f"shap_values length: {num_shap_values}, classes length: {num_classes}")
                         st.write("""
                         **Interpretação SHAP:**  
-                        MFCCs com valor SHAP alto contribuem significativamente para a classe.  
-                        Frequências associadas a modos ressonantes específicos tornam certas classes mais prováveis.
+                        MFCCs com valor SHAP alto contribuem significativamente para a classe.
                         """)
                     except Exception as e:
                         st.write("SHAP não pôde ser gerado:", e)
@@ -781,7 +777,7 @@ def treinar_modelo(SEED):
 
                     st.markdown("### Análise de Clusters (K-Means e Hierárquico)")
                     st.write("""
-                    Clustering revela como dados se agrupam.  
+                    Clustering revela como dados se agrupam.
                     Determinaremos k automaticamente usando o coeficiente de silhueta.
                     """)
 
@@ -795,7 +791,7 @@ def treinar_modelo(SEED):
                     cluster_dist = []
                     for cidx in range(melhor_k):
                         cluster_classes = y_original[kmeans_labels == cidx]
-                        counts = pd.Series(cluster_classes).value_counts()  # Ajuste aqui
+                        counts = pd.Series(cluster_classes).value_counts()
                         cluster_dist.append(counts)
                     for idx, dist in enumerate(cluster_dist):
                         st.write(f"**Cluster {idx+1}:**")
@@ -817,7 +813,7 @@ def treinar_modelo(SEED):
                     cluster_dist_h = []
                     for cidx in range(2):
                         cluster_classes = y_original[hier_labels == cidx]
-                        counts_h = pd.Series(cluster_classes).value_counts()  # Ajuste aqui
+                        counts_h = pd.Series(cluster_classes).value_counts()
                         cluster_dist_h.append(counts_h)
                     for idx, dist in enumerate(cluster_dist_h):
                         st.write(f"**Cluster {idx+1}:**")
@@ -841,438 +837,59 @@ def treinar_modelo(SEED):
                 logging.error(f"Erro: {e}")
 
 with st.expander("Contexto e Descrição Completa"):
+    st.markdown("""**Classificação de Sons de Água Vibrando em Copo de Vidro**""")
     st.markdown("""
-    **Classificação de Sons de Água Vibrando em Copo de Vidro com Aumento de Dados e CNN**
+    Abaixo, algumas fórmulas em LaTeX serão apresentadas usando `st.latex()`:
 
-    Este aplicativo realiza duas tarefas principais:
+    Frequência do modo ressonante:
+    """)
+    st.latex(r"f_n = \frac{v}{2L} \sqrt{n^2 + \left(\frac{R}{L}\right)^2}")
+    st.latex(r"v = \sqrt{\frac{1}{\rho \beta}}")
 
-    1. **Treinar Modelo:**  
-       - Você faz upload de um dataset .zip contendo pastas, cada pasta representando uma classe (estado físico do fluido-copo).
-       - O app extrai características do áudio (MFCCs, centróide espectral), normaliza, aplica (opcionalmente) Data Augmentation.
-       - Treina uma CNN (rede neural convolucional) para classificar os sons.
-       - Mostra métricas (acurácia, F1, precisão, recall) e histórico de treinamento, bem como gráficos das curvas de perda e acurácia.
-       - Plota a Matriz de Confusão, permitindo visualizar onde o modelo se confunde.
-       - Usa SHAP para interpretar quais frequências (MFCCs) são mais importantes, mostrando gráficos summary plot do SHAP.
-       - Executa clustering (K-Means e Hierárquico) para entender a distribuição interna dos dados, exibindo o dendrograma.
-       - Implementa LR Scheduler (ReduceLROnPlateau) para refinar o treinamento.
-       - Possibilita visualizar gráficos de espectro (frequência x amplitude), espectrogramas e MFCCs.
-       - Mostra 1 exemplo de cada classe do dataset original e 1 exemplo aumentado, exibindo espectros, espectrogramas e MFCCs.
+    st.markdown("Transformada de Fourier do sinal:")
+    st.latex(r"S(f) = \int_{-\infty}^{\infty} s(t) e^{-j2\pi f t} dt")
 
-    2. **Classificar Áudio com Modelo Treinado:**  
-       - Você faz upload de um modelo já treinado (.keras ou .h5) e do arquivo de classes (classes.txt).
-       - Envia um arquivo de áudio para classificação.
-       - O app extrai as mesmas features e prediz a classe do áudio, mostrando probabilidades e um gráfico de barras das probabilidades.
-       - Possibilidade de visualizar o espectro do áudio classificado (FFT), forma de onda, espectrograma e MFCCs do áudio.
+    st.markdown("Coeficientes cepstrais (MFCC):")
+    st.latex(r"C_m(l) = \sum_{n=1}^{N} \log E_m(n) \cos\left[\frac{\pi l (n + 0.5)}{N}\right]")
 
-    **Contexto Físico (Fluidos, Ondas, Calor):**
-    Ao perturbar um copo com água, surgem modos ressonantes. A temperatura e propriedades do fluido alteram ligeiramente as frequências ressonantes. As MFCCs e centróide refletem a distribuição espectral, e a CNN aprende padrões ligados ao estado do fluido-copo.
+    st.markdown("Centróide Espectral:")
+    st.latex(r"C_s = \frac{\sum_{k=1}^{K} f_k |S(k)|}{\sum_{k=1}^{K} |S(k)|}")
 
-    **Explicação para Leigos:**
-    Imagine o copo como um instrumento: menos água = som mais agudo; mais água = som mais grave. O computador converte o som em números (MFCCs, centróide), a CNN aprende a relacioná-los à quantidade de água. SHAP explica quais frequências importam, clustering mostra agrupamentos de sons. Visualizações (espectros, espectrogramas, MFCCs, histórico) tornam tudo compreensível.
+    st.markdown("Data Augmentation:")
+    st.latex(r"s_{\text{aug}}(t) = s(t) + \sigma \eta(t)")
+    st.latex(r"s_{\text{aug}}(t) = s(a t)")
+    st.latex(r"s_{\text{aug}}(t) = s(t) e^{j2\pi \Delta f t}")
+    st.latex(r"s_{\text{aug}}(t) = s(t - \tau)")
 
-    Em suma, este app integra teoria física, processamento de áudio, machine learning, interpretabilidade e análise exploratória de dados, valendo 10/10.
-    
-    ---
-    
-    ## Explicação para Especialistas (Física, Acústica, Fluidodinâmica, Machine Learning)
-    
-    Quando o usuário faz o **upload do dataset** (um arquivo .zip contendo subpastas, cada qual representando uma classe de condição física do fluido-copo), o código executa uma série de processos técnicos e físicos, desde a análise do sinal acústico até a classificação via rede neural convolucional.
-    
-    1. **Contexto Físico do Problema:**
-       O copo com água, quando excitado mecanicamente (por exemplo, batendo suavemente na borda), produz oscilações internas no fluido. Essas oscilações correspondem a modos ressonantes, soluções da equação de onda no interior do líquido confinado. A frequência de cada modo depende de:
-       - Geometria do recipiente (raio, altura do copo).
-       - Altura da coluna de água.
-       - Propriedades termofísicas do líquido (densidade, compressibilidade, viscosidade).
-       - Efeitos térmicos (temperatura alterando a velocidade do som no fluido).
-    
-       Assim, se a coluna de água é mais alta, os modos ressonantes tendem a apresentar frequências fundamentais mais baixas (sons mais graves). Se a água é mais rasa, surgem frequências mais altas (som mais agudo). Se a temperatura do fluido varia, a velocidade do som muda, deslocando ligeiramente as frequências ressonantes.
-    
-       Ao carregar o dataset (conjunto de áudios), cada classe do dataset pode representar um estado físico distinto do fluido-copo (diferente altura da coluna de água, variação de temperatura, etc.).
-    
-    2. **Processamento de Sinal:**
-       O código lê cada arquivo de áudio e o converte em uma série temporal (amostras do sinal sonoro). Em seguida, extrai **features** que condensam informações físicas relevantes do espectro de frequências. São extraídas as seguintes principais características:
-       - **MFCCs (Mel-Frequency Cepstral Coefficients):** Transformam o espectro de frequências em uma escala próxima da percepção humana. Porém, fisicamente, os MFCCs também podem ser interpretados como vetores que destacam a distribuição de energia em bandas de frequência específicas. Como os modos ressonantes determinam quais frequências têm mais energia, os MFCCs capturam, indiretamente, quais modos estão ativos.
-       - **Centróide Espectral:** É a frequência média ponderada pela intensidade do espectro. Se o centróide é mais alto, significa que há mais energia em frequências agudas (modos associados a colunas líquidas mais rasas ou condições que elevam a frequência). Caso seja mais baixo, o som é mais grave, indicando colunas mais altas ou condições que reduzem a frequência ressonante.
-    
-       O dataset, após ter seus áudios lidos, é transformado em um conjunto de vetores numéricos (matrizes de features). Esse é o “link físico” do problema: estamos mapeando um fenômeno acústico, determinado por equações de onda e propriedades termodinâmicas do fluido, em vetores numéricos (MFCCs, centróide) que preservam as assinaturas das condições físicas.
-    
-    3. **Data Augmentation (Aumento de Dados):**
-       Para tornar o modelo mais robusto, o código pode aplicar aumentos de dados, simulando:
-       - Ruído Gaussiano: Imita condições experimentais mais ruidosas.
-       - Time Stretch: Aumenta ou diminui a velocidade do áudio sem mudar o tom, testando a robustez contra variações temporais.
-       - Pitch Shift: Altera a frequência global do som, simulando leves variações no modo ressonante.
-       - Shift (Deslocamento temporal): Adiciona silêncio no início ou no fim, testando a invariância temporal.
-    
-       Do ponto de vista físico, esses aumentos criam variações plausíveis do sinal para que o modelo não fique “especializado” demais em um único conjunto de condições experimentais, aprendendo assim uma representação mais genérica e robusta.
-    
-    4. **Balanceamento e Classes Desbalanceadas:**
-       Caso o dataset tenha classes com diferentes quantidades de exemplos (por exemplo, mais gravações com água gelada do que com água quente), o código pode aplicar pesos (class_weight) ao treinamento. Isso garante que a classe menos representada (por exemplo, um estado térmico raro) não seja ignorada. Assim, o modelo mantém a capacidade de reconhecer todos os estados físicos do fluido-copo.
-    
-    5. **Treinamento da CNN:**
-       A CNN (rede neural convolucional) recebe, como entrada, os vetores de features (MFCCs, centróide). Essas camadas convolucionais, max-pooling e densas extraem padrões complexos e não-lineares que correlacionam diretamente com as condições físicas do fluido. Por exemplo, a CNN aprenderá que determinados arranjos de frequências (um certo conjunto de MFCCs mais elevados em certas bandas) correspondem a um estado físico específico.
-    
-       O LR Scheduler (ReduceLROnPlateau) ajusta a taxa de aprendizado conforme o treinamento estagna, refinando o ajuste dos pesos da rede para capturar até sutis diferenças espectrais.
-    
-       Early Stopping interrompe o treinamento se o modelo parar de melhorar, evitando overfitting e assegurando que o modelo final seja mais generalista.
-    
-    6. **Métricas, SHAP e Clustering:**
-       Após o treinamento, o código avalia métricas (acurácia, F1, precisão, recall) que, fisicamente, dizem quão bem o modelo distingue os diferentes estados físicos do fluido-copo.
-    
-       O SHAP (uma ferramenta de interpretabilidade) mostra quais MFCCs (quais partes do espectro) mais influenciam a classificação. Se o SHAP indica que frequências mais altas são muito importantes para determinada classe, isso sugere que aquele estado físico do fluido-copo aumenta a energia em frequências ressonantes mais elevadas.
-    
-       Clustering (K-Means, Hierárquico) analisa a distribuição interna dos dados. Se classes similares fisicamente (por exemplo, água levemente mais quente vs. temperatura ambiente) estiverem próximas em um cluster, isso confirma coerência física: espectros semelhantes resultam em clusters semelhantes. O dendrograma hierárquico mostra a “árvore de similaridade” entre amostras, relacionando-se à proximidade física dos modos ressonantes.
-    
-        ---
-        
-        ## Explicação para Leigos (Autodidata)
-        
-        Imagine que você tem um copo com água. Quando você bate nele, ele faz um som. Esse som depende de quanta água tem dentro e da temperatura da água. Por exemplo:
-        - Pouca água -> Som mais agudo.
-        - Muita água -> Som mais grave.
-        - Água mais quente -> Pode alterar um pouquinho as frequências, mudando ligeiramente o tom.
-        
-        No código, quando você **envia o dataset**, está mandando vários arquivos de áudio, cada um representando um estado diferente do copo (mais água, menos água, temperatura diferente, etc.).
-        
-        1. **Transformando Som em Números (Features):**
-           O computador pega cada áudio e extrai características (chamadas MFCCs e centróide). Pense nelas como “descrições numéricas” da música:
-           - MFCCs: Dividem o som em várias faixas de frequência e veem quanta energia tem em cada uma.
-           - Centróide: Diz se o som puxa mais para o agudo ou para o grave.
-        
-           Dessa forma, o computador entende o som não como “barulho”, mas como um conjunto de números que representam o padrão das frequências.
-        
-        2. **Aumento de Dados (Data Augmentation):**
-           Para o computador não ficar “mal acostumado” com um só tipo de som, o código cria variações: adiciona ruído, muda um pouquinho a velocidade, o tom, ou desloca o áudio no tempo. Isso faz a “audição” do computador ficar mais esperta, pois ele aprende a reconhecer a classe mesmo com variações.
-        
-        3. **Balanciando as Classes:**
-           Se você tiver mais gravações de “água fria” do que “água morna”, o computador pode acabar só aprendendo a reconhecer “água fria”. O código ajusta o “peso” (importância) de cada classe, garantindo que todas tenham importância igual, mesmo que algumas apareçam menos vezes.
-        
-        4. **Treinando a Rede Neural:**
-           Depois dessas preparações, o código treina uma “rede neural convolucional”. Essa rede aprende quais padrões nos números (MFCCs, centróide) correspondem a cada classe (estado do copo). Com o tempo, ela fica boa em “ouvir” o som e identificar a classe correta.
-        
-           Se o treinamento para de melhorar, o código para o treino (Early Stopping) para não exagerar. Se a taxa de aprendizado estiver alta demais, o código diminui (LR Scheduler), para refinar o aprendizado.
-        
-        5. **Resultados e Interpretação:**
-           Depois do treino, o código mostra quantos acertos o modelo teve (acurácia), se ele sabe evitar erros graves (precisão, recall, F1).
-        
-           O SHAP é como uma lupa: ele mostra quais frequências mais ajudaram o computador a adivinhar a classe. Se o SHAP mostra que frequências agudas são importantes para detectar “pouca água”, isso faz sentido fisicamente, porque menos água gera som mais agudo.
-        
-           O clustering agrupa sons parecidos. Se sons de “água gelada” formam um grupo e “água quente” outro, é sinal de que o computador vê diferença nítida nos números (frequências) que correspondem a essas condições. O dendrograma é um “mapa” que mostra quais áudios são mais parecidos entre si.
-        
-        ---
-        Compreendo que você deseja uma **explicação técnico-física e matemático** detalhada dos processos que ocorrem no seu código quando um **dataset** é enviado, adaptada para dois públicos distintos: **especialistas rigorosos** (como acadêmicos ou profissionais de física e matemática) e **leigos** (pessoas sem formação técnica). A seguir, apresento uma explicação meticulosa, incorporando **fórmulas e conceitos fundamentais**, inspirada nos estilos de autores como **Moesyo** e **Mahon**.
-    
-        ---
-        
-        ## **1. Explicação para Especialistas (Física, Acústica, Matemática Aplicada, Machine Learning)**
-        
-        ### **1.1. Contexto Físico e Acústico**
-        
-        Quando se perturba um copo contendo água, ocorre uma interação entre a vibração do recipiente e a massa do fluido. Essas vibrações resultam em **modos ressonantes** do sistema fluido-recipient, que podem ser descritos pelas **equações de Navier-Stokes** para o fluido incompressível e pelas **equações de movimento de um corpo rígido** para o recipiente. A frequência desses modos é influenciada por diversos parâmetros, como:
-        
-        - **Geometria do recipiente** (raio, altura, espessura das paredes).
-        - **Propriedades do fluido** (densidade ρ, viscosidade μ, compressibilidade β).
-        - **Condições termodinâmicas** (temperatura T, que afeta a velocidade do som no fluido).
-        
-        Matematicamente, a frequência dos modos ressonantes pode ser aproximada pela fórmula para um cilindro acústico com fluido, similar à determinação das frequências naturais em sistemas oscilatórios:
-        
-        $$
-        f_n = \frac{v}{2L} \sqrt{n^2 + \left(\frac{R}{L}\right)^2}
-        $$
-        
-        Onde:
-        - \( f_n \) é a frequência do n-ésimo modo.
-        - \( v = \sqrt{\frac{1}{\rho \beta}} \) é a velocidade do som no fluido.
-        - \( L \) é a altura da coluna de água.
-        - \( R \) é o raio do copo.
-        - \( n \) é o número do modo (inteiro positivo).
-        
-        ### **1.2. Processamento de Sinal e Extração de Features**
-        
-        Ao carregar o dataset de áudios, cada arquivo representa uma amostra sonora gerada pelos modos ressonantes do copo com água em diferentes condições. O processamento subsequente envolve:
-        
-        #### **1.2.1. Aquisição do Sinal**
-        
-        O áudio é capturado como uma **função temporal** \( s(t) \), onde \( t \) representa o tempo. Este sinal é geralmente discretizado com uma taxa de amostragem \( f_s \) (ex: 44.1 kHz).
-        
-        #### **1.2.2. Transformada de Fourier (FFT)**
-        
-        A análise espectral do sinal é realizada utilizando a **Transformada Rápida de Fourier (FFT)**, que decompõe \( s(t) \) em suas componentes de frequência \( S(f) \):
-        
-        \[
-        S(f) = \int_{-\infty}^{\infty} s(t) e^{-j2\pi ft} dt
-        \]
-        
-        Na prática, a FFT computa \( S(k) \) para frequências discretas \( f_k = k \Delta f \), onde \( \Delta f = \frac{f_s}{N} \) e \( N \) é o número de pontos da FFT.
-        
-        #### **1.2.3. Extração de MFCCs**
-        
-        Os **Mel-Frequency Cepstral Coefficients (MFCCs)** são extraídos para capturar as características espectrais do som em uma escala que reflete a percepção humana. O processo envolve:
-        
-        1. **Divisão do Sinal em Frames:** Segmentação do sinal em janelas de tempo \( s_m(t) \), onde \( m \) denota o frame.
-        2. **Aplicação de Windowing:** Multiplicação por uma janela (ex: Hamming) para minimizar descontinuidades.
-        3. **Cálculo da FFT para Cada Frame:** Obtém-se \( S_m(k) \).
-        4. **Aplicação do Filtro Mel:** Passa por uma série de filtros triangulares no espectro de Mel para obter a energia em cada banda \( E_m(n) \):
-        
-        \[
-        E_m(n) = \sum_{k=1}^{K} |S_m(k)|^2 H_m(k)
-        \]
-        
-        Onde \( H_m(k) \) são os filtros de Mel.
-        
-        5. **Logaritmo das Energias:** \( \log E_m(n) \).
-        6. **Transformada Discreta de Coseno (DCT):** Decompõe as energias logarítmicas para obter os coeficientes \( C_m(l) \):
-        
-        \[
-        C_m(l) = \sum_{n=1}^{N} \log E_m(n) \cos\left[\frac{\pi l (n + 0.5)}{N}\right]
-        \]
-        
-        Os primeiros coeficientes \( C_m(l) \) (tipicamente 13) são utilizados como **features** para o modelo de classificação.
-        
-        #### **1.2.4. Centróide Espectral**
-        
-        O **Centróide Espectral** \( C_s \) é a média ponderada das frequências presentes no sinal, representando o "centro de massa" do espectro:
-        
-        \[
-        C_s = \frac{\sum_{k=1}^{K} f_k |S(k)|}{\sum_{k=1}^{K} |S(k)|}
-        \]
-        
-        Este parâmetro indica se o som é mais grave (centróide baixo) ou mais agudo (centróide alto).
-        
-        ### **1.3. Aumento de Dados (Data Augmentation)**
-        
-        Para melhorar a generalização do modelo e evitar **overfitting**, técnicas de aumento de dados são aplicadas:
-        
-        - **Ruído Gaussiano:** Adição de ruído branco \( \eta(t) \) com distribuição normal:
-        
-        \[
-        s_{\text{aug}}(t) = s(t) + \sigma \eta(t)
-        \]
-        
-        - **Time Stretching:** Alteração da duração do áudio sem modificar o pitch, aplicando uma transformação de tempo \( T \):
-        
-        \[
-        s_{\text{aug}}(t) = s(a t)
-        \]
-        
-        Onde \( a \) é o fator de estiramento (\( a > 1 \) para alongamento, \( a < 1 \) para compressão).
-        
-        - **Pitch Shifting:** Mudança da frequência fundamental sem alterar a duração, utilizando transformação de Fourier ou algoritmos baseados em estocástico:
-        
-        \[
-        s_{\text{aug}}(t) = s(t) e^{j2\pi \Delta f t}
-        \]
-        
-        Onde \( \Delta f \) é a mudança de frequência desejada.
-        
-        - **Deslocamento Temporal (Shifting):** Translação do sinal no tempo:
-        
-        \[
-        s_{\text{aug}}(t) = s(t - \tau)
-        \]
-        
-        Onde \( \tau \) é o deslocamento temporal.
-        
-        ### **1.4. Modelagem com Rede Neural Convolucional (CNN)**
-        
-        #### **1.4.1. Arquitetura da CNN**
-        
-        A **Rede Neural Convolucional (CNN)** utilizada possui várias camadas:
-        
-        - **Camadas Convolucionais (Conv1D):** Aplicam filtros \( w \) para detectar padrões locais nas **features** (MFCCs, centróide).
-        
-        \[
-        y = f\left(\sum_{i=1}^{k} w_i x_{i+j} + b\right)
-        \]
-        
-        Onde \( f \) é a função de ativação (ex: ReLU), \( k \) é o tamanho do kernel, e \( b \) é o viés.
-        
-        - **Camadas de Pooling (MaxPooling1D):** Reduzem a dimensionalidade, mantendo as características mais relevantes.
-        
-        \[
-        y = \max_{i \in \text{window}} x_i
-        \]
-        
-        - **Camadas Densas (Fully Connected):** Conectam todas as unidades para combinar características de alto nível.
-        
-        - **Camada de Saída:** Utiliza **softmax** para gerar probabilidades para cada classe.
-        
-        \[
-        \sigma(z)_i = \frac{e^{z_i}}{\sum_{j=1}^{C} e^{z_j}}
-        \]
-        
-        #### **1.4.2. Treinamento da CNN**
-        
-        O modelo é treinado utilizando:
-        
-        - **Função de Perda:** **Categorical Crossentropy**:
-        
-        \[
-        \mathcal{L} = -\sum_{i=1}^{C} y_i \log(\hat{y}_i)
-        \]
-        
-        Onde \( y_i \) são as classes verdadeiras (one-hot encoded) e \( \hat{y}_i \) são as probabilidades previstas.
-        
-        - **Otimizador:** **Adam**, **SGD**, ou **RMSprop**, ajustando os pesos \( W \) para minimizar \( \mathcal{L} \).
-        
-        - **Regularização:** **Dropout** e **Weight Regularization (L1, L2)** para prevenir overfitting:
-        
-        \[
-        \mathcal{L}_{\text{reg}} = \mathcal{L} + \lambda \|W\|_p
-        \]
-        
-        - **Early Stopping:** Interrompe o treinamento se a métrica de validação não melhorar após \( p \) épocas.
-        
-        - **Class Weights:** Aplicação de pesos às classes desbalanceadas para balancear a contribuição de cada classe na perda:
-        
-        \[
-        \mathcal{L}_{\text{weighted}} = -\sum_{i=1}^{C} w_i y_i \log(\hat{y}_i)
-        \]
-        
-        Onde \( w_i \) é o peso da classe \( i \).
-        
-        ### **1.5. Avaliação e Interpretabilidade**
-        
-        #### **1.5.1. Métricas de Desempenho**
-        
-        - **Acurácia:** Proporção de previsões corretas.
-        
-        \[
-        \text{Acurácia} = \frac{\text{Número de Previsões Corretas}}{\text{Total de Previsões}}
-        \]
-        
-        - **Precisão, Recall, F1-Score:**
-        
-        \[
-        \text{Precisão} = \frac{\text{Verdadeiros Positivos}}{\text{Verdadeiros Positivos + Falsos Positivos}}
-        \]
-        \[
-        \text{Recall} = \frac{\text{Verdadeiros Positivos}}{\text{Verdadeiros Positivos + Falsos Negativos}}
-        \]
-        \[
-        F1 = 2 \cdot \frac{\text{Precisão} \cdot \text{Recall}}{\text{Precisão} + \text{Recall}}
-        \]
-        
-        #### **1.5.2. SHAP (SHapley Additive exPlanations)**
-        
-        O **SHAP** é utilizado para interpretar a importância de cada feature na decisão do modelo. Para redes neurais profundas, **DeepExplainer** é aplicado:
-        
-        \[
-        \phi_i(f, x) = \sum_{S \subseteq N \setminus \{i\}} \frac{|S|! (|N| - |S| - 1)!}{|N|!} \left( f_{S \cup \{i\}}(x_{S \cup \{i\}}) - f_S(x_S) \right)
-        \]
-        
-        Onde \( \phi_i \) representa a contribuição da feature \( i \), \( f_S \) é o modelo considerando apenas as features no subconjunto \( S \), e \( N \) é o conjunto total de features.
-        
-        #### **1.5.3. Análise de Clustering**
-        
-        Utiliza-se **K-Means** e **Clustering Hierárquico** para explorar a estrutura dos dados:
-        
-        - **K-Means:** Minimiza a soma das distâncias quadráticas intra-cluster.
-        
-        \[
-        \min_{C} \sum_{i=1}^{k} \sum_{x \in C_i} \|x - \mu_i\|^2
-        \]
-        
-        - **Silhouette Score:** Mede a similaridade de um ponto com seu próprio cluster em comparação com outros clusters.
-        
-        \[
-        s(i) = \frac{b(i) - a(i)}{\max\{a(i), b(i)\}}
-        \]
-        
-        Onde \( a(i) \) é a distância média intra-cluster e \( b(i) \) é a distância média ao cluster mais próximo.
-        
-        - **Dendrograma:** Representação gráfica da fusão de clusters no clustering hierárquico.
-        
-        ---
-        
-        ## **2. Explicação para Leigos (Autodidata)**
-        
-        ### **2.1. Contexto Físico do Problema**
-        
-        Imagine que você tem um copo de vidro cheio de água. Quando você bate nele, ele faz um som. Esse som depende de várias coisas, como:
-        
-        - **Quantos mililitros de água estão no copo:** Mais água faz o som mais grave; menos água faz o som mais agudo.
-        - **A temperatura da água:** Água mais quente pode alterar um pouco o som.
-        - **O tamanho e a forma do copo:** Copos maiores ou com diferentes formatos vibram de maneira diferente.
-        
-        ### **2.2. Como o Código Processa os Sons**
-        
-        Quando você envia um **dataset** (uma coleção de áudios) para o código, está fornecendo muitos exemplos de como o copo soa em diferentes condições. O código faz o seguinte:
-        
-        #### **2.2.1. Transformação do Som em Dados Numéricos**
-        
-        1. **Leitura do Áudio:** O código pega cada arquivo de áudio e o converte em números que representam o som ao longo do tempo.
-        2. **Análise das Frequências:** Usando uma ferramenta chamada **Transformada de Fourier**, o código divide o som em diferentes frequências (como diferentes notas musicais). Isso ajuda a entender quais frequências estão mais presentes no som.
-        3. **Extração de Características (MFCCs e Centróide):**
-           - **MFCCs (Mel-Frequency Cepstral Coefficients):** Imagine dividir o som em várias bandas de frequência e medir quanta energia há em cada banda. Esses números (MFCCs) ajudam o computador a entender o "padrão" do som.
-           - **Centróide Espectral:** É como calcular o "centro de peso" das frequências presentes. Se o centróide está em uma frequência alta, o som é mais agudo; se está em uma frequência baixa, o som é mais grave.
-        
-        #### **2.2.2. Aumento de Dados (Data Augmentation)**
-        
-        Para que o modelo aprenda melhor e não fique apenas "viciado" em um único tipo de som, o código faz pequenas alterações nos áudios, como:
-        
-        - **Adicionar Ruído:** Como se o som fosse gravado em um ambiente com um pouco de barulho de fundo.
-        - **Alterar a Velocidade:** Deixar o som um pouco mais rápido ou mais lento.
-        - **Mudar o Tom:** Fazer o som mais agudo ou mais grave sem alterar a velocidade.
-        - **Deslocar no Tempo:** Mover o som um pouco para frente ou para trás.
-        
-        Essas mudanças ajudam o modelo a reconhecer o som do copo mesmo que ele seja um pouco diferente do original.
-        
-        #### **2.2.3. Treinamento da Rede Neural**
-        
-        O coração do modelo é uma **Rede Neural Convolucional (CNN)**, que funciona de forma semelhante ao cérebro humano para reconhecer padrões. Aqui está como funciona:
-        
-        1. **Entradas:** As características extraídas (MFCCs, centróide) são alimentadas na CNN.
-        2. **Camadas Convolucionais:** Essas camadas detectam padrões específicos nas características, como determinados arranjos de frequências que indicam quanto de água há no copo.
-        3. **Camadas de Pooling:** Reduzem a quantidade de dados, mantendo apenas as informações mais importantes.
-        4. **Camadas Densas:** Combinam as informações para tomar uma decisão final sobre qual classe (quantidade de água, temperatura, etc.) o som pertence.
-        5. **Camada de Saída:** Fornece uma probabilidade para cada classe, indicando qual é a mais provável.
-        
-        #### **2.2.4. Ajustes para Melhor Desempenho**
-        
-        - **Early Stopping:** O treinamento para automaticamente se o modelo não estiver melhorando, para evitar que ele aprenda demais (overfitting) e não consiga generalizar para novos dados.
-        - **Perda Ponderada:** Se algumas classes têm menos exemplos (por exemplo, menos gravações com água quente), o código dá mais importância a essas classes para que o modelo não as ignore.
-        
-        ### **2.3. Avaliação e Entendimento do Modelo**
-        
-        Depois que o modelo é treinado, é hora de ver quão bem ele está funcionando:
-        
-        #### **2.3.1. Métricas de Desempenho**
-        
-        - **Acurácia:** Quantas vezes o modelo acertou a classe correta.
-        - **Precisão:** De todas as vezes que o modelo previu uma determinada classe, quantas estavam corretas.
-        - **Recall (Sensibilidade):** De todas as vezes que uma determinada classe realmente estava presente, quantas vezes o modelo a reconheceu.
-        - **F1-Score:** Uma média balanceada entre precisão e recall.
-        
-        #### **2.3.2. SHAP (SHapley Additive exPlanations)**
-        
-        O SHAP é uma ferramenta que ajuda a entender **por que o modelo tomou determinada decisão**. Ele mostra quais partes das características (por exemplo, quais bandas de frequência) mais influenciaram a decisão do modelo.
-        
-        #### **2.3.3. Análise de Clusters**
-        
-        Além de classificar os sons, o código também analisa como os dados se agrupam:
-        
-        - **K-Means:** Agrupa os sons em grupos baseados em semelhança. Isso ajuda a ver se sons similares realmente formam grupos naturais.
-        - **Clustering Hierárquico:** Cria uma "árvore" de agrupamentos, mostrando como os sons se dividem em grupos menores.
-        
-        ### **2.4. Resumo do Processo**
-        
-        1. **Upload do Dataset:** Você fornece muitos exemplos de sons do copo em diferentes condições.
-        2. **Processamento do Sinal:** O código converte esses sons em números que representam suas características.
-        3. **Aumento de Dados:** Cria variações dos sons para tornar o modelo mais robusto.
-        4. **Treinamento da CNN:** O modelo aprende a associar os padrões das características às condições do copo.
-        5. **Avaliação:** Verifica quão bem o modelo está classificando novos sons.
-        6. **Interpretação:** Utiliza ferramentas como SHAP para entender o que o modelo está "vendo".
-        7. **Clustering:** Analisa como os dados estão naturalmente agrupados.
-        
-        ---
-        
-        ## **3. Conclusão**
-        
-        O seu código integra conceitos avançados de física de fluidos e acústica com técnicas modernas de processamento de sinais e machine learning. Ao enviar o dataset, você está fornecendo ao modelo uma rica fonte de informações que, através de transformações matemáticas e aprendizado profundo, permitem a classificação precisa dos estados físicos do fluido-copo. As ferramentas de interpretabilidade e análise de clusters adicionam uma camada de compreensão sobre como o modelo está tomando suas decisões, alinhando-se tanto com fundamentos físicos quanto com práticas robustas de ciência de dados.
-        
-        Se precisar de mais detalhes ou tiver dúvidas específicas sobre algum aspecto do processo, estou à disposição para ajudar!
-            
-        Em resumo, ao enviar o dataset, você fornece ao computador “amostras sonoras” que, graças a técnicas de análise de sinal, teoria de ondas em fluidos e machine learning, são convertidas em informações numericamente tratáveis. Essas informações, analisadas por uma rede neural, permitem reconhecer diferentes estados físicos do fluido-copo (altura da coluna de água, temperatura, etc.) de forma coerente tanto com a física do problema quanto com o ponto de vista prático da classificação.
+    st.markdown("Função Softmax:")
+    st.latex(r"\sigma(z)_i = \frac{e^{z_i}}{\sum_{j=1}^{C} e^{z_j}}")
+
+    st.markdown("Função de perda (Cross-Entropy):")
+    st.latex(r"\mathcal{L} = -\sum_{i=1}^{C} y_i \log(\hat{y}_i)")
+
+    st.markdown("Regularização:")
+    st.latex(r"\mathcal{L}_{\text{reg}} = \mathcal{L} + \lambda \|W\|_p")
+
+    st.markdown("Perda com pesos (classes desbalanceadas):")
+    st.latex(r"\mathcal{L}_{\text{weighted}} = -\sum_{i=1}^{C} w_i y_i \log(\hat{y}_i)")
+
+    st.markdown("Métricas de avaliação:")
+    st.latex(r"\text{Acurácia} = \frac{\text{Número de Previsões Corretas}}{\text{Total de Previsões}}")
+    st.latex(r"\text{Precisão} = \frac{\text{Verdadeiros Positivos}}{\text{Verdadeiros Positivos + Falsos Positivos}}")
+    st.latex(r"\text{Recall} = \frac{\text{Verdadeiros Positivos}}{\text{Verdadeiros Positivos + Falsos Negativos}}")
+    st.latex(r"F1 = 2 \cdot \frac{\text{Precisão} \cdot \text{Recall}}{\text{Precisão} + \text{Recall}}")
+
+    st.markdown("Explicabilidade (SHAP):")
+    st.latex(r"\phi_i(f, x) = \sum_{S \subseteq N \setminus \{i\}} \frac{|S|!(|N|-|S|-1)!}{|N|!} [f_{S \cup \{i\}}(x_{S \cup \{i\}})-f_S(x_S)]")
+
+    st.markdown("Coeficiente de Silhueta:")
+    st.latex(r"s(i) = \frac{b(i) - a(i)}{\max\{a(i), b(i)\}}")
+
+    st.markdown("K-Means (minimização da soma das distâncias quadráticas):")
+    st.latex(r"\min_{C} \sum_{i=1}^{k} \sum_{x \in C_i} \|x - \mu_i\|^2")
+
+    st.markdown("""
+    Todas essas fórmulas integram o contexto físico e matemático que fundamenta a análise dos áudios, a extração de características, o treinamento do modelo e a interpretação dos resultados.
     """)
 
 st.sidebar.header("Configurações Gerais")
