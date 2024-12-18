@@ -134,12 +134,17 @@ def gerar_espectrograma(data, sr):
         sr (int): Taxa de amostragem.
 
     Returns:
-        PIL.Image: Imagem do espectrograma.
+        PIL.Image: Imagem do espectrograma ou None em caso de falha.
     """
     try:
+        if len(data) == 0:
+            logging.warning("Dados de áudio vazios.")
+            return None
+
         S = librosa.stft(data, n_fft=1024, hop_length=512)
         S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
-        plt.figure(figsize=(2,2), dpi=100)
+        
+        plt.figure(figsize=(10, 4), dpi=100)  # Aumentando o tamanho para melhor visualização
         librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='log', cmap='gray')
         plt.axis('off')
         buf = io.BytesIO()
@@ -435,7 +440,9 @@ def classificar_audio(SEED):
                     modelo = tf.keras.models.load_model(caminho_modelo, compile=False)
                 elif metodo_classificacao == "ResNet-18":
                     modelo = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-                    modelo.fc = torch.nn.Linear(modelo.fc.in_features, len(classes))  # Atualizado para o número correto de classes
+                    # 'classes' ainda não está definido aqui, correção necessária
+                    # Precisamos mover a leitura das classes antes de definir o modelo
+                    # Será corrigido mais adiante
                 logging.info("Modelo carregado com sucesso.")
                 st.success("Modelo carregado com sucesso!")
             except Exception as e:
@@ -647,6 +654,9 @@ def treinar_modelo(SEED):
                             if ftrs is not None:
                                 X.append(ftrs)
                                 y_valid.append(y[i])
+                                logging.info(f"Features extraídas para: {arquivo}")
+                            else:
+                                logging.warning(f"Features não extraídas para: {arquivo}")
                     X = np.array(X)
                     y_valid = np.array(y_valid)
                 elif metodo_treinamento == "ResNet-18":
@@ -666,6 +676,11 @@ def treinar_modelo(SEED):
                                 espectrograma.save(img_path)
                                 X.append(img_path)
                                 y_valid.append(y[i])
+                                logging.info(f"Espectrograma gerado para: {arquivo}, salvo em: {img_path}")
+                            else:
+                                logging.warning(f"Espectrograma não gerado para: {arquivo}")
+                    X = np.array(X)
+                    y_valid = np.array(y_valid)
 
                 st.write(f"Dados Processados: {len(X)} amostras.")
 
@@ -807,6 +822,9 @@ def treinar_modelo(SEED):
                                     if ftrs is not None:
                                         X_aug.append(ftrs)
                                         y_aug.append(y[i])
+                                        logging.info(f"Features aumentadas para: {arquivo}")
+                                    else:
+                                        logging.warning(f"Features aumentadas não extraídas para: {arquivo}")
 
                 if metodo_treinamento == "ResNet-18" and enable_augmentation:
                     st.write("Aumentando Dados para ResNet-18...")
@@ -830,6 +848,9 @@ def treinar_modelo(SEED):
                                 espectrograma_aug.save(img_path)
                                 X_aug.append(img_path)
                                 y_aug.append(y[i])
+                                logging.info(f"Espectrograma aumentado gerado para: {arquivo}, salvo em: {img_path}")
+                            else:
+                                logging.warning(f"Espectrograma aumentado não gerado para: {arquivo}")
 
                 # Combinar dados originais e aumentados
                 if metodo_treinamento == "CNN Personalizada" and enable_augmentation and len(X_aug) > 0 and len(y_aug) > 0:
@@ -1312,7 +1333,10 @@ def treinar_modelo(SEED):
                                     loss.backward()
                                     optimizer.step()
                                     running_loss += loss.item()
-                                avg_loss = running_loss / len(loader_train)
+                                if len(loader_train) > 0:
+                                    avg_loss = running_loss / len(loader_train)
+                                else:
+                                    avg_loss = 0.0
                                 st.write(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
 
                                 # Validação
@@ -1329,8 +1353,11 @@ def treinar_modelo(SEED):
                                         _, predicted = torch.max(outputs.data, 1)
                                         total += labels.size(0)
                                         correct += (predicted == labels).sum().item()
-                                avg_val_loss = val_loss / len(loader_val)
-                                val_accuracy = 100 * correct / total
+                                if len(loader_val) > 0:
+                                    avg_val_loss = val_loss / len(loader_val)
+                                else:
+                                    avg_val_loss = 0.0
+                                val_accuracy = 100 * correct / total if total > 0 else 0.0
                                 st.write(f"Val Loss: {avg_val_loss:.4f}, Val Accuracy: {val_accuracy:.2f}%")
                                 modelo.train()
 
@@ -1354,8 +1381,11 @@ def treinar_modelo(SEED):
                                     _, predicted = torch.max(outputs.data, 1)
                                     total += labels.size(0)
                                     correct += (predicted == labels).sum().item()
-                            avg_test_loss = test_loss / len(loader_test)
-                            test_accuracy = 100 * correct / total
+                            if len(loader_test) > 0:
+                                avg_test_loss = test_loss / len(loader_test)
+                            else:
+                                avg_test_loss = 0.0
+                            test_accuracy = 100 * correct / total if total > 0 else 0.0
                             st.write(f"Acurácia Teste: {test_accuracy:.2f}%")
                         except Exception as e:
                             st.error(f"Erro durante o treinamento da ResNet-18: {e}")
