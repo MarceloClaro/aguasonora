@@ -1,5 +1,5 @@
 streamlit
-gfortran
+
 tensorflow
 tensorflow-hub
 numpy
