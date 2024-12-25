@@ -27,9 +27,7 @@ import statistics
 import math
 import librosa.display
 from scipy.io import wavfile
-import csv
-import tensorflow as tf
-import scipy.signal
+import zipfile
 
 # Configuração de Logging
 logging.basicConfig(
@@ -91,98 +89,212 @@ def aumentar_audio(data, sr, augmentations):
         logging.error(f"Erro ao aumentar áudio: {e}")
         return data
 
-# Função para carregar o modelo YAMNet
-def carregar_modelo_yamnet():
-    """Carrega o modelo YAMNet do TensorFlow Hub."""
-    model_url = 'https://tfhub.dev/google/yamnet/1'
-    model = hub.load(model_url)
-    return model
+# Função para visualizar representações do áudio
+def visualizar_audio(data, sr):
+    """Visualiza diferentes representações do áudio."""
+    try:
+        # Forma de onda
+        fig_wave, ax_wave = plt.subplots(figsize=(8,4))
+        librosa.display.waveshow(data, sr=sr, ax=ax_wave)
+        ax_wave.set_title("Forma de Onda no Tempo")
+        ax_wave.set_xlabel("Tempo (s)")
+        ax_wave.set_ylabel("Amplitude")
+        st.pyplot(fig_wave)
+        plt.close(fig_wave)
 
-# Função para carregar os nomes das classes do YAMNet
-def class_names_from_csv(class_map_csv_text):
-    """Retorna a lista de nomes das classes a partir do CSV de mapeamento."""
-    class_names = []
-    with tf.io.gfile.GFile(class_map_csv_text) as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            class_names.append(row['display_name'])
-    return class_names
+        # FFT (Espectro)
+        fft = np.fft.fft(data)
+        fft_abs = np.abs(fft[:len(fft)//2])
+        freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
+        fig_fft, ax_fft = plt.subplots(figsize=(8,4))
+        ax_fft.plot(freqs, fft_abs)
+        ax_fft.set_title("Espectro (Amplitude x Frequência)")
+        ax_fft.set_xlabel("Frequência (Hz)")
+        ax_fft.set_ylabel("Amplitude")
+        st.pyplot(fig_fft)
+        plt.close(fig_fft)
 
-# Função para verificar e ajustar a taxa de amostragem
+        # Espectrograma
+        D = np.abs(librosa.stft(data))**2
+        S = librosa.power_to_db(D, ref=np.max)
+        fig_spec, ax_spec = plt.subplots(figsize=(8,4))
+        img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='hz', ax=ax_spec)
+        ax_spec.set_title("Espectrograma")
+        fig_spec.colorbar(img_spec, ax=ax_spec, format='%+2.0f dB')
+        st.pyplot(fig_spec)
+        plt.close(fig_spec)
+
+        # MFCCs Plot
+        mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
+        fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
+        img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
+        ax_mfcc.set_title("MFCCs")
+        fig_mfcc.colorbar(img_mfcc, ax=ax_mfcc)
+        st.pyplot(fig_mfcc)
+        plt.close(fig_mfcc)
+    except Exception as e:
+        st.error(f"Erro na visualização do áudio: {e}")
+        logging.error(f"Erro na visualização do áudio: {e}")
+
+# Função para treinar o modelo CNN
+def treinar_modelo(SEED):
+    with st.expander("Treinamento do Modelo CNN"):
+        st.markdown("### Passo 1: Upload do Dataset (ZIP)")
+        zip_upload = st.file_uploader("Upload do ZIP", type=["zip"])
+
+        if zip_upload is not None:
+            try:
+                st.write("Extraindo o Dataset...")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_zip:
+                    tmp_zip.write(zip_upload.read())
+                    caminho_zip = tmp_zip.name
+
+                # Extração do dataset
+                diretorio_extracao = tempfile.mkdtemp()
+                with zipfile.ZipFile(caminho_zip, 'r') as zip_ref:
+                    zip_ref.extractall(diretorio_extracao)
+                caminho_base = diretorio_extracao
+
+                # Leitura das classes e arquivos
+                categorias = [d for d in os.listdir(caminho_base) if os.path.isdir(os.path.join(caminho_base, d))]
+                if len(categorias) == 0:
+                    st.error("Nenhuma subpasta encontrada no ZIP.")
+                    return
+
+                st.success("Dataset extraído!")
+                st.write(f"Classes encontradas: {', '.join(categorias)}")
+
+                caminhos_arquivos = []
+                labels = []
+                for cat in categorias:
+                    caminho_cat = os.path.join(caminho_base, cat)
+                    arquivos_na_cat = [f for f in os.listdir(caminho_cat) if f.lower().endswith(('.wav','.mp3','.flac','.ogg','.m4a'))]
+                    st.write(f"Classe '{cat}': {len(arquivos_na_cat)} arquivos.")
+                    for nome_arquivo in arquivos_na_cat:
+                        caminhos_arquivos.append(os.path.join(caminho_cat, nome_arquivo))
+                        labels.append(cat)
+
+                df = pd.DataFrame({'caminho_arquivo': caminhos_arquivos, 'classe': labels})
+                st.write("10 Primeiras Amostras do Dataset:")
+                st.dataframe(df.head(10))
+
+                if len(df) == 0:
+                    st.error("Nenhuma amostra encontrada no dataset.")
+                    return
+
+                # Codificação das classes
+                labelencoder = LabelEncoder()
+                y = labelencoder.fit_transform(df['classe'])
+                classes = labelencoder.classes_
+
+                st.write(f"Classes codificadas: {', '.join(classes)}")
+
+                # Extração de Features (MFCCs, Centróide)
+                st.write("Extraindo Features (MFCCs, Centróide)...")
+                X = []
+                y_valid = []
+                for i, row in df.iterrows():
+                    arquivo = row['caminho_arquivo']
+                    data, sr = carregar_audio(arquivo, sr=None)
+                    if data is not None:
+                        ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
+                        if ftrs is not None:
+                            X.append(ftrs)
+                            y_valid.append(y[i])
+
+                X = np.array(X)
+                y_valid = np.array(y_valid)
+                st.write(f"Features extraídas: {X.shape}")
+
+                # Ajuste do Modelo com TensorFlow
+                modelo = tf.keras.Sequential([
+                    tf.keras.layers.InputLayer(input_shape=(X.shape[1],)),
+                    tf.keras.layers.Dense(128, activation='relu', kernel_regularizer=regularizers.l2(0.01)),
+                    tf.keras.layers.Dropout(0.5),
+                    tf.keras.layers.Dense(64, activation='relu'),
+                    tf.keras.layers.Dropout(0.5),
+                    tf.keras.layers.Dense(len(classes), activation='softmax')
+                ])
+
+                modelo.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+                # Treinamento do Modelo
+                st.write("Treinando Modelo...")
+                modelo.fit(X, y_valid, epochs=20, batch_size=32, validation_split=0.2, verbose=1)
+
+                # Avaliação e Métricas
+                st.write("Modelo Treinado!")
+                st.write("Evaluando o Modelo...")
+                loss, acc = modelo.evaluate(X, y_valid, verbose=0)
+                st.write(f"Loss: {loss}")
+                st.write(f"Acurácia: {acc}")
+
+                # Salvar o modelo
+                modelo.save('modelo_classificador_agua.h5')
+                st.download_button("Baixar Modelo", 'modelo_classificador_agua.h5', file_name="modelo_classificador_agua.h5")
+
+                st.success("Treinamento Concluído!")
+
+            except Exception as e:
+                st.error(f"Erro: {e}")
+                logging.error(f"Erro: {e}")
+
+# Função para classificação de novos áudios com YAMNet
+def classificar_audio_yamnet(waveform, model):
+    """Classifica o áudio utilizando o modelo YAMNet."""
+    scores, embeddings, spectrogram = model(waveform)
+    scores_np = scores.numpy()
+    
+    # Carrega as classes a partir do modelo
+    class_names = class_names_from_csv(model.class_map_path().numpy())
+
+    # Encontra a classe com a maior pontuação média
+    infered_class = class_names[scores_np.mean(axis=0).argmax()]
+    return infered_class, scores_np
+
+# Função para exibir os resultados
+def exibir_resultados(infered_class, scores_np, waveform, spectrogram):
+    """Exibe os resultados do modelo."""
+    st.markdown(f"**Classe Predita:** {infered_class}")
+
+    # Plot do espectrograma
+    plt.figure(figsize=(10, 6))
+    plt.subplot(3, 1, 1)
+    plt.plot(waveform)
+    plt.xlim([0, len(waveform)])
+    
+    # Plot do log-mel spectrogram (retornado pelo modelo)
+    plt.subplot(3, 1, 2)
+    plt.imshow(spectrogram.numpy().T, aspect='auto', interpolation='nearest', origin='lower')
+    
+    # Plot das pontuações de classe para as classes de maior pontuação
+    mean_scores = np.mean(scores_np, axis=0)
+    top_n = 10
+    top_class_indices = np.argsort(mean_scores)[::-1][:top_n]
+    
+    plt.subplot(3, 1, 3)
+    plt.imshow(scores_np[:, top_class_indices].T, aspect='auto', interpolation='nearest', cmap='gray_r')
+    plt.xlim([-0.5, scores_np.shape[0]-0.5])
+    
+    # Rotula as classes mais pontuadas
+    yticks = range(0, top_n, 1)
+    plt.yticks(yticks, [class_names[top_class_indices[x]] for x in yticks])
+    plt.ylim(-0.5 + np.array([top_n, 0]))
+    st.pyplot()
+
+# Função para carregar o áudio e preparar para classificação
+def preparar_audio(caminho_arquivo):
+    sample_rate, waveform = wavfile.read(caminho_arquivo)
+    waveform, _ = ensure_sample_rate(sample_rate, waveform)
+    return waveform, sample_rate
+
+# Função para garantir que a taxa de amostragem é 16kHz
 def ensure_sample_rate(original_sample_rate, waveform, desired_sample_rate=16000):
     """Resample waveform if required."""
     if original_sample_rate != desired_sample_rate:
         desired_length = int(round(float(len(waveform)) / original_sample_rate * desired_sample_rate))
         waveform = scipy.signal.resample(waveform, desired_length)
     return desired_sample_rate, waveform
-
-# Função para preparar o arquivo de áudio
-def preparar_audio(wav_file_name):
-    """Prepara o arquivo de áudio, garantindo a taxa de amostragem de 16kHz."""
-    sample_rate, wav_data = wavfile.read(wav_file_name, 'rb')
-    sample_rate, wav_data = ensure_sample_rate(sample_rate, wav_data)
-    # Normalize the audio to [-1.0, 1.0]
-    waveform = wav_data / tf.int16.max
-    return waveform, sample_rate
-
-# Função para prever usando YAMNet
-def classificar_audio_yamnet(waveform, model, class_names):
-    """Classifica o áudio utilizando o modelo YAMNet."""
-    scores, embeddings, spectrogram = model(waveform)
-    scores_np = scores.numpy()
-    infered_class = class_names[scores_np.mean(axis=0).argmax()]
-    return infered_class, scores_np
-
-# Função para exibir os resultados
-def exibir_resultados(infered_class, scores_np, waveform, spectrogram):
-    """Exibe os resultados da classificação."""
-    plt.figure(figsize=(10, 6))
-    # Plot the waveform.
-    plt.subplot(3, 1, 1)
-    plt.plot(waveform)
-    plt.xlim([0, len(waveform)])
-
-    # Plot the log-mel spectrogram (returned by the model).
-    plt.subplot(3, 1, 2)
-    plt.imshow(spectrogram.T, aspect='auto', interpolation='nearest', origin='lower')
-
-    # Plot and label the model output scores for the top-scoring classes.
-    mean_scores = np.mean(scores_np, axis=0)
-    top_n = 10
-    top_class_indices = np.argsort(mean_scores)[::-1][:top_n]
-    plt.subplot(3, 1, 3)
-    plt.imshow(scores_np[:, top_class_indices].T, aspect='auto', interpolation='nearest', cmap='gray_r')
-
-    patch_padding = (0.025 / 2) / 0.01
-    plt.xlim([-patch_padding-0.5, scores_np.shape[0] + patch_padding-0.5])
-    yticks = range(0, top_n, 1)
-    plt.yticks(yticks, [class_names[top_class_indices[x]] for x in yticks])
-    plt.ylim(-0.5 + np.array([top_n, 0]))
-    plt.show()
-
-# Função principal para carregamento e classificação
-def processar_audio_classificacao():
-    model = carregar_modelo_yamnet()  # Carrega o modelo YAMNet
-    class_map_path = model.class_map_path().numpy()
-    class_names = class_names_from_csv(class_map_path)  # Carrega os nomes das classes
-    
-    audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav", "mp3", "flac", "ogg", "m4a"])
-
-    if audio_file is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
-            tmp_audio.write(audio_file.read())
-            caminho_audio = tmp_audio.name
-
-        waveform, sample_rate = preparar_audio(caminho_audio)  # Prepara o áudio
-        infered_class, scores_np = classificar_audio_yamnet(waveform, model, class_names)  # Classifica o áudio
-        st.markdown(f"**Classe Predita:** {infered_class}")
-        exibir_resultados(infered_class, scores_np, waveform, spectrogram)  # Exibe os resultados
-
-# Definir e controlar o SEED de reprodução
-seed_options = list(range(0, 61, 2))
-default_seed = 42
-SEED = default_seed
-set_seeds(SEED)
 
 # Interface do Streamlit
 st.sidebar.header("Configurações Gerais")
