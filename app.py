@@ -27,7 +27,8 @@ import statistics
 import math
 import librosa.display
 from scipy.io import wavfile
-import zipfile  # CORRIGIDO: importação da biblioteca zipfile
+import csv
+import tensorflow as tf
 
 # Configuração de Logging
 logging.basicConfig(
@@ -136,171 +137,78 @@ def visualizar_audio(data, sr):
         st.error(f"Erro na visualização do áudio: {e}")
         logging.error(f"Erro na visualização do áudio: {e}")
 
-# Função para treinar o modelo CNN
-def treinar_modelo(SEED):
-    with st.expander("Treinamento do Modelo CNN"):
-        st.markdown("### Passo 1: Upload do Dataset (ZIP)")
-        zip_upload = st.file_uploader("Upload do ZIP", type=["zip"])
+# Função para carregar o modelo YAMNet
+def carregar_modelo_yamnet():
+    """Carrega o modelo YAMNet do TensorFlow Hub."""
+    model_url = 'https://tfhub.dev/google/yamnet/1'
+    model = hub.load(model_url)
+    return model
 
-        if zip_upload is not None:
-            try:
-                st.write("Extraindo o Dataset...")
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_zip:
-                    tmp_zip.write(zip_upload.read())
-                    caminho_zip = tmp_zip.name
+# Função para verificar e ajustar a taxa de amostragem
+def ensure_sample_rate(original_sample_rate, waveform, desired_sample_rate=16000):
+    """Resample waveform if required."""
+    if original_sample_rate != desired_sample_rate:
+        desired_length = int(round(float(len(waveform)) / original_sample_rate * desired_sample_rate))
+        waveform = scipy.signal.resample(waveform, desired_length)
+    return desired_sample_rate, waveform
 
-                # Extração do dataset
-                diretorio_extracao = tempfile.mkdtemp()
-                with zipfile.ZipFile(caminho_zip, 'r') as zip_ref:
-                    zip_ref.extractall(diretorio_extracao)
-                caminho_base = diretorio_extracao
+# Função para preparar o arquivo de áudio
+def preparar_audio(wav_file_name):
+    """Prepara o arquivo de áudio, garantindo a taxa de amostragem de 16kHz."""
+    sample_rate, wav_data = wavfile.read(wav_file_name, 'rb')
+    sample_rate, wav_data = ensure_sample_rate(sample_rate, wav_data)
+    # Normalize the audio to [-1.0, 1.0]
+    waveform = wav_data / tf.int16.max
+    return waveform, sample_rate
 
-                # Leitura das classes e arquivos
-                categorias = [d for d in os.listdir(caminho_base) if os.path.isdir(os.path.join(caminho_base, d))]
-                if len(categorias) == 0:
-                    st.error("Nenhuma subpasta encontrada no ZIP.")
-                    return
+# Função para prever usando YAMNet
+def classificar_audio_yamnet(waveform, model):
+    """Classifica o áudio utilizando o modelo YAMNet."""
+    scores, embeddings, spectrogram = model(waveform)
+    scores_np = scores.numpy()
+    infered_class = class_names[scores_np.mean(axis=0).argmax()]
+    return infered_class, scores_np
 
-                st.success("Dataset extraído!")
-                st.write(f"Classes encontradas: {', '.join(categorias)}")
+# Função para exibir os resultados
+def exibir_resultados(infered_class, scores_np):
+    """Exibe os resultados da classificação."""
+    plt.figure(figsize=(10, 6))
+    # Plot the waveform.
+    plt.subplot(3, 1, 1)
+    plt.plot(waveform)
+    plt.xlim([0, len(waveform)])
 
-                caminhos_arquivos = []
-                labels = []
-                for cat in categorias:
-                    caminho_cat = os.path.join(caminho_base, cat)
-                    arquivos_na_cat = [f for f in os.listdir(caminho_cat) if f.lower().endswith(('.wav','.mp3','.flac','.ogg','.m4a'))]
-                    st.write(f"Classe '{cat}': {len(arquivos_na_cat)} arquivos.")
-                    for nome_arquivo in arquivos_na_cat:
-                        caminhos_arquivos.append(os.path.join(caminho_cat, nome_arquivo))
-                        labels.append(cat)
+    # Plot the log-mel spectrogram (returned by the model).
+    plt.subplot(3, 1, 2)
+    plt.imshow(spectrogram.T, aspect='auto', interpolation='nearest', origin='lower')
 
-                df = pd.DataFrame({'caminho_arquivo': caminhos_arquivos, 'classe': labels})
-                st.write("10 Primeiras Amostras do Dataset:")
-                st.dataframe(df.head(10))
+    # Plot and label the model output scores for the top-scoring classes.
+    mean_scores = np.mean(scores_np, axis=0)
+    top_n = 10
+    top_class_indices = np.argsort(mean_scores)[::-1][:top_n]
+    plt.subplot(3, 1, 3)
+    plt.imshow(scores_np[:, top_class_indices].T, aspect='auto', interpolation='nearest', cmap='gray_r')
 
-                if len(df) == 0:
-                    st.error("Nenhuma amostra encontrada no dataset.")
-                    return
+    plt.xlim([-patch_padding-0.5, scores.shape[0] + patch_padding-0.5])
+    yticks = range(0, top_n, 1)
+    plt.yticks(yticks, [class_names[top_class_indices[x]] for x in yticks])
+    plt.ylim(-0.5 + np.array([top_n, 0]))
+    plt.show()
 
-                # Codificação das classes
-                labelencoder = LabelEncoder()
-                y = labelencoder.fit_transform(df['classe'])
-                classes = labelencoder.classes_
+# Função principal para carregamento e classificação
+def processar_audio_classificacao():
+    model = carregar_modelo_yamnet()  # Carrega o modelo YAMNet
+    audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav", "mp3", "flac", "ogg", "m4a"])
 
-                st.write(f"Classes codificadas: {', '.join(classes)}")
+    if audio_file is not None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
+            tmp_audio.write(audio_file.read())
+            caminho_audio = tmp_audio.name
 
-                # Extração de Features (MFCCs, Centróide)
-                st.write("Extraindo Features (MFCCs, Centróide)...")
-                X = []
-                y_valid = []
-                for i, row in df.iterrows():
-                    arquivo = row['caminho_arquivo']
-                    data, sr = carregar_audio(arquivo, sr=None)
-                    if data is not None:
-                        ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
-                        if ftrs is not None:
-                            X.append(ftrs)
-                            y_valid.append(y[i])
-
-                X = np.array(X)
-                y_valid = np.array(y_valid)
-                st.write(f"Features extraídas: {X.shape}")
-
-                # Ajuste do Modelo com TensorFlow
-                modelo = tf.keras.Sequential([
-                    tf.keras.layers.InputLayer(input_shape=(X.shape[1],)),
-                    tf.keras.layers.Dense(128, activation='relu', kernel_regularizer=regularizers.l2(0.01)),
-                    tf.keras.layers.Dropout(0.5),
-                    tf.keras.layers.Dense(64, activation='relu'),
-                    tf.keras.layers.Dropout(0.5),
-                    tf.keras.layers.Dense(len(classes), activation='softmax')
-                ])
-
-                modelo.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-
-                # Treinamento do Modelo
-                st.write("Treinando Modelo...")
-                modelo.fit(X, y_valid, epochs=20, batch_size=32, validation_split=0.2, verbose=1)
-
-                # Avaliação e Métricas
-                st.write("Modelo Treinado!")
-                st.write("Evaluando o Modelo...")
-                loss, acc = modelo.evaluate(X, y_valid, verbose=0)
-                st.write(f"Loss: {loss}")
-                st.write(f"Acurácia: {acc}")
-
-                # Salvar o modelo
-                modelo.save('modelo_classificador_agua.h5')
-                st.download_button("Baixar Modelo", 'modelo_classificador_agua.h5', file_name="modelo_classificador_agua.h5")
-
-                st.success("Treinamento Concluído!")
-
-            except Exception as e:
-                st.error(f"Erro: {e}")
-                logging.error(f"Erro: {e}")
-
-# Função para classificação de novos áudios
-def classificar_audio(SEED):
-    with st.expander("Classificação de Novo Áudio com Modelo Treinado"):
-        st.markdown("### Instruções para Classificar Áudio")
-        st.markdown("""
-        **Passo 1:** Upload do modelo treinado (.h5).  
-        **Passo 2:** Upload do áudio a ser classificado.  
-        **Passo 3:** O app extrai features e prediz a classe.
-        """)
-
-        modelo_file = st.file_uploader("Upload do Modelo (.h5)", type=["h5"])
-
-        if modelo_file is not None:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".h5") as tmp_model:
-                tmp_model.write(modelo_file.read())
-                caminho_modelo = tmp_model.name
-
-            try:
-                modelo = tf.keras.models.load_model(caminho_modelo)
-                logging.info("Modelo carregado com sucesso.")
-                st.success("Modelo carregado com sucesso!")
-
-            except Exception as e:
-                st.error(f"Erro ao carregar o modelo: {e}")
-                logging.error(f"Erro ao carregar o modelo: {e}")
-                return
-
-            audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav","mp3","flac","ogg","m4a"])
-            if audio_file is not None:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.name)[1]) as tmp_audio:
-                    tmp_audio.write(audio_file.read())
-                    caminho_audio = tmp_audio.name
-
-                data, sr = carregar_audio(caminho_audio, sr=None)
-                if data is not None:
-                    ftrs = extrair_features(data, sr, use_mfcc=True, use_spectral_centroid=True)
-                    if ftrs is not None:
-                        ftrs = ftrs.reshape(1, -1)  # Ajuste para entrada no modelo
-                        pred = modelo.predict(ftrs)
-                        pred_class = np.argmax(pred, axis=1)
-                        pred_label = classes[pred_class[0]]
-                        confidence = pred[0][pred_class[0]] * 100
-                        st.markdown(f"**Classe Predita:** {pred_label} (Confiança: {confidence:.2f}%)")
-
-                        # Gráfico de Probabilidades
-                        fig_prob, ax_prob = plt.subplots(figsize=(8,4))
-                        ax_prob.bar(classes, pred[0], color='skyblue')
-                        ax_prob.set_title("Probabilidades por Classe")
-                        ax_prob.set_ylabel("Probabilidade")
-                        plt.xticks(rotation=45)
-                        st.pyplot(fig_prob)
-                        plt.close(fig_prob)
-
-                        # Reprodução e Visualização do Áudio
-                        st.audio(caminho_audio)
-                        visualizar_audio(data, sr)
-                    else:
-                        st.error("Não foi possível extrair features do áudio.")
-                        logging.warning("Não foi possível extrair features do áudio.")
-                else:
-                    st.error("Não foi possível carregar o áudio.")
-                    logging.warning("Não foi possível carregar o áudio.")
+        waveform, sample_rate = preparar_audio(caminho_audio)  # Prepara o áudio
+        infered_class, scores_np = classificar_audio_yamnet(waveform, model)  # Classifica o áudio
+        st.markdown(f"**Classe Predita:** {infered_class}")
+        exibir_resultados(infered_class, scores_np)  # Exibe os resultados
 
 # Definir e controlar o SEED de reprodução
 seed_options = list(range(0, 61, 2))
@@ -310,9 +218,9 @@ set_seeds(SEED)
 
 # Interface do Streamlit
 st.sidebar.header("Configurações Gerais")
-app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio", "Treinar Modelo"])
+app_mode = st.sidebar.radio("Escolha a seção", ["Classificar Áudio com YAMNet", "Treinar Modelo"])
 
-if app_mode == "Classificar Áudio":
-    classificar_audio(SEED)
+if app_mode == "Classificar Áudio com YAMNet":
+    processar_audio_classificacao()
 elif app_mode == "Treinar Modelo":
     treinar_modelo(SEED)
