@@ -29,6 +29,7 @@ import librosa.display
 from scipy.io import wavfile
 import csv
 import tensorflow as tf
+import scipy.signal
 
 # Configuração de Logging
 logging.basicConfig(
@@ -90,59 +91,22 @@ def aumentar_audio(data, sr, augmentations):
         logging.error(f"Erro ao aumentar áudio: {e}")
         return data
 
-# Função para visualizar representações do áudio
-def visualizar_audio(data, sr):
-    """Visualiza diferentes representações do áudio."""
-    try:
-        # Forma de onda
-        fig_wave, ax_wave = plt.subplots(figsize=(8,4))
-        librosa.display.waveshow(data, sr=sr, ax=ax_wave)
-        ax_wave.set_title("Forma de Onda no Tempo")
-        ax_wave.set_xlabel("Tempo (s)")
-        ax_wave.set_ylabel("Amplitude")
-        st.pyplot(fig_wave)
-        plt.close(fig_wave)
-
-        # FFT (Espectro)
-        fft = np.fft.fft(data)
-        fft_abs = np.abs(fft[:len(fft)//2])
-        freqs = np.fft.fftfreq(len(data), 1/sr)[:len(fft)//2]
-        fig_fft, ax_fft = plt.subplots(figsize=(8,4))
-        ax_fft.plot(freqs, fft_abs)
-        ax_fft.set_title("Espectro (Amplitude x Frequência)")
-        ax_fft.set_xlabel("Frequência (Hz)")
-        ax_fft.set_ylabel("Amplitude")
-        st.pyplot(fig_fft)
-        plt.close(fig_fft)
-
-        # Espectrograma
-        D = np.abs(librosa.stft(data))**2
-        S = librosa.power_to_db(D, ref=np.max)
-        fig_spec, ax_spec = plt.subplots(figsize=(8,4))
-        img_spec = librosa.display.specshow(S, sr=sr, x_axis='time', y_axis='hz', ax=ax_spec)
-        ax_spec.set_title("Espectrograma")
-        fig_spec.colorbar(img_spec, ax=ax_spec, format='%+2.0f dB')
-        st.pyplot(fig_spec)
-        plt.close(fig_spec)
-
-        # MFCCs Plot
-        mfccs = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40)
-        fig_mfcc, ax_mfcc = plt.subplots(figsize=(8,4))
-        img_mfcc = librosa.display.specshow(mfccs, x_axis='time', sr=sr, ax=ax_mfcc)
-        ax_mfcc.set_title("MFCCs")
-        fig_mfcc.colorbar(img_mfcc, ax=ax_mfcc)
-        st.pyplot(fig_mfcc)
-        plt.close(fig_mfcc)
-    except Exception as e:
-        st.error(f"Erro na visualização do áudio: {e}")
-        logging.error(f"Erro na visualização do áudio: {e}")
-
 # Função para carregar o modelo YAMNet
 def carregar_modelo_yamnet():
     """Carrega o modelo YAMNet do TensorFlow Hub."""
     model_url = 'https://tfhub.dev/google/yamnet/1'
     model = hub.load(model_url)
     return model
+
+# Função para carregar os nomes das classes do YAMNet
+def class_names_from_csv(class_map_csv_text):
+    """Retorna a lista de nomes das classes a partir do CSV de mapeamento."""
+    class_names = []
+    with tf.io.gfile.GFile(class_map_csv_text) as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            class_names.append(row['display_name'])
+    return class_names
 
 # Função para verificar e ajustar a taxa de amostragem
 def ensure_sample_rate(original_sample_rate, waveform, desired_sample_rate=16000):
@@ -162,7 +126,7 @@ def preparar_audio(wav_file_name):
     return waveform, sample_rate
 
 # Função para prever usando YAMNet
-def classificar_audio_yamnet(waveform, model):
+def classificar_audio_yamnet(waveform, model, class_names):
     """Classifica o áudio utilizando o modelo YAMNet."""
     scores, embeddings, spectrogram = model(waveform)
     scores_np = scores.numpy()
@@ -170,7 +134,7 @@ def classificar_audio_yamnet(waveform, model):
     return infered_class, scores_np
 
 # Função para exibir os resultados
-def exibir_resultados(infered_class, scores_np):
+def exibir_resultados(infered_class, scores_np, waveform, spectrogram):
     """Exibe os resultados da classificação."""
     plt.figure(figsize=(10, 6))
     # Plot the waveform.
@@ -189,7 +153,8 @@ def exibir_resultados(infered_class, scores_np):
     plt.subplot(3, 1, 3)
     plt.imshow(scores_np[:, top_class_indices].T, aspect='auto', interpolation='nearest', cmap='gray_r')
 
-    plt.xlim([-patch_padding-0.5, scores.shape[0] + patch_padding-0.5])
+    patch_padding = (0.025 / 2) / 0.01
+    plt.xlim([-patch_padding-0.5, scores_np.shape[0] + patch_padding-0.5])
     yticks = range(0, top_n, 1)
     plt.yticks(yticks, [class_names[top_class_indices[x]] for x in yticks])
     plt.ylim(-0.5 + np.array([top_n, 0]))
@@ -198,6 +163,9 @@ def exibir_resultados(infered_class, scores_np):
 # Função principal para carregamento e classificação
 def processar_audio_classificacao():
     model = carregar_modelo_yamnet()  # Carrega o modelo YAMNet
+    class_map_path = model.class_map_path().numpy()
+    class_names = class_names_from_csv(class_map_path)  # Carrega os nomes das classes
+    
     audio_file = st.file_uploader("Upload do Áudio para Classificação", type=["wav", "mp3", "flac", "ogg", "m4a"])
 
     if audio_file is not None:
@@ -206,9 +174,9 @@ def processar_audio_classificacao():
             caminho_audio = tmp_audio.name
 
         waveform, sample_rate = preparar_audio(caminho_audio)  # Prepara o áudio
-        infered_class, scores_np = classificar_audio_yamnet(waveform, model)  # Classifica o áudio
+        infered_class, scores_np = classificar_audio_yamnet(waveform, model, class_names)  # Classifica o áudio
         st.markdown(f"**Classe Predita:** {infered_class}")
-        exibir_resultados(infered_class, scores_np)  # Exibe os resultados
+        exibir_resultados(infered_class, scores_np, waveform, spectrogram)  # Exibe os resultados
 
 # Definir e controlar o SEED de reprodução
 seed_options = list(range(0, 61, 2))
