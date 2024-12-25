@@ -6,6 +6,7 @@ import seaborn as sns
 import librosa
 import librosa.display
 import tensorflow as tf
+import tensorflow_hub as hub
 from tensorflow.keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
@@ -21,6 +22,11 @@ import logging
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 import shap
+from pydub import AudioSegment
+import statistics
+import math
+import librosa.display
+from scipy.io import wavfile
 
 # Configuração de Logging
 logging.basicConfig(
