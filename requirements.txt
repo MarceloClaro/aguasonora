@@ -1,5 +1,5 @@
 streamlit
-
+statsmodels
 tensorflow
 tensorflow-hub
 numpy
