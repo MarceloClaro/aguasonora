@@ -1,10 +1,10 @@
-streamlit==1.41.1
+streamlit
 gfortran
-tensorflow==2.18.0
-tensorflow-hub==0.13.0
-numpy==1.26.0
-pandas==2.2.3
-matplotlib==3.10.0
+tensorflow
+tensorflow-hub
+numpy
+pandas
+matplotlib
 seaborn==0.13.2
 librosa==0.10.2
 scikit-learn==1.6.0
