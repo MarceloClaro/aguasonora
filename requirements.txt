@@ -16,3 +16,8 @@ sympy
 pylint
 flake8
 black
+random
+
+tensorflow
+
+
