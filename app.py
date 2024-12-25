@@ -27,7 +27,7 @@ import statistics
 import math
 import librosa.display
 from scipy.io import wavfile
-import zipfile  # Importando a biblioteca para trabalhar com arquivos ZIP
+import zipfile  # CORRIGIDO: importação da biblioteca zipfile
 
 # Configuração de Logging
 logging.basicConfig(
@@ -136,15 +136,6 @@ def visualizar_audio(data, sr):
         st.error(f"Erro na visualização do áudio: {e}")
         logging.error(f"Erro na visualização do áudio: {e}")
 
-# Função para extrair o dataset de um arquivo ZIP
-def extrair_zip(caminho_arquivo_zip, destino):
-    try:
-        with zipfile.ZipFile(caminho_arquivo_zip, 'r') as zip_ref:
-            zip_ref.extractall(destino)
-            st.success(f"Arquivo extraído com sucesso para {destino}")
-    except Exception as e:
-        st.error(f"Erro ao extrair o arquivo ZIP: {e}")
-
 # Função para treinar o modelo CNN
 def treinar_modelo(SEED):
     with st.expander("Treinamento do Modelo CNN"):
@@ -160,7 +151,8 @@ def treinar_modelo(SEED):
 
                 # Extração do dataset
                 diretorio_extracao = tempfile.mkdtemp()
-                extrair_zip(caminho_zip, diretorio_extracao)
+                with zipfile.ZipFile(caminho_zip, 'r') as zip_ref:
+                    zip_ref.extractall(diretorio_extracao)
                 caminho_base = diretorio_extracao
 
                 # Leitura das classes e arquivos
