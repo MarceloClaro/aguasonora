@@ -12,6 +12,13 @@ requests
 music21
 pydub
 numba
+librosa
+imbalanced-learn
+requests
+music21
+pydub
+numba
+scikit-learn
 
 scikit-learn
 scipy
