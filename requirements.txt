@@ -10,6 +10,8 @@ librosa
 imblearn
 requests
 music21
+pretty_midi
+soundfile
 pydub
 numba
 librosa
