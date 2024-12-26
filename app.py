@@ -1,238 +1,146 @@
 import os
-import glob
-
-import streamlit as st
-import torch
-import torchaudio
-import torchaudio.transforms as T
-
-from torch import nn
-from torch.utils.data import DataLoader, Dataset, random_split
-import numpy as np
+import zipfile
+import shutil
+import tempfile
 import random
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from PIL import Image, UnidentifiedImageError
+import torch
+from torch import nn, optim
+from torch.utils.data import DataLoader, random_split
+from torchvision import transforms, datasets
+# Importar SOMENTE modelos que existem na versão atual
+from torchvision.models import resnet18, resnet50, densenet121
 
-# ------------------------------------------------------------------------------
-# Dataset customizado para ler áudios .wav organizados em subpastas (classes)
-# ------------------------------------------------------------------------------
-class AudioFolderDataset(Dataset):
-    """
-    Lê arquivos de áudio (formato .wav) de subpastas, cada subpasta representando uma classe.
-    Exemplo de estrutura:
-      data/
-        classeA/
-          audioA1.wav
-          audioA2.wav
-        classeB/
-          audioB1.wav
-    """
-    def __init__(self, root_dir, transform=None):
-        super().__init__()
-        self.root_dir = root_dir
-        self.transform = transform
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
+from sklearn.preprocessing import label_binarize
+from sklearn.decomposition import PCA
+import streamlit as st
+import gc
+import warnings
+import io
+from datetime import datetime
 
-        # Obter classes a partir das subpastas
-        self.classes = sorted(
-            d for d in os.listdir(root_dir)
-            if os.path.isdir(os.path.join(root_dir, d))
-        )
-        self.class_to_idx = {cls_name: i for i, cls_name in enumerate(self.classes)}
+warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 
-        # Lista de (caminho_arquivo, idx_classe)
-        self.samples = []
-        for cls_name in self.classes:
-            cls_dir = os.path.join(root_dir, cls_name)
-            # Pegar todos .wav daquela classe
-            files = glob.glob(os.path.join(cls_dir, '*.wav'))
-            for f in files:
-                self.samples.append((f, self.class_to_idx[cls_name]))
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+sns.set_style("whitegrid")
 
-        if len(self.samples) == 0:
-            raise RuntimeError(
-                f"Nenhum arquivo .wav encontrado em {root_dir}. "
-                f"Verifique se há subpastas com áudios .wav."
-            )
-
-    def __len__(self):
-        return len(self.samples)
-
-    def __getitem__(self, index):
-        audio_path, label = self.samples[index]
-
-        # Carregar áudio (waveform, sample_rate)
-        waveform, sr = torchaudio.load(audio_path)
-
-        # Se tiver transformações definidas (ex: MelSpectrogram)
-        if self.transform:
-            waveform = self.transform(waveform)
-
-        return waveform, label
-
-
-# ------------------------------------------------------------------------------
-# Exemplo de um modelo simples (CNN) para classificação de espectrogramas
-# ------------------------------------------------------------------------------
-class SimpleCNN(nn.Module):
-    """
-    Se você converter o waveform para espectrograma (shape = [N_MELS, tempo]),
-    pode tratar como uma "imagem" de 1 canal e treinar uma CNN simples.
-    """
-    def __init__(self, num_classes=2):
-        super().__init__()
-        # Exemplo de 1 conv + pooling + FC
-        # Ajuste as camadas conforme o tamanho do espectrograma.
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=8, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),
-        )
-        # Saída do conv ~ depende do tamanho do espectrograma
-        self.fc = nn.Sequential(
-            nn.Linear(16 * 16 * 16, 64),  # Exemplo: 16 filtros de 16x16
-            nn.ReLU(),
-            nn.Linear(64, num_classes)
-        )
-
-    def forward(self, x):
-        # x deve ter shape (B, 1, freq, tempo)
-        out = self.conv(x)
-        out = out.view(out.size(0), -1)
-        out = self.fc(out)
-        return out
-
-
-# ------------------------------------------------------------------------------
-# Funções auxiliares
-# ------------------------------------------------------------------------------
-def set_seed(seed=42):
+def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
-def train_loop(dataloader, model, criterion, optimizer, device):
-    model.train()
-    total_loss = 0
-    for batch in dataloader:
-        wave, labels = batch
-        # wave shape -> (B, freq, tempo) se transform for MelSpectrogram
-        # Precisamos de shape (B, 1, freq, tempo) p/ CNN
-        wave = wave.unsqueeze(1).to(device)  # (B,1,freq,tempo)
-        labels = labels.to(device)
-
-        optimizer.zero_grad()
-        outputs = model(wave)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-    return total_loss / len(dataloader)
-
-def eval_loop(dataloader, model, criterion, device):
-    model.eval()
-    total_loss = 0
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for batch in dataloader:
-            wave, labels = batch
-            wave = wave.unsqueeze(1).to(device)
-            labels = labels.to(device)
-
-            outputs = model(wave)
-            loss = criterion(outputs, labels)
-            total_loss += loss.item()
-
-            preds = torch.argmax(outputs, dim=1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
-
-    acc = 100.0 * correct / total
-    avg_loss = total_loss / len(dataloader)
-    return avg_loss, acc
-
-
-# ------------------------------------------------------------------------------
-# Função principal de treino
-# ------------------------------------------------------------------------------
-def train_model(root_dir,
-                num_classes=2,
-                epochs=10,
-                learning_rate=1e-3,
-                batch_size=16,
-                train_split=0.8,
-                device='cpu'):
-    # Definir transform de mel-spectrogram (exemplo)
-    # Esse "torchaudio.transforms.MelSpectrogram" converte wave -> espectrograma
-    # Ajuste conforme sr.
-    mel_transform = T.MelSpectrogram(
-        sample_rate=16000,  # Ajuste ao sample rate real
-        n_fft=1024,
-        hop_length=256,
-        n_mels=64
-    )
-
-    # Dataset
-    full_dataset = AudioFolderDataset(root_dir=root_dir, transform=mel_transform)
-    if len(full_dataset.classes) < num_classes:
-        raise ValueError(f"As classes detectadas ({full_dataset.classes}) "
-                         f"são menos que num_classes={num_classes} configurado.")
-
-    # Split train/val
-    total_len = len(full_dataset)
-    train_len = int(total_len * train_split)
-    val_len = total_len - train_len
-    train_ds, val_ds = random_split(full_dataset, [train_len, val_len])
-
-    # DataLoaders
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
-
-    # Modelo
-    model = SimpleCNN(num_classes=num_classes).to(device)
-
-    # Otimizador e loss
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.CrossEntropyLoss()
-
-    for epoch in range(epochs):
-        train_loss = train_loop(train_loader, model, criterion, optimizer, device)
-        val_loss, val_acc = eval_loop(val_loader, model, criterion, device)
-        print(f"[{epoch+1}/{epochs}] train_loss={train_loss:.4f} | val_loss={val_loss:.4f} | val_acc={val_acc:.2f}")
-
-    return model
-
-
-# ------------------------------------------------------------------------------
-# Exemplo de uso com Streamlit
-# ------------------------------------------------------------------------------
 def main():
-    st.title("Classificador de Áudio (Exemplo)")
+    st.title("Classificação de Imagens (Sem fcn_resnet50)")
+    st.write("Exemplo simplificado, usando somente ResNet e DenseNet para classificação.")
 
-    # Parâmetros
-    root_dir = st.text_input("Caminho raiz (pastas de áudio):", "data")
-    epochs = st.number_input("Épocas", 1, 100, 10)
-    batch_size = st.number_input("Batch size", 1, 128, 16)
-    lr = st.number_input("Learning Rate", 1e-6, 1.0, 1e-3)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # Sidebar
+    num_classes = st.sidebar.number_input("Número de Classes", min_value=2, value=2, step=1)
+    model_choice = st.sidebar.selectbox("Escolha o modelo", ["ResNet18","ResNet50","DenseNet121"])
+    epochs = st.sidebar.slider("Épocas", 1, 20, 5)
+    learning_rate = st.sidebar.select_slider("Learning Rate", options=[1e-2,1e-3,1e-4], value=1e-3)
+    batch_size = st.sidebar.selectbox("Batch Size",[8,16,32], index=1)
 
-    if st.button("Treinar"):
+    zip_file = st.file_uploader("Faça upload de um .zip com subpastas => classes (ex: agua gelada/, agua quente/)", type=["zip"])
+    if not zip_file:
+        st.info("Aguardando upload do .zip contendo as imagens")
+        return
+
+    # Extração do zip
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "data.zip")
+        with open(zip_path, "wb") as f:
+            f.write(zip_file.read())
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(tmpdir)
+
+        data_dir = tmpdir
+        st.write("Treinando modelo com dataset em:", data_dir)
+
         try:
-            model = train_model(
-                root_dir=root_dir,
-                num_classes=2,  # Ajuste para o nº de classes que você tiver
-                epochs=epochs,
-                learning_rate=lr,
-                batch_size=batch_size,
-                train_split=0.8,
-                device=device
-            )
-            st.success("Treino concluído com sucesso!")
-            st.write("Modelo treinado:", model)
-        except Exception as e:
-            st.error(f"Erro ao treinar: {e}")
+            # Exemplo de uso do ImageFolder
+            full_dataset = datasets.ImageFolder(root=data_dir, transform=transforms.ToTensor())
+            if len(full_dataset.classes)<num_classes:
+                st.error(f"Pastas encontradas = {full_dataset.classes} (total={len(full_dataset.classes)}), mas você pediu num_classes={num_classes}")
+                return
+
+            # Dividir em train/test
+            size = len(full_dataset)
+            indices = list(range(size))
+            random.shuffle(indices)
+            train_end = int(0.8*size)
+            train_idx = indices[:train_end]
+            test_idx  = indices[train_end:]
+
+            train_ds = torch.utils.data.Subset(full_dataset, train_idx)
+            test_ds  = torch.utils.data.Subset(full_dataset, test_idx)
+
+            train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+            test_loader  = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+
+            # Carrega o modelo
+            if model_choice=="ResNet18":
+                model = resnet18(weights="IMAGENET1K_V1")
+                # Muda a última camada
+                num_ftrs = model.fc.in_features
+                model.fc = nn.Linear(num_ftrs, num_classes)
+            elif model_choice=="ResNet50":
+                model = resnet50(weights="IMAGENET1K_V1")
+                # Muda a última camada
+                num_ftrs = model.fc.in_features
+                model.fc = nn.Linear(num_ftrs, num_classes)
+            else:
+                model = densenet121(weights="IMAGENET1K_V1")
+                num_ftrs = model.classifier.in_features
+                model.classifier = nn.Linear(num_ftrs, num_classes)
+
+            model.to(device)
+            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+            criterion = nn.CrossEntropyLoss()
+
+            st.write("Classes detectadas:", full_dataset.classes)
+            st.write("Treinando...")
+            for ep in range(epochs):
+                model.train()
+                running_loss = 0.0
+                for images, labels in train_loader:
+                    images, labels = images.to(device), labels.to(device)
+                    optimizer.zero_grad()
+                    outputs = model(images)
+                    loss = criterion(outputs, labels)
+                    loss.backward()
+                    optimizer.step()
+                    running_loss += loss.item()*images.size(0)
+                epoch_loss = running_loss/len(train_ds)
+                st.write(f"Época {ep+1}/{epochs}, Loss={epoch_loss:.4f}")
+
+            st.write("Avaliando no Teste...")
+            model.eval()
+            all_preds = []
+            all_labels = []
+            with torch.no_grad():
+                for images, labels in test_loader:
+                    images, labels = images.to(device), labels.to(device)
+                    outputs = model(images)
+                    _, preds = torch.max(outputs,1)
+                    all_preds.extend(preds.cpu().numpy())
+                    all_labels.extend(labels.cpu().numpy())
+
+            rep = classification_report(all_labels, all_preds, target_names=full_dataset.classes, output_dict=True)
+            st.write(pd.DataFrame(rep).transpose())
+
+        except FileNotFoundError as e:
+            st.error(f"Erro: {str(e)}\nVerifique se há arquivos .jpg/.png dentro das pastas no .zip")
+        except Exception as ex:
+            st.error(f"Erro inesperado: {str(ex)}")
 
 if __name__ == "__main__":
     set_seed(42)
