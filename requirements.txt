@@ -18,7 +18,7 @@ requests
 music21
 pydub
 numba
-
+fluidsynth
 scikit-learn
 scipy
 audiomentations
