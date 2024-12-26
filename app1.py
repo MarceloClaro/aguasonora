@@ -26,7 +26,7 @@ import scipy.signal
 from datetime import datetime
 import librosa
 import librosa.display
-import requests  # Para download de arquivos de áudio
+import requests  # Para download de arquivos de áudio e SoundFont
 import math
 import statistics
 import music21  # Importação adicionada
@@ -517,8 +517,26 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path):
             converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
             sc.write('midi', fp=converted_audio_file_as_midi)
 
+            # Verificar se o SoundFont existe, se não, baixar
+            soundfont_dir = 'sounds'
+            soundfont_filename = 'FluidR3_GM.sf2'
+            soundfont_path = os.path.join(soundfont_dir, soundfont_filename)
+
+            if not os.path.exists(soundfont_path):
+                st.info("Baixando SoundFont necessário...")
+                os.makedirs(soundfont_dir, exist_ok=True)
+                try:
+                    sf_url = "https://musical-artifacts.com/artifacts/738/FluidR3_GM.sf2/download"
+                    response = requests.get(sf_url, stream=True)
+                    response.raise_for_status()
+                    with open(soundfont_path, 'wb') as f:
+                        shutil.copyfileobj(response.raw, f)
+                    st.success("SoundFont baixado com sucesso.")
+                except Exception as e:
+                    st.error(f"Erro ao baixar o SoundFont: {e}")
+                    return
+
             # Converter MIDI para WAV
-            soundfont_path = 'sounds/FluidR3_GM.sf2'  # Atualize com o caminho para o seu SoundFont
             converted_audio_file_as_wav = tmp_audio_path[:-4] + '.wav'
             success = midi_to_wav(converted_audio_file_as_midi, converted_audio_file_as_wav, soundfont_path)
 
@@ -541,6 +559,8 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path):
                 st.error("Falha na conversão de MIDI para WAV.")
         else:
             st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
+    else:
+        st.error("Nenhum dado de notas e rests fornecido para criar a partitura.")
 
 def main():
     # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
@@ -842,6 +862,8 @@ def main():
                 return 0.51 * len(non_zero_values), "Rest"
             else:
                 # Interpretar como nota, estimando como média das previsões não-rest.
+                if len(non_zero_values) == 0:
+                    return float('inf'), "Rest"
                 h = round(
                     statistics.mean([
                         12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
@@ -1022,18 +1044,22 @@ def main():
                         if freq == 0:  # Silêncio sempre tem erro zero.
                             return None
                         # Nota quantizada.
-                        h = round(12 * math.log2(freq / C0))
-                        return 12 * math.log2(freq / C0) - h
+                        try:
+                            h = round(12 * math.log2(freq / C0))
+                            return 12 * math.log2(freq / C0) - h
+                        except ValueError:
+                            # Frequência inválida para log2
+                            return None
 
                     # Calcular o offset ideal
-                    offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0]
+                    offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0 and hz2offset(p) is not None]
                     if offsets:
                         ideal_offset = statistics.mean(offsets)
                     else:
                         ideal_offset = 0.0
                     # Garantir que ideal_offset é float
                     ideal_offset = float(ideal_offset)
-                    st.write(f"Ideal Offset: {ideal_offset:.4f}")
+                    st.write(f"**Ideal Offset:** {ideal_offset:.4f}")
 
                     # Função para quantizar previsões
                     def quantize_predictions(group, ideal_offset):
@@ -1047,6 +1073,8 @@ def main():
                             return 0.51 * len(non_zero_values), "Rest"
                         else:
                             # Interpretar como nota, estimando como média das previsões não-rest.
+                            if len(non_zero_values) == 0:
+                                return float('inf'), "Rest"
                             h = round(
                                 statistics.mean([
                                     12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
@@ -1130,7 +1158,7 @@ def main():
                             tempo = float(tempo)
                         else:
                             st.error(f"Tipo inesperado para 'tempo': {type(tempo)}")
-                            tempo = 0.0  # Valor padrão ou lidar de acordo com a lógica do seu aplicativo
+                            tempo = 120.0  # Valor padrão ou lidar de acordo com a lógica do seu aplicativo
 
                         st.write(f"**BPM Inferido com Librosa:** {tempo:.2f}")
                     except Exception as e:
