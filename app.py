@@ -35,6 +35,8 @@ import tensorflow as tf
 import tensorflow_hub as hub
 from scipy.io import wavfile
 import scipy.signal
+import pandas as pd
+import urllib
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -1356,7 +1358,13 @@ def main():
         yamnet_model = load_yamnet_model()
         st.success("Modelo YAMNet carregado com sucesso!")
 
-        # 2) Extrair o ZIP em um diretório temporário
+        # 2) Baixar e carregar o mapa de classes do YAMNet
+        class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
+        class_map_path = tf.keras.utils.get_file('yamnet_class_map.csv', class_map_url)
+        class_map_df = pd.read_csv(class_map_path)
+        classes_yamnet = class_map_df['display_name'].tolist()
+
+        # 3) Extrair o ZIP em um diretório temporário
         with tempfile.TemporaryDirectory() as tmpdir_audio:
             zip_path_audio = os.path.join(tmpdir_audio, "audios.zip")
             with open(zip_path_audio, "wb") as f:
@@ -1364,7 +1372,7 @@ def main():
             with zipfile.ZipFile(zip_path_audio, "r") as zf:
                 zf.extractall(tmpdir_audio)
 
-            # 3) Descobrir arquivos de áudio
+            # 4) Descobrir arquivos de áudio
             audio_files = []
             for root, dirs, files in os.walk(tmpdir_audio):
                 for file in files:
@@ -1378,14 +1386,20 @@ def main():
                 predictions_audio = []
                 file_names_audio = []
 
-                # 4) Processar cada áudio, normalizando e resamplando
+                # 5) Processar cada áudio, normalizando e resamplando
                 for audio_path in audio_files:
                     basename_audio = os.path.basename(audio_path)
                     file_names_audio.append(basename_audio)
                     try:
                         sr_orig, wav_data = wavfile.read(audio_path)
+                        # Verificar se está estéreo
+                        if wav_data.ndim > 1:
+                            # Converter para mono
+                            wav_data = wav_data.mean(axis=1)
                         # Normalizar para [-1, 1]
                         waveform = wav_data / np.iinfo(wav_data.dtype).max
+                        # Garantir que é float32
+                        waveform = waveform.astype(np.float32)
                         # Ajustar sample rate
                         sr, waveform = ensure_sample_rate(sr_orig, waveform)
 
@@ -1393,7 +1407,7 @@ def main():
                         # yamnet_model retorna: scores, embeddings, spectrogram
                         scores, embeddings, spectrogram = yamnet_model(waveform)
 
-                        # → scores.shape = [frames, 521]
+                        # scores.shape = [frames, 521]
                         scores_np = scores.numpy()
                         mean_scores = scores_np.mean(axis=0)  # média por frame
                         pred_class = mean_scores.argmax()
@@ -1402,34 +1416,18 @@ def main():
                         st.error(f"Erro ao processar {basename_audio}: {e}")
                         predictions_audio.append(-1)
 
-                # 5) Exibir resultados
+                # 6) Exibir resultados
                 st.subheader("Resultados da Classificação de Áudio")
                 result_list_audio = []
                 for fn, pred in zip(file_names_audio, predictions_audio):
                     result_list_audio.append({"Arquivo": fn, "Classe Predita": pred})
                 st.write(result_list_audio)
 
-                # 6) (Opcional) Carregar o class_map do YAMNet
-                # Isso depende de como o YAMNet disponibiliza o class_map
-                # Aqui, como exemplo, vamos assumir que há um arquivo CSV com as classes
-                class_map = []
-                try:
-                    class_map_path = yamnet_model.class_map_path().numpy().decode('utf-8')
-                    import csv
-                    with tf.io.gfile.GFile(class_map_path) as csvfile:
-                        reader = csv.DictReader(csvfile)
-                        for row in reader:
-                            class_map.append(row['display_name'])
-                    st.write("Classes do YAMNet carregadas.")
-                except Exception as e:
-                    st.error(f"Erro ao carregar class_map do YAMNet: {e}")
-                    class_map = [str(i) for i in range(521)]  # Fallback
-
-                # Atualizar as classes no resultado
+                # 7) Atualizar as classes no resultado
                 for item in result_list_audio:
                     idx = item["Classe Predita"]
-                    if 0 <= idx < len(class_map):
-                        item["Classe Predita"] = class_map[idx]
+                    if 0 <= idx < len(classes_yamnet):
+                        item["Classe Predita"] = classes_yamnet[idx]
                     else:
                         item["Classe Predita"] = "Desconhecida"
 
