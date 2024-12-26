@@ -627,6 +627,8 @@ def main():
                                 # Carregar o áudio usando librosa para aplicar augmentations
                                 try:
                                     waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
+                                    # Remover ruído de fundo opcionalmente
+                                    # waveform = remove_noise(waveform, sr)
                                     augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
                                     for aug_waveform in augmented_waveforms:
                                         # Salvar temporariamente o áudio aumentado para processar
@@ -771,7 +773,7 @@ def main():
         note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
         # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-        predictions_per_eighth = 20  # Ajustar conforme necessário
+        predictions_per_eighth = 40  # Aumentou de 20 para 40
         prediction_start_offset = 0  # Ajustar conforme necessário
 
         def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
@@ -898,9 +900,9 @@ def main():
                     st.pyplot(fig_pitch)
                     plt.close(fig_pitch)
 
-                    # Remover pitches com baixa confiança
-                    confident_indices = np.where(confidence_outputs >= 0.9)[0]
-                    confident_pitches = pitch_outputs[confidence_outputs >= 0.9]
+                    # Remover pitches com baixa confiança (ajuste o limiar)
+                    confident_indices = np.where(confidence_outputs >= 0.8)[0]  # Reduziu de 0.9 para 0.8
+                    confident_pitches = pitch_outputs[confidence_outputs >= 0.8]
                     confident_pitch_values_hz = [output2hz(p) for p in confident_pitches]
 
                     # Plotar apenas pitches com alta confiança
@@ -965,7 +967,7 @@ def main():
                             return error, note
 
                     # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-                    predictions_per_eighth = 20  # Ajustar conforme necessário
+                    predictions_per_eighth = 40  # Aumentou de 20 para 40
                     prediction_start_offset = 0  # Ajustar conforme necessário
 
                     def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
@@ -1019,21 +1021,31 @@ def main():
                         part = music21.stream.Part()
                         sc.insert(0, part)
 
-                        # Ajustar o tempo para corresponder à velocidade real do canto.
-                        bpm = 60 * 60 / best_predictions_per_eighth
-                        st.write(f"**BPM Calculado:** {bpm:.2f}")
-                        a = music21.tempo.MetronomeMark(number=bpm)
-                        part.insert(0, a)
+                        # Adicionar a assinatura de tempo (compasso 4/4)
+                        time_signature = music21.meter.TimeSignature('4/4')
+                        part.insert(0, time_signature)
+
+                        # Adicionar a assinatura de tempo com BPM inferido
+                        # Inferir BPM usando librosa
+                        tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sample_rate)
+                        st.write(f"**BPM Inferido com Librosa:** {tempo:.2f}")
+
+                        a = music21.tempo.MetronomeMark(number=tempo)
+                        part.insert(1, a)  # Inserir após a assinatura de tempo
 
                         for snote in best_notes_and_rests:
-                            d = 'half'
                             if snote == 'Rest':
-                                part.append(music21.note.Rest(type=d))
+                                note_obj = music21.note.Rest()
+                                note_obj.duration.type = 'quarter'
+                                part.append(note_obj)
                             else:
                                 try:
-                                    part.append(music21.note.Note(snote, type=d))
+                                    note_obj = music21.note.Note(snote)
+                                    note_obj.duration.type = 'quarter'
+                                    part.append(note_obj)
                                 except music21.pitch.PitchException:
                                     st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
+                                    continue
 
                         # Verificar se a partitura está bem-formada
                         if sc.isWellFormedNotation():
