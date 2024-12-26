@@ -26,16 +26,16 @@ import scipy.signal
 from datetime import datetime
 import librosa
 import librosa.display
-import requests  # Para download de arquivos de áudio e SoundFont
+import requests
 import math
 import statistics
-import music21  # Importação adicionada
-import streamlit.components.v1 as components  # Importação adicionada
+import music21
+import streamlit.components.v1 as components
 import pretty_midi
 import soundfile as sf
+import warnings
 
 # Suprimir avisos relacionados ao torch.classes
-import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 
 # Definir o dispositivo (CPU ou GPU)
@@ -112,7 +112,7 @@ def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_st
                 st.warning(f"Erro ao aplicar Time Stretch: {e}")
         elif method == 'Pitch Shift':
             try:
-                shifted = apply_pitch_shift(waveform, sr, n_steps=n_steps)  # Ajuste aqui
+                shifted = apply_pitch_shift(waveform, sr, n_steps=n_steps)
                 augmented_waveforms.append(shifted)
             except Exception as e:
                 st.warning(f"Erro ao aplicar Pitch Shift: {e}")
@@ -517,24 +517,11 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path):
             converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
             sc.write('midi', fp=converted_audio_file_as_midi)
 
-            # Verificar se o SoundFont existe, se não, baixar
-            soundfont_dir = 'sounds'
-            soundfont_filename = 'FluidR3_GM.sf2'
-            soundfont_path = os.path.join(soundfont_dir, soundfont_filename)
-
-            if not os.path.exists(soundfont_path):
-                st.info("Baixando SoundFont necessário...")
-                os.makedirs(soundfont_dir, exist_ok=True)
-                try:
-                    sf_url = "https://musical-artifacts.com/artifacts/738/FluidR3_GM.sf2/download"
-                    response = requests.get(sf_url, stream=True)
-                    response.raise_for_status()
-                    with open(soundfont_path, 'wb') as f:
-                        shutil.copyfileobj(response.raw, f)
-                    st.success("SoundFont baixado com sucesso.")
-                except Exception as e:
-                    st.error(f"Erro ao baixar o SoundFont: {e}")
-                    return
+            # Download automático do SoundFont
+            soundfont_path = download_soundfont()
+            if soundfont_path is None:
+                st.error("Não foi possível obter o SoundFont necessário para converter MIDI para WAV.")
+                return
 
             # Converter MIDI para WAV
             converted_audio_file_as_wav = tmp_audio_path[:-4] + '.wav'
@@ -864,11 +851,15 @@ def main():
                 # Interpretar como nota, estimando como média das previsões não-rest.
                 if len(non_zero_values) == 0:
                     return float('inf'), "Rest"
-                h = round(
-                    statistics.mean([
-                        12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
-                    ])
-                )
+                try:
+                    h = round(
+                        statistics.mean([
+                            12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                        ])
+                    )
+                except ValueError:
+                    # Frequência inválida para log2
+                    return float('inf'), "Rest"
                 octave = h // 12
                 n = h % 12
                 if n < 0 or n >= len(note_names):
@@ -1075,11 +1066,15 @@ def main():
                             # Interpretar como nota, estimando como média das previsões não-rest.
                             if len(non_zero_values) == 0:
                                 return float('inf'), "Rest"
-                            h = round(
-                                statistics.mean([
-                                    12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
-                                ])
-                            )
+                            try:
+                                h = round(
+                                    statistics.mean([
+                                        12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                                    ])
+                                )
+                            except ValueError:
+                                # Frequência inválida para log2
+                                return float('inf'), "Rest"
                             octave = h // 12
                             n = h % 12
                             if n < 0 or n >= len(note_names):
