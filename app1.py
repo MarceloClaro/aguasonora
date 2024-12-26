@@ -12,7 +12,7 @@ import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, f1_score
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
 import streamlit as st
@@ -27,6 +27,10 @@ from datetime import datetime
 import librosa
 import librosa.display
 import requests  # Para download de arquivos de áudio
+import math
+import statistics
+import music21  # Importação adicionada
+import streamlit.components.v1 as components  # Importação adicionada
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -348,13 +352,111 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
     report = classification_report(all_labels, all_preds, target_names=target_names, zero_division=0, output_dict=True)
     st.write(pd.DataFrame(report).transpose())
 
+    # Matriz de Confusão
+    st.write("### Matriz de Confusão")
+    cm = confusion_matrix(all_labels, all_preds)
+    fig_cm, ax_cm = plt.subplots(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=target_names, yticklabels=target_names, ax=ax_cm)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+    st.pyplot(fig_cm)
+    plt.close(fig_cm)
+
+    # Curva ROC e AUC
+    st.write("### Curva ROC")
+    if num_classes > 1:
+        # Para múltiplas classes, utilizamos One-vs-Rest
+        from sklearn.preprocessing import label_binarize
+
+        y_test_binarized = label_binarize(all_labels, classes=range(num_classes))
+        y_pred_binarized = label_binarize(all_preds, classes=range(num_classes))
+
+        if y_test_binarized.shape[1] > 1:
+            fpr = dict()
+            tpr = dict()
+            roc_auc_dict = dict()
+            for i in range(num_classes):
+                fpr[i], tpr[i], _ = roc_curve(y_test_binarized[:, i], y_pred_binarized[:, i])
+                roc_auc_dict[i] = auc(fpr[i], tpr[i])
+
+            # Plotar Curva ROC para cada classe
+            fig_roc, ax_roc = plt.subplots(figsize=(10, 8))
+            colors = sns.color_palette("hsv", num_classes)
+            for i, color in zip(range(num_classes), colors):
+                ax_roc.plot(fpr[i], tpr[i], color=color, lw=2,
+                           label=f'Classe {i} (AUC = {roc_auc_dict[i]:0.2f})')
+
+            ax_roc.plot([0, 1], [0, 1], 'k--', lw=2)
+            ax_roc.set_xlim([0.0, 1.0])
+            ax_roc.set_ylim([0.0, 1.05])
+            ax_roc.set_xlabel('False Positive Rate')
+            ax_roc.set_ylabel('True Positive Rate')
+            ax_roc.set_title('Receiver Operating Characteristic (ROC) Curve')
+            ax_roc.legend(loc="lower right")
+            st.pyplot(fig_roc)
+            plt.close(fig_roc)
+        else:
+            st.warning("Curva ROC não disponível para uma única classe após binarização.")
+    else:
+        st.warning("Curva ROC não disponível para uma única classe.")
+
+    # F1-Score
+    st.write("### F1-Score por Classe")
+    f1_scores = f1_score(all_labels, all_preds, average=None)
+    f1_df = pd.DataFrame({'Classe': target_names, 'F1-Score': f1_scores})
+    st.write(f1_df)
+
     return classifier
+
+def showScore(score):
+    """
+    Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
+    """
+    xml = score.write('musicxml')
+    showMusicXML(xml)
+
+def showMusicXML(xml):
+    """
+    Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
+    """
+    DIV_ID = "OSMD_div"
+    html_content = f"""
+    <div id="{DIV_ID}">Carregando OpenSheetMusicDisplay...</div>
+    <script>
+    (function() {{
+        // Carregar OpenSheetMusicDisplay se ainda não estiver carregado
+        if (!window.opensheetmusicdisplay) {{
+            var script = document.createElement('script');
+            script.src = "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@0.7.6/build/opensheetmusicdisplay.min.js";
+            script.onload = function() {{
+                initializeOSMD();
+            }};
+            document.head.appendChild(script);
+        }} else {{
+            initializeOSMD();
+        }}
+
+        function initializeOSMD() {{
+            var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("{DIV_ID}", {{
+                drawingParameters: "compacttight"
+            }});
+            osmd.load(`{xml}`).then(function() {{
+                osmd.render();
+            }});
+        }}
+    }})();
+    </script>
+    """
+    components.html(html_content, height=600)
 
 def main():
     # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
-    st.set_page_config(page_title="Classificação de Áudio com YAMNet", layout="wide")
-    st.title("Classificação de Áudio com YAMNet")
-    st.write("Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo YAMNet para extrair embeddings.")
+    st.set_page_config(page_title="Classificação de Áudio com YAMNet e SPICE", layout="wide")
+    st.title("Classificação de Áudio com YAMNet e Detecção de Pitch com SPICE")
+    st.write("""
+    Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings e o modelo **SPICE** para detecção de pitch, melhorando assim a classificação.
+    """)
 
     # Sidebar para parâmetros de treinamento e pré-processamento
     st.sidebar.header("Configurações")
@@ -394,7 +496,9 @@ def main():
 
     # Seção de Download e Preparação de Arquivos de Áudio
     st.header("Baixando e Preparando Arquivos de Áudio")
-    st.write("Você pode baixar um arquivo de áudio de exemplo ou carregar seu próprio arquivo para começar.")
+    st.write("""
+    Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
+    """)
 
     # Links para Download de Arquivos de Áudio de Exemplo
     st.subheader("Download de Arquivos de Áudio de Exemplo")
@@ -455,7 +559,9 @@ def main():
 
     # Upload de dados supervisionados
     st.header("Upload de Dados Supervisionados")
-    st.write("Envie um arquivo ZIP contendo subpastas com arquivos de áudio organizados por classe. Por exemplo:")
+    st.write("""
+    Envie um arquivo ZIP contendo subpastas com arquivos de áudio organizados por classe. Por exemplo:
+    """)
     st.write("""
     ```
     dados/
@@ -624,6 +730,70 @@ def main():
 
     # Classificação de Novo Áudio
     if 'classifier' in st.session_state and 'classes' in st.session_state:
+        def output2hz(pitch_output):
+            # Constants taken from https://tfhub.dev/google/spice/2
+            PT_OFFSET = 25.58
+            PT_SLOPE = 63.07
+            FMIN = 10.0
+            BINS_PER_OCTAVE = 12.0
+            cqt_bin = pitch_output * PT_SLOPE + PT_OFFSET
+            return FMIN * 2.0 ** (1.0 * cqt_bin / BINS_PER_OCTAVE)
+
+        def quantize_predictions(group, ideal_offset):
+            # Group values são ou 0, ou um pitch em Hz.
+            non_zero_values = [v for v in group if v != 0]
+            zero_values_count = len(group) - len(non_zero_values)
+
+            # Criar um rest se 80% for silencioso, caso contrário, criar uma nota.
+            if zero_values_count > 0.8 * len(group):
+                # Interpretar como um rest. Contar cada nota descartada como um erro, ponderado um pouco pior que uma nota mal cantada (que 'custaria' 0.5).
+                return 0.51 * len(non_zero_values), "Rest"
+            else:
+                # Interpretar como nota, estimando como média das previsões não-rest.
+                h = round(
+                    statistics.mean([
+                        12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                    ])
+                )
+                octave = h // 12
+                n = h % 12
+                note = note_names[n] + str(octave)
+                # Erro de quantização é a diferença total da nota quantizada.
+                error = sum([
+                    abs(12 * math.log2(freq / C0) - ideal_offset - h)
+                    for freq in non_zero_values
+                ])
+                return error, note
+
+        # Definir constantes
+        A4 = 440
+        C0 = A4 * pow(2, -4.75)
+        note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+        # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
+        predictions_per_eighth = 20  # Ajustar conforme necessário
+        prediction_start_offset = 0  # Ajustar conforme necessário
+
+        def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
+                                       prediction_start_offset, ideal_offset):
+            # Aplicar o offset inicial - podemos simplesmente adicionar o offset como rests.
+            pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
+            # Coletar as previsões para cada nota (ou rest).
+            groups = [
+                pitch_outputs_and_rests[i:i + predictions_per_eighth]
+                for i in range(0, len(pitch_outputs_and_rests), predictions_per_eighth)
+            ]
+
+            quantization_error = 0
+
+            notes_and_rests = []
+            for group in groups:
+                error, note_or_rest = quantize_predictions(group, ideal_offset)
+                quantization_error += error
+                notes_and_rests.append(note_or_rest)
+
+            return quantization_error, notes_and_rests
+
         def classify_new_audio(uploaded_audio):
             try:
                 # Salvar o arquivo de áudio em um diretório temporário
@@ -695,16 +865,202 @@ def main():
                     # Plot do Espectrograma
                     S = librosa.feature.melspectrogram(y=wav_data, sr=sample_rate, n_mels=128)
                     S_DB = librosa.power_to_db(S, ref=np.max)
-                    img = librosa.display.specshow(S_DB, sr=sample_rate, x_axis='time', y_axis='mel', ax=ax[1])
-                    fig.colorbar(img, ax=ax[1], format='%+2.0f dB')
+                    librosa.display.specshow(S_DB, sr=sample_rate, x_axis='time', y_axis='mel', ax=ax[1])
+                    fig.colorbar(ax[1].collections[0], ax=ax[1], format='%+2.0f dB')
                     ax[1].set_title("Espectrograma Mel")
 
                     st.pyplot(fig)
                     plt.close(fig)
 
+                    # Detecção de Pitch com SPICE
+                    st.subheader("Detecção de Pitch com SPICE")
+                    # Carregar o modelo SPICE
+                    spice_model = hub.load("https://tfhub.dev/google/spice/2")
+
+                    # Normalizar as amostras de áudio
+                    audio_samples = wav_data / np.max(np.abs(wav_data)) if np.max(np.abs(wav_data)) != 0 else wav_data
+
+                    # Executar o modelo SPICE
+                    model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples, tf.float32))
+
+                    pitch_outputs = model_output["pitch"].numpy().flatten()
+                    uncertainty_outputs = model_output["uncertainty"].numpy().flatten()
+
+                    # 'Uncertainty' basicamente significa a inversão da confiança.
+                    confidence_outputs = 1.0 - uncertainty_outputs
+
+                    # Plotar pitch e confiança
+                    fig_pitch, ax_pitch = plt.subplots(figsize=(20, 10))
+                    ax_pitch.plot(pitch_outputs, label='Pitch')
+                    ax_pitch.plot(confidence_outputs, label='Confiança')
+                    ax_pitch.legend(loc="lower right")
+                    ax_pitch.set_title("Pitch e Confiança com SPICE")
+                    st.pyplot(fig_pitch)
+                    plt.close(fig_pitch)
+
+                    # Remover pitches com baixa confiança
+                    confident_indices = np.where(confidence_outputs >= 0.9)[0]
+                    confident_pitches = pitch_outputs[confidence_outputs >= 0.9]
+                    confident_pitch_values_hz = [output2hz(p) for p in confident_pitches]
+
+                    # Plotar apenas pitches com alta confiança
+                    fig_confident_pitch, ax_confident_pitch = plt.subplots(figsize=(20, 10))
+                    ax_confident_pitch.scatter(confident_indices, confident_pitch_values_hz, c="r", label='Pitch Confiante')
+                    ax_confident_pitch.set_ylim([0, 2000])  # Ajustar conforme necessário
+                    ax_confident_pitch.set_title("Pitches Confidentes Detectados com SPICE")
+                    ax_confident_pitch.set_xlabel("Amostras")
+                    ax_confident_pitch.set_ylabel("Pitch (Hz)")
+                    ax_confident_pitch.legend()
+                    st.pyplot(fig_confident_pitch)
+                    plt.close(fig_confident_pitch)
+
+                    # Conversão de Pitches para Notas Musicais
+                    st.subheader("Notas Musicais Detectadas")
+                    # Definir constantes para conversão
+                    A4 = 440
+                    C0 = A4 * pow(2, -4.75)
+                    note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+                    def hz2offset(freq):
+                        # Medir o erro de quantização para uma única nota.
+                        if freq == 0:  # Silêncio sempre tem erro zero.
+                            return None
+                        # Nota quantizada.
+                        h = round(12 * math.log2(freq / C0))
+                        return 12 * math.log2(freq / C0) - h
+
+                    # Calcular o offset ideal
+                    offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0]
+                    if offsets:
+                        ideal_offset = statistics.mean(offsets)
+                    else:
+                        ideal_offset = 0.0
+                    st.write(f"Ideal Offset: {ideal_offset:.4f}")
+
+                    # Função para quantizar previsões
+                    def quantize_predictions(group, ideal_offset):
+                        # Group values são ou 0, ou um pitch em Hz.
+                        non_zero_values = [v for v in group if v != 0]
+                        zero_values_count = len(group) - len(non_zero_values)
+
+                        # Criar um rest se 80% for silencioso, caso contrário, criar uma nota.
+                        if zero_values_count > 0.8 * len(group):
+                            # Interpretar como um rest. Contar cada nota descartada como um erro, ponderado um pouco pior que uma nota mal cantada (que 'custaria' 0.5).
+                            return 0.51 * len(non_zero_values), "Rest"
+                        else:
+                            # Interpretar como nota, estimando como média das previsões não-rest.
+                            h = round(
+                                statistics.mean([
+                                    12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                                ])
+                            )
+                            octave = h // 12
+                            n = h % 12
+                            note = note_names[n] + str(octave)
+                            # Erro de quantização é a diferença total da nota quantizada.
+                            error = sum([
+                                abs(12 * math.log2(freq / C0) - ideal_offset - h)
+                                for freq in non_zero_values
+                            ])
+                            return error, note
+
+                    # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
+                    predictions_per_eighth = 20  # Ajustar conforme necessário
+                    prediction_start_offset = 0  # Ajustar conforme necessário
+
+                    def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
+                                                   prediction_start_offset, ideal_offset):
+                        # Aplicar o offset inicial - podemos simplesmente adicionar o offset como rests.
+                        pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
+                        # Coletar as previsões para cada nota (ou rest).
+                        groups = [
+                            pitch_outputs_and_rests[i:i + predictions_per_eighth]
+                            for i in range(0, len(pitch_outputs_and_rests), predictions_per_eighth)
+                        ]
+
+                        quantization_error = 0
+
+                        notes_and_rests = []
+                        for group in groups:
+                            error, note_or_rest = quantize_predictions(group, ideal_offset)
+                            quantization_error += error
+                            notes_and_rests.append(note_or_rest)
+
+                        return quantization_error, notes_and_rests
+
+                    # Obter a melhor quantização
+                    best_error = float("inf")
+                    best_notes_and_rests = None
+                    best_predictions_per_eighth = None
+
+                    for ppn in range(15, 35, 1):
+                        for pso in range(ppn):
+                            error, notes_and_rests = get_quantization_and_error(
+                                confident_pitch_values_hz, ppn,
+                                pso, ideal_offset
+                            )
+                            if error < best_error:
+                                best_error = error
+                                best_notes_and_rests = notes_and_rests
+                                best_predictions_per_eighth = ppn
+
+                    # Remover rests iniciais e finais
+                    while best_notes_and_rests and best_notes_and_rests[0] == 'Rest':
+                        best_notes_and_rests = best_notes_and_rests[1:]
+                    while best_notes_and_rests and best_notes_and_rests[-1] == 'Rest':
+                        best_notes_and_rests = best_notes_and_rests[:-1]
+
+                    st.write(f"Notas e Rests Detectados: {best_notes_and_rests}")
+
+                    # Criar a partitura musical usando music21
+                    if best_notes_and_rests:
+                        sc = music21.stream.Score()
+                        # Adicionar uma parte à partitura
+                        part = music21.stream.Part()
+                        sc.insert(0, part)
+
+                        # Ajustar o tempo para corresponder à velocidade real do canto.
+                        bpm = 60 * 60 / best_predictions_per_eighth
+                        st.write(f"**BPM Calculado:** {bpm:.2f}")
+                        a = music21.tempo.MetronomeMark(number=bpm)
+                        part.insert(0, a)
+
+                        for snote in best_notes_and_rests:
+                            d = 'half'
+                            if snote == 'Rest':
+                                part.append(music21.note.Rest(type=d))
+                            else:
+                                try:
+                                    part.append(music21.note.Note(snote, type=d))
+                                except music21.pitch.PitchException:
+                                    st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
+
+                        # Verificar se a partitura está bem-formada
+                        if sc.isWellFormedNotation():
+                            # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
+                            showScore(sc)
+
+                            # Converter as notas musicais em um arquivo MIDI e oferecê-lo para download
+                            converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
+                            sc.write('midi', fp=converted_audio_file_as_midi)
+
+                            # Oferecer o arquivo MIDI para download
+                            try:
+                                with open(converted_audio_file_as_midi, 'rb') as f:
+                                    midi_data = f.read()
+                                st.download_button(
+                                    label="Download do Arquivo MIDI",
+                                    data=midi_data,
+                                    file_name=os.path.basename(converted_audio_file_as_midi),
+                                    mime="audio/midi"
+                                )
+                                st.success("Arquivo MIDI gerado e disponível para download.")
+                            except Exception as e:
+                                st.error(f"Erro ao gerar o arquivo MIDI: {e}")
+                        else:
+                            st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
             except Exception as e:
                 st.error(f"Erro ao processar o áudio: {e}")
-
             finally:
                 # Remover arquivos temporários
                 try:
@@ -713,7 +1069,17 @@ def main():
                     st.warning(f"Erro ao remover arquivos temporários: {e}")
 
         st.header("Classificação de Novo Áudio")
-        st.write("Envie um arquivo de áudio para ser classificado pelo modelo treinado.")
+        st.write("""
+        **Envie um arquivo de áudio para ser classificado pelo modelo treinado.**
+        
+        **Explicação para Leigos:**
+        - **O que você faz:** Envie um arquivo de áudio (como um canto, fala ou som ambiente) para que o modelo identifique a qual categoria ele pertence.
+        - **O que acontece:** O aplicativo analisará o áudio, determinará a classe mais provável e mostrará a confiança dessa previsão. Além disso, você poderá visualizar a forma de onda, o espectrograma e as notas musicais detectadas.
+        
+        **Explicação para Técnicos:**
+        - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet. O classificador treinado em PyTorch utiliza esses embeddings para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
+        - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
+        """)
         uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
 
         if uploaded_audio is not None:
@@ -734,7 +1100,7 @@ def main():
     
     6. **Treinamento do Classificador**: Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
     
-    7. **Classificação de Novo Áudio**: Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança e visualizará a forma de onda e o espectrograma do áudio carregado.
+    7. **Classificação de Novo Áudio**: Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, além de realizar a detecção de pitch com SPICE para auxiliar na classificação.
     
     **Exemplo de Estrutura de Diretórios para Upload:**
     ```
