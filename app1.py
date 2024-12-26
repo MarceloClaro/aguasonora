@@ -261,7 +261,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         epoch_loss = running_loss / len(train_loader.dataset)
         epoch_acc = running_corrects.double() / len(train_loader.dataset)
         train_losses.append(epoch_loss)
-        train_accuracies.append(epoch_acc.item())
+        train_accuracies.append(epoch_acc.item())  # Corrigido para .item()
 
         # Validação
         classifier.eval()
@@ -283,7 +283,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         val_epoch_loss = val_running_loss / len(val_loader.dataset)
         val_epoch_acc = val_running_corrects.double() / len(val_loader.dataset)
         val_losses.append(val_epoch_loss)
-        val_accuracies.append(val_epoch_acc.item())
+        val_accuracies.append(val_epoch_acc.item())  # Corrigido para .item()
 
         # Atualizar a barra de progresso
         progress = (epoch + 1) / epochs
@@ -291,8 +291,8 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
         # Exibir métricas do epoch
         st.write(f"### Época {epoch+1}/{epochs}")
-        st.write(f"**Treino - Perda:** {epoch_loss:.4f}, **Acurácia:** {epoch_acc:.4f}")
-        st.write(f"**Validação - Perda:** {val_epoch_loss:.4f}, **Acurácia:** {val_epoch_acc:.4f}")
+        st.write(f"**Treino - Perda:** {epoch_loss:.4f}, **Acurácia:** {epoch_acc.item():.4f}")  # Corrigido
+        st.write(f"**Validação - Perda:** {val_epoch_loss:.4f}, **Acurácia:** {val_epoch_acc.item():.4f}")  # Corrigido
 
         # Early Stopping
         if val_epoch_loss < best_val_loss:
@@ -414,29 +414,14 @@ def showScore(score):
     """
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
-    # Obter o conteúdo MusicXML como string
-    xml = score.write('musicxml', fp=None)
-    
-    # Verificar o tipo de 'xml' para depuração
-    st.write(f"Tipo de 'xml': {type(xml)}")  # Deve ser <class 'str'>
-    
-    # Assegurar que 'xml' seja uma string
-    if not isinstance(xml, str):
-        st.error("Erro: O conteúdo MusicXML não foi retornado como uma string.")
-        return
-    
-    # Escapar caracteres especiais se necessário
-    xml_safe = xml.replace('`', '\\`')  # Escapar backticks
-    
-    showMusicXML(xml_safe)
+    xml = score.write('musicxml')
+    showMusicXML(xml)
 
 def showMusicXML(xml):
     """
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
     DIV_ID = "OSMD_div"
-    xml_json = json.dumps(xml)  # Escapar caracteres especiais
-    
     html_content = f"""
     <div id="{DIV_ID}">Carregando OpenSheetMusicDisplay...</div>
     <script>
@@ -457,7 +442,7 @@ def showMusicXML(xml):
             var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("{DIV_ID}", {{
                 drawingParameters: "compacttight"
             }});
-            osmd.load({xml_json}).then(function() {{
+            osmd.load(`{xml}`).then(function() {{
                 osmd.render();
             }});
         }}
@@ -643,8 +628,6 @@ def main():
                                 # Carregar o áudio usando librosa para aplicar augmentations
                                 try:
                                     waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
-                                    # Remover ruído de fundo opcionalmente
-                                    # waveform = remove_noise(waveform, sr)
                                     augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
                                     for aug_waveform in augmented_waveforms:
                                         # Salvar temporariamente o áudio aumentado para processar
@@ -768,20 +751,23 @@ def main():
                 return 0.51 * len(non_zero_values), "Rest"
             else:
                 # Interpretar como nota, estimando como média das previsões não-rest.
-                h = round(
-                    statistics.mean([
-                        12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                try:
+                    h = round(
+                        statistics.mean([
+                            12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                        ])
+                    )
+                    octave = h // 12
+                    n = h % 12
+                    note = note_names[n] + str(octave)
+                    # Erro de quantização é a diferença total da nota quantizada.
+                    error = sum([
+                        abs(12 * math.log2(freq / C0) - ideal_offset - h)
+                        for freq in non_zero_values
                     ])
-                )
-                octave = h // 12
-                n = h % 12
-                note = note_names[n] + str(octave)
-                # Erro de quantização é a diferença total da nota quantizada.
-                error = sum([
-                    abs(12 * math.log2(freq / C0) - ideal_offset - h)
-                    for freq in non_zero_values
-                ])
-                return error, note
+                    return error, note
+                except:
+                    return 0, "Rest"
 
         # Definir constantes
         A4 = 440
@@ -789,7 +775,7 @@ def main():
         note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
         # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-        predictions_per_eighth = 40  # Aumentou de 20 para 40
+        predictions_per_eighth = 20  # Ajustar conforme necessário
         prediction_start_offset = 0  # Ajustar conforme necessário
 
         def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
@@ -948,9 +934,9 @@ def main():
                     st.pyplot(fig_pitch)
                     plt.close(fig_pitch)
 
-                    # Remover pitches com baixa confiança (ajuste o limiar)
-                    confident_indices = np.where(confidence_outputs >= 0.8)[0]  # Reduziu de 0.9 para 0.8
-                    confident_pitches = pitch_outputs[confidence_outputs >= 0.8]
+                    # Remover pitches com baixa confiança
+                    confident_indices = np.where(confidence_outputs >= 0.9)[0]
+                    confident_pitches = pitch_outputs[confidence_outputs >= 0.9]
                     confident_pitch_values_hz = [output2hz(p) for p in confident_pitches]
 
                     # Plotar apenas pitches com alta confiança
@@ -1021,7 +1007,7 @@ def main():
                                 return 0, "Rest"
 
                     # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-                    predictions_per_eighth = 40  # Aumentou de 20 para 40
+                    predictions_per_eighth = 20  # Ajustar conforme necessário
                     prediction_start_offset = 0  # Ajustar conforme necessário
 
                     def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
@@ -1075,31 +1061,21 @@ def main():
                         part = music21.stream.Part()
                         sc.insert(0, part)
 
-                        # Adicionar a assinatura de tempo (compasso 4/4)
-                        time_signature = music21.meter.TimeSignature('4/4')
-                        part.insert(0, time_signature)
-
-                        # Adicionar a assinatura de tempo com BPM inferido
-                        # Inferir BPM usando librosa
-                        tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sample_rate)
-                        st.write(f"**BPM Inferido com Librosa:** {tempo:.2f}")
-
-                        a = music21.tempo.MetronomeMark(number=tempo)
-                        part.insert(1, a)  # Inserir após a assinatura de tempo
+                        # Ajustar o tempo para corresponder à velocidade real do canto.
+                        bpm = best_predictions_per_eighth * 2  # Assumindo que best_predictions_per_eighth é por oitavo
+                        st.write(f"**BPM Calculado:** {bpm:.2f}")
+                        a = music21.tempo.MetronomeMark(number=bpm)
+                        part.insert(0, a)
 
                         for snote in best_notes_and_rests:
+                            d = 'half'
                             if snote == 'Rest':
-                                note_obj = music21.note.Rest()
-                                note_obj.duration.type = 'quarter'
-                                part.append(note_obj)
+                                part.append(music21.note.Rest(type=d))
                             else:
                                 try:
-                                    note_obj = music21.note.Note(snote)
-                                    note_obj.duration.type = 'quarter'
-                                    part.append(note_obj)
+                                    part.append(music21.note.Note(snote, type=d))
                                 except music21.pitch.PitchException:
                                     st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
-                                    continue
 
                         # Verificar se a partitura está bem-formada
                         if sc.isWellFormedNotation():
