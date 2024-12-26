@@ -87,7 +87,7 @@ def pitch_shift(waveform, sr, n_steps=2):
     """
     return librosa.effects.pitch_shift(waveform, sr, n_steps)
 
-def perform_data_augmentation(waveform, sr, augmentation_methods):
+def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_steps=2):
     """
     Aplica data augmentation no áudio.
     """
@@ -97,13 +97,13 @@ def perform_data_augmentation(waveform, sr, augmentation_methods):
             augmented_waveforms.append(add_noise(waveform))
         elif method == 'Time Stretch':
             try:
-                stretched = time_stretch(waveform)
+                stretched = time_stretch(waveform, rate=rate)
                 augmented_waveforms.append(stretched)
             except Exception as e:
                 st.warning(f"Erro ao aplicar Time Stretch: {e}")
         elif method == 'Pitch Shift':
             try:
-                shifted = pitch_shift(waveform, sr)
+                shifted = pitch_shift(waveform, sr, n_steps=n_steps)
                 augmented_waveforms.append(shifted)
             except Exception as e:
                 st.warning(f"Erro ao aplicar Pitch Shift: {e}")
@@ -374,8 +374,13 @@ def main():
             options=["Add Noise", "Time Stretch", "Pitch Shift"],
             default=["Add Noise", "Time Stretch"]
         )
+        # Parâmetros adicionais para Data Augmentation
+        rate = st.sidebar.slider("Rate para Time Stretch:", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
+        n_steps = st.sidebar.slider("N Steps para Pitch Shift:", min_value=-12, max_value=12, value=2, step=1)
     else:
         augmentation_methods = []
+        rate = 1.1
+        n_steps = 2
 
     # Opções de Balanceamento de Classes
     st.sidebar.subheader("Balanceamento de Classes")
@@ -453,7 +458,7 @@ def main():
                                 # Carregar o áudio usando librosa para aplicar augmentations
                                 try:
                                     waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
-                                    augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods)
+                                    augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
                                     for aug_waveform in augmented_waveforms:
                                         # Salvar temporariamente o áudio aumentado para processar
                                         temp_audio_path = os.path.join(tmpdir, "temp_aug.wav")
@@ -463,8 +468,6 @@ def main():
                                             embeddings.append(aug_embedding)
                                             labels.append(label_mapping[cls])
                                         os.remove(temp_audio_path)
-                                except Exception as e:
-                                    st.warning(f"Erro ao aplicar Data Augmentation: {e}")
                             else:
                                 embeddings.append(embedding)
                                 labels.append(label_mapping[cls])
@@ -619,7 +622,7 @@ def main():
     st.write("""
     1. **Upload de Dados Supervisionados**: Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
     
-    2. **Data Augmentation**: Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento.
+    2. **Data Augmentation**: Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
     
     3. **Balanceamento de Classes**: Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
     
