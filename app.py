@@ -35,7 +35,6 @@ import tensorflow as tf
 import tensorflow_hub as hub
 from scipy.io import wavfile
 import scipy.signal
-import pandas as pd
 import urllib
 
 # Supressão dos avisos relacionados ao torch.classes
@@ -1360,9 +1359,14 @@ def main():
 
         # 2) Baixar e carregar o mapa de classes do YAMNet
         class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
-        class_map_path = tf.keras.utils.get_file('yamnet_class_map.csv', class_map_url)
-        class_map_df = pd.read_csv(class_map_path)
-        classes_yamnet = class_map_df['display_name'].tolist()
+        try:
+            class_map_path = tf.keras.utils.get_file('yamnet_class_map.csv', class_map_url)
+            class_map_df = pd.read_csv(class_map_path)
+            classes_yamnet = class_map_df['display_name'].tolist()
+            st.write("Classes do YAMNet carregadas.")
+        except Exception as e:
+            st.error(f"Erro ao carregar o mapa de classes do YAMNet: {e}")
+            classes_yamnet = [str(i) for i in range(521)]  # Fallback
 
         # 3) Extrair o ZIP em um diretório temporário
         with tempfile.TemporaryDirectory() as tmpdir_audio:
@@ -1396,10 +1400,23 @@ def main():
                         if wav_data.ndim > 1:
                             # Converter para mono
                             wav_data = wav_data.mean(axis=1)
-                        # Normalizar para [-1, 1]
-                        waveform = wav_data / np.iinfo(wav_data.dtype).max
+                        # Normalizar para [-1, 1] ou verificar se já está normalizado
+                        if wav_data.dtype.kind == 'i':
+                            # Dados inteiros
+                            max_val = np.iinfo(wav_data.dtype).max
+                            waveform = wav_data / max_val
+                        elif wav_data.dtype.kind == 'f':
+                            # Dados float
+                            waveform = wav_data
+                            # Verificar se os dados estão fora do intervalo [-1.0, 1.0]
+                            if np.max(waveform) > 1.0 or np.min(waveform) < -1.0:
+                                waveform = waveform / np.max(np.abs(waveform))
+                        else:
+                            raise ValueError(f"Tipo de dado do áudio não suportado: {wav_data.dtype}")
+
                         # Garantir que é float32
                         waveform = waveform.astype(np.float32)
+
                         # Ajustar sample rate
                         sr, waveform = ensure_sample_rate(sr_orig, waveform)
 
