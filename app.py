@@ -531,6 +531,8 @@ def main():
                                             embeddings.append(aug_embedding)
                                             labels.append(label_mapping[cls])
                                         os.remove(temp_audio_path)
+                                except Exception as e:
+                                    st.warning(f"Erro ao aplicar data augmentation no arquivo {audio_file}: {e}")
                             else:
                                 embeddings.append(embedding)
                                 labels.append(label_mapping[cls])
@@ -622,11 +624,7 @@ def main():
 
     # Classificação de Novo Áudio
     if 'classifier' in st.session_state and 'classes' in st.session_state:
-        st.header("Classificação de Novo Áudio")
-        st.write("Envie um arquivo de áudio para ser classificado pelo modelo treinado.")
-        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
-
-        if uploaded_audio is not None:
+        def classify_new_audio(uploaded_audio):
             try:
                 # Salvar o arquivo de áudio em um diretório temporário
                 with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_audio.name)[1]) as tmp_audio:
@@ -713,6 +711,13 @@ def main():
                     os.remove(tmp_audio_path)
                 except Exception as e:
                     st.warning(f"Erro ao remover arquivos temporários: {e}")
+
+        st.header("Classificação de Novo Áudio")
+        st.write("Envie um arquivo de áudio para ser classificado pelo modelo treinado.")
+        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
+
+        if uploaded_audio is not None:
+            classify_new_audio(uploaded_audio)
 
     # Documentação e Agradecimentos
     st.write("### Documentação dos Procedimentos")
