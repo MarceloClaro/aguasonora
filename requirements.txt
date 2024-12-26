@@ -19,3 +19,4 @@ music21
 numba
 flake8
 black
+torchvision
