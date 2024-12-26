@@ -21,7 +21,7 @@ music21
 pydub
 numba
 fluidsynth
-fluid-synth
+
 scikit-learn
 scipy
 audiomentations
