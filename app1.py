@@ -78,7 +78,6 @@ import pretty_midi  # Processar e manipular arquivos MIDI
 import soundfile as sf  # Leitura e escrita de arquivos de áudio em formatos variados (ex.: WAV, FLAC)
 """
 ### Funções e Aplicações Prováveis
-
 - **`os`, `shutil`, `tempfile`, `zipfile`:** Auxiliam na manipulação de arquivos e diretórios, especialmente para uploads, extrações e operações temporárias.
 - **`numpy`, `pandas`:** Usados para cálculos numéricos e manipulação de datasets estruturados.
 - **`matplotlib`, `seaborn`:** Criam gráficos para análise visual de resultados (ex.: métricas de avaliação, espectrogramas).
@@ -87,9 +86,6 @@ import soundfile as sf  # Leitura e escrita de arquivos de áudio em formatos va
 - **`streamlit`:** Construção de uma interface de usuário interativa para executar e visualizar o projeto.
 - **`music21`, `pretty_midi`:** Manipulação e geração de notação musical (partituras) e conversão para arquivos MIDI.
 - **`requests`:** Realiza o download automatizado de recursos (ex.: arquivos de áudio ou modelos pré-treinados).
-
-Se precisar de mais comentários ou análises específicas sobre algum trecho do código, posso detalhar!
-
 """
 
 # Suprimir avisos relacionados ao torch.classes
