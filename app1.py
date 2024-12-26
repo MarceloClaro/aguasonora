@@ -25,6 +25,8 @@ from scipy.io import wavfile
 import scipy.signal
 from datetime import datetime
 import librosa
+import librosa.display
+import requests  # Para download de arquivos de áudio
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -87,7 +89,7 @@ def pitch_shift(waveform, sr, n_steps=2):
     """
     return librosa.effects.pitch_shift(waveform, sr, n_steps)
 
-def perform_data_augmentation(waveform, sr, augmentation_methods):
+def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_steps=2):
     """
     Aplica data augmentation no áudio.
     """
@@ -97,13 +99,13 @@ def perform_data_augmentation(waveform, sr, augmentation_methods):
             augmented_waveforms.append(add_noise(waveform))
         elif method == 'Time Stretch':
             try:
-                stretched = time_stretch(waveform)
+                stretched = time_stretch(waveform, rate=rate)
                 augmented_waveforms.append(stretched)
             except Exception as e:
                 st.warning(f"Erro ao aplicar Time Stretch: {e}")
         elif method == 'Pitch Shift':
             try:
-                shifted = pitch_shift(waveform, sr)
+                shifted = pitch_shift(waveform, sr, n_steps=n_steps)
                 augmented_waveforms.append(shifted)
             except Exception as e:
                 st.warning(f"Erro ao aplicar Pitch Shift: {e}")
@@ -374,8 +376,13 @@ def main():
             options=["Add Noise", "Time Stretch", "Pitch Shift"],
             default=["Add Noise", "Time Stretch"]
         )
+        # Parâmetros adicionais para Data Augmentation
+        rate = st.sidebar.slider("Rate para Time Stretch:", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
+        n_steps = st.sidebar.slider("N Steps para Pitch Shift:", min_value=-12, max_value=12, value=2, step=1)
     else:
         augmentation_methods = []
+        rate = 1.1
+        n_steps = 2
 
     # Opções de Balanceamento de Classes
     st.sidebar.subheader("Balanceamento de Classes")
@@ -384,6 +391,67 @@ def main():
         options=["None", "Oversample", "Undersample"],
         index=0
     )
+
+    # Seção de Download e Preparação de Arquivos de Áudio
+    st.header("Baixando e Preparando Arquivos de Áudio")
+    st.write("Você pode baixar um arquivo de áudio de exemplo ou carregar seu próprio arquivo para começar.")
+
+    # Links para Download de Arquivos de Áudio de Exemplo
+    st.subheader("Download de Arquivos de Áudio de Exemplo")
+    sample_audio_1 = 'speech_whistling2.wav'
+    sample_audio_2 = 'miaow_16k.wav'
+    sample_audio_1_url = "https://storage.googleapis.com/audioset/speech_whistling2.wav"
+    sample_audio_2_url = "https://storage.googleapis.com/audioset/miaow_16k.wav"
+
+    # Função para Baixar Arquivos
+    def download_audio(url, filename):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Verifica se a requisição foi bem-sucedida
+            with open(filename, 'wb') as f:
+                f.write(response.content)
+            st.success(f"Arquivo `{filename}` baixado com sucesso.")
+        except Exception as e:
+            st.error(f"Erro ao baixar {filename}: {e}")
+
+    # Botões de Download
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(f"Baixar {sample_audio_1}"):
+            download_audio(sample_audio_1_url, sample_audio_1)
+    with col2:
+        if st.button(f"Baixar {sample_audio_2}"):
+            download_audio(sample_audio_2_url, sample_audio_2)
+
+    # Audição de Arquivos de Áudio de Exemplo
+    st.subheader("Audição de Arquivos de Áudio de Exemplo")
+    uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["None", sample_audio_1, sample_audio_2])
+
+    if uploaded_file_example != "None" and os.path.exists(uploaded_file_example):
+        try:
+            sample_rate, wav_data = wavfile.read(uploaded_file_example, 'rb')
+            # Verificar se o áudio é mono e 16kHz
+            if wav_data.ndim > 1:
+                wav_data = wav_data.mean(axis=1)
+            if sample_rate != 16000:
+                sample_rate, wav_data = ensure_sample_rate(sample_rate, wav_data)
+            # Normalizar
+            if wav_data.dtype.kind == 'i':
+                wav_data = wav_data / np.iinfo(wav_data.dtype).max
+            elif wav_data.dtype.kind == 'f':
+                if np.max(wav_data) > 1.0 or np.min(wav_data) < -1.0:
+                    wav_data = wav_data / np.max(np.abs(wav_data))
+            # Convert to float32
+            wav_data = wav_data.astype(np.float32)
+            duration = len(wav_data) / sample_rate
+            st.write(f"**Sample rate:** {sample_rate} Hz")
+            st.write(f"**Total duration:** {duration:.2f}s")
+            st.write(f"**Size of the input:** {len(wav_data)} samples")
+            st.audio(wav_data, format='audio/wav', sample_rate=sample_rate)
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo de áudio: {e}")
+    elif uploaded_file_example != "None":
+        st.warning("Arquivo de áudio não encontrado. Por favor, baixe o arquivo antes de tentar ouvir.")
 
     # Upload de dados supervisionados
     st.header("Upload de Dados Supervisionados")
@@ -394,7 +462,7 @@ def main():
         agua_quente/
             audio1.wav
             audio2.wav
-        agua_fria/
+        agua_gelada/
             audio3.wav
             audio4.wav
     ```
@@ -453,7 +521,7 @@ def main():
                                 # Carregar o áudio usando librosa para aplicar augmentations
                                 try:
                                     waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
-                                    augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods)
+                                    augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
                                     for aug_waveform in augmented_waveforms:
                                         # Salvar temporariamente o áudio aumentado para processar
                                         temp_audio_path = os.path.join(tmpdir, "temp_aug.wav")
@@ -464,7 +532,7 @@ def main():
                                             labels.append(label_mapping[cls])
                                         os.remove(temp_audio_path)
                                 except Exception as e:
-                                    st.warning(f"Erro ao aplicar Data Augmentation: {e}")
+                                    st.warning(f"Erro ao aplicar data augmentation no arquivo {audio_file}: {e}")
                             else:
                                 embeddings.append(embedding)
                                 labels.append(label_mapping[cls])
@@ -556,30 +624,38 @@ def main():
 
     # Classificação de Novo Áudio
     if 'classifier' in st.session_state and 'classes' in st.session_state:
-        st.header("Classificação de Novo Áudio")
-        st.write("Envie um arquivo de áudio para ser classificado pelo modelo treinado.")
-        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
-
-        if uploaded_audio is not None:
+        def classify_new_audio(uploaded_audio):
             try:
                 # Salvar o arquivo de áudio em um diretório temporário
                 with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_audio.name)[1]) as tmp_audio:
                     tmp_audio.write(uploaded_audio.read())
                     tmp_audio_path = tmp_audio.name
 
-                # Carregar a imagem para exibição (opcional)
-                # Aqui, apenas exibimos uma representação visual simples
-                plt.figure(figsize=(4,1))
-                plt.text(0.5, 0.5, 'Áudio Enviado', horizontalalignment='center', verticalalignment='center', fontsize=20, color='white')
-                plt.axis('off')
-                plt.savefig(tmp_audio_path + '_image.png')
-                plt.close()
-                st.image(tmp_audio_path + '_image.png', caption='Áudio Enviado', use_container_width=True)
-            except Exception as e:
-                st.error(f"Erro ao processar o áudio: {e}")
-                tmp_audio_path = None
+                # Audição do Áudio Carregado
+                try:
+                    sample_rate, wav_data = wavfile.read(tmp_audio_path, 'rb')
+                    # Verificar se o áudio é mono e 16kHz
+                    if wav_data.ndim > 1:
+                        wav_data = wav_data.mean(axis=1)
+                    if sample_rate != 16000:
+                        sample_rate, wav_data = ensure_sample_rate(sample_rate, wav_data)
+                    # Normalizar
+                    if wav_data.dtype.kind == 'i':
+                        wav_data = wav_data / np.iinfo(wav_data.dtype).max
+                    elif wav_data.dtype.kind == 'f':
+                        if np.max(wav_data) > 1.0 or np.min(wav_data) < -1.0:
+                            wav_data = wav_data / np.max(np.abs(wav_data))
+                    # Convert to float32
+                    wav_data = wav_data.astype(np.float32)
+                    duration = len(wav_data) / sample_rate
+                    st.write(f"**Sample rate:** {sample_rate} Hz")
+                    st.write(f"**Total duration:** {duration:.2f}s")
+                    st.write(f"**Size of the input:** {len(wav_data)} samples")
+                    st.audio(wav_data, format='audio/wav', sample_rate=sample_rate)
+                except Exception as e:
+                    st.error(f"Erro ao processar o áudio para audição: {e}")
+                    wav_data = None
 
-            if tmp_audio_path is not None:
                 # Extrair embeddings
                 yamnet_model = load_yamnet_model()
                 pred_class, embedding = extract_yamnet_embeddings(yamnet_model, tmp_audio_path)
@@ -606,36 +682,67 @@ def main():
                     st.write(f"**Classe Predita:** {class_name}")
                     st.write(f"**Confiança:** {confidence_score:.4f}")
 
+                    # Visualização do Áudio
+                    st.subheader("Visualização do Áudio")
+                    fig, ax = plt.subplots(2, 1, figsize=(10, 6))
+
+                    # Plot da Forma de Onda
+                    ax[0].plot(wav_data)
+                    ax[0].set_title("Forma de Onda")
+                    ax[0].set_xlabel("Amostras")
+                    ax[0].set_ylabel("Amplitude")
+
+                    # Plot do Espectrograma
+                    S = librosa.feature.melspectrogram(y=wav_data, sr=sample_rate, n_mels=128)
+                    S_DB = librosa.power_to_db(S, ref=np.max)
+                    img = librosa.display.specshow(S_DB, sr=sample_rate, x_axis='time', y_axis='mel', ax=ax[1])
+                    fig.colorbar(img, ax=ax[1], format='%+2.0f dB')
+                    ax[1].set_title("Espectrograma Mel")
+
+                    st.pyplot(fig)
+                    plt.close(fig)
+
+            except Exception as e:
+                st.error(f"Erro ao processar o áudio: {e}")
+
+            finally:
                 # Remover arquivos temporários
                 try:
                     os.remove(tmp_audio_path)
-                    if os.path.exists(tmp_audio_path + '_image.png'):
-                        os.remove(tmp_audio_path + '_image.png')
                 except Exception as e:
                     st.warning(f"Erro ao remover arquivos temporários: {e}")
+
+        st.header("Classificação de Novo Áudio")
+        st.write("Envie um arquivo de áudio para ser classificado pelo modelo treinado.")
+        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
+
+        if uploaded_audio is not None:
+            classify_new_audio(uploaded_audio)
 
     # Documentação e Agradecimentos
     st.write("### Documentação dos Procedimentos")
     st.write("""
-    1. **Upload de Dados Supervisionados**: Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
+    1. **Baixando e Preparando Arquivos de Áudio**: Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
     
-    2. **Data Augmentation**: Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento.
+    2. **Upload de Dados Supervisionados**: Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
     
-    3. **Balanceamento de Classes**: Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
+    3. **Data Augmentation**: Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
     
-    4. **Extração de Embeddings**: Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
+    4. **Balanceamento de Classes**: Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
     
-    5. **Treinamento do Classificador**: Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
+    5. **Extração de Embeddings**: Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
     
-    6. **Classificação de Novo Áudio**: Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado.
+    6. **Treinamento do Classificador**: Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
     
-    **Exemplo de Estrutura de Diretórios para Upload**:
+    7. **Classificação de Novo Áudio**: Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança e visualizará a forma de onda e o espectrograma do áudio carregado.
+    
+    **Exemplo de Estrutura de Diretórios para Upload:**
     ```
     dados/
         agua_quente/
             audio1.wav
             audio2.wav
-        agua_fria/
+        agua_gelada/
             audio3.wav
             audio4.wav
     ```
