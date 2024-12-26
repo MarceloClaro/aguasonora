@@ -1020,7 +1020,7 @@ def main():
                         sc.insert(0, part)
 
                         # Ajustar o tempo para corresponder à velocidade real do canto.
-                        bpm = 60 * 60 / best_predictions_per_eighth
+                        bpm = best_predictions_per_eighth * 2  # Assumindo que best_predictions_per_eighth é por oitavo
                         st.write(f"**BPM Calculado:** {bpm:.2f}")
                         a = music21.tempo.MetronomeMark(number=bpm)
                         part.insert(0, a)
