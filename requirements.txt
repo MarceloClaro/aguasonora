@@ -20,7 +20,6 @@ numba
 flake8
 black
 torchvision
-# NOTA: sem torch-cam !!
 streamlit
 statsmodels
 tensorflow
