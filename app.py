@@ -1015,43 +1015,52 @@ def main():
                     # Criar a partitura musical usando music21
                     if best_notes_and_rests:
                         sc = music21.stream.Score()
+                        # Adicionar uma parte à partitura
+                        part = music21.stream.Part()
+                        sc.insert(0, part)
+
                         # Ajustar o tempo para corresponder à velocidade real do canto.
                         bpm = 60 * 60 / best_predictions_per_eighth
                         st.write(f"**BPM Calculado:** {bpm:.2f}")
                         a = music21.tempo.MetronomeMark(number=bpm)
-                        sc.insert(0, a)
+                        part.insert(0, a)
 
                         for snote in best_notes_and_rests:
                             d = 'half'
                             if snote == 'Rest':
-                                sc.append(music21.note.Rest(type=d))
+                                part.append(music21.note.Rest(type=d))
                             else:
-                                sc.append(music21.note.Note(snote, type=d))
+                                try:
+                                    part.append(music21.note.Note(snote, type=d))
+                                except music21.pitch.PitchException:
+                                    st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
 
-                        # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
-                        showScore(sc)
+                        # Verificar se a partitura está bem-formada
+                        if sc.isWellFormedNotation():
+                            # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
+                            showScore(sc)
 
-                        # Converter as notas musicais em um arquivo MIDI e ouvi-lo
-                        converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
-                        sc.write('midi', fp=converted_audio_file_as_midi)
+                            # Converter as notas musicais em um arquivo MIDI e oferecê-lo para download
+                            converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
+                            sc.write('midi', fp=converted_audio_file_as_midi)
 
-                        # Converter MIDI para WAV usando timidity
-                        wav_from_created_midi = converted_audio_file_as_midi.replace(' ', '_') + "_midioutput.wav"
-                        os.system(f"timidity {converted_audio_file_as_midi} -Ow -o {wav_from_created_midi}")
-
-                        # Ouvir o arquivo WAV convertido
-                        if os.path.exists(wav_from_created_midi):
+                            # Oferecer o arquivo MIDI para download
                             try:
-                                sample_rate_midi, wav_data_midi = wavfile.read(wav_from_created_midi, 'rb')
-                                st.audio(wav_data_midi, format='audio/wav', sample_rate=sample_rate_midi)
+                                with open(converted_audio_file_as_midi, 'rb') as f:
+                                    midi_data = f.read()
+                                st.download_button(
+                                    label="Download do Arquivo MIDI",
+                                    data=midi_data,
+                                    file_name=os.path.basename(converted_audio_file_as_midi),
+                                    mime="audio/midi"
+                                )
+                                st.success("Arquivo MIDI gerado e disponível para download.")
                             except Exception as e:
-                                st.error(f"Erro ao ouvir o arquivo MIDI convertido: {e}")
+                                st.error(f"Erro ao gerar o arquivo MIDI: {e}")
                         else:
-                            st.error("Arquivo MIDI convertido não encontrado.")
-
+                            st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
             except Exception as e:
                 st.error(f"Erro ao processar o áudio: {e}")
-
             finally:
                 # Remover arquivos temporários
                 try:
