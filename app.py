@@ -25,7 +25,8 @@ from scipy.io import wavfile
 import scipy.signal
 from datetime import datetime
 import librosa
-from IPython.display import Audio as IPyAudio  # Para audição no Jupyter (se necessário)
+import librosa.display
+import requests  # Para download de arquivos de áudio
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -405,8 +406,8 @@ def main():
     # Função para Baixar Arquivos
     def download_audio(url, filename):
         try:
-            import requests
             response = requests.get(url)
+            response.raise_for_status()  # Verifica se a requisição foi bem-sucedida
             with open(filename, 'wb') as f:
                 f.write(response.content)
             st.success(f"Arquivo `{filename}` baixado com sucesso.")
@@ -715,19 +716,19 @@ def main():
     st.write("### Documentação dos Procedimentos")
     st.write("""
     1. **Baixando e Preparando Arquivos de Áudio**: Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
-
+    
     2. **Upload de Dados Supervisionados**: Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
-
+    
     3. **Data Augmentation**: Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
-
+    
     4. **Balanceamento de Classes**: Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
-
+    
     5. **Extração de Embeddings**: Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
-
+    
     6. **Treinamento do Classificador**: Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
-
+    
     7. **Classificação de Novo Áudio**: Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança e visualizará a forma de onda e o espectrograma do áudio carregado.
-
+    
     **Exemplo de Estrutura de Diretórios para Upload:**
     ```
     dados/
