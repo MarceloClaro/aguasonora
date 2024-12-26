@@ -1,61 +1,189 @@
-import os
-import zipfile
-import shutil
-import tempfile
-import random
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from PIL import Image
-import torch
-from torch import nn, optim
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, f1_score
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
-import streamlit as st
-import gc
-import logging
-import io
-import tensorflow as tf
-import tensorflow_hub as hub
-from scipy.io import wavfile
-import scipy.signal
-from datetime import datetime
-import librosa
-import librosa.display
-import requests  # Para download de arquivos de áudio
-import math
-import statistics
-import music21  # Importação adicionada
-import streamlit.components.v1 as components  # Importação adicionada
-import pretty_midi
-import soundfile as sf
+# Gerenciamento de arquivos e manipulação de diretórios
+import os  # Operações no sistema de arquivos (criação, remoção, verificação de caminhos, etc.)
+import zipfile  # Manipulação de arquivos ZIP (compactar, descompactar)
+import shutil  # Operações de manipulação de arquivos e diretórios
+import tempfile  # Criação de arquivos e diretórios temporários
+
+# Trabalhando com aleatoriedade
+import random  # Gerar números aleatórios e trabalhar com seeds para reprodutibilidade
+
+# Computação numérica e manipulação de arrays/matrizes
+import numpy as np  # Biblioteca essencial para cálculos matemáticos e manipulação de dados numéricos em arrays
+
+# Análise de dados e manipulação de tabelas
+import pandas as pd  # Manipulação e análise de estruturas de dados tabulares
+
+# Visualização de dados
+import matplotlib.pyplot as plt  # Criação de gráficos e visualizações personalizadas
+import seaborn as sns  # Complemento ao Matplotlib, focado em visualizações mais elegantes e simplificadas
+
+# Manipulação de imagens
+from PIL import Image  # Abrir, manipular e salvar imagens em diversos formatos
+
+# Frameworks de aprendizado de máquina e deep learning
+import torch  # Framework para computação de tensores e aprendizado profundo
+from torch import nn, optim  # `nn` para definir redes neurais, `optim` para otimização de parâmetros
+from torch.utils.data import DataLoader, TensorDataset  # Manipulação de datasets e criação de DataLoaders
+
+# Métodos de aprendizado supervisionado
+from sklearn.model_selection import train_test_split  # Divisão de datasets em treino e validação
+from sklearn.metrics import (  # Métricas de avaliação para modelos de classificação
+    classification_report, confusion_matrix, roc_curve, auc, f1_score
+)
+
+# Métodos de balanceamento de classes
+from imblearn.over_sampling import SMOTE  # Oversampling para lidar com desbalanceamento de classes
+from imblearn.under_sampling import RandomUnderSampler  # Undersampling para redução de classes majoritárias
+
+# Framework para criação de aplicativos web interativos
+import streamlit as st  # Framework para criar interfaces gráficas baseadas na web
+
+# Gerenciamento de memória e limpeza de recursos
+import gc  # Controle e coleta de lixo (garbage collection) em Python
+import logging  # Registro de logs para rastrear erros e execução
+
+# Manipulação de fluxos de dados
+import io  # Trabalhar com fluxos de entrada e saída em memória
+
+# Framework de aprendizado de máquina com suporte a GPU
+import tensorflow as tf  # Framework para deep learning, usado em particular com modelos pré-treinados
+import tensorflow_hub as hub  # Repositório para carregar modelos TensorFlow pré-treinados
+
+# Manipulação de arquivos de áudio
+from scipy.io import wavfile  # Leitura e escrita de arquivos WAV
+import scipy.signal  # Manipulação de sinais (ex.: filtro, resample)
+
+# Manuseio de datas e tempos
+from datetime import datetime  # Trabalhar com datas e horários
+
+# Processamento e manipulação de áudio
+import librosa  # Biblioteca avançada para análise de áudio
+import librosa.display  # Visualização de representações de áudio (ex.: espectrogramas)
+
+# Download de arquivos via HTTP
+import requests  # Download de arquivos da internet
+
+# Matemática avançada e estatística
+import math  # Funções matemáticas avançadas (ex.: logaritmos, seno, etc.)
+import statistics  # Estatísticas descritivas básicas (ex.: média, mediana)
+
+# Gerenciamento de partituras e notação musical
+import music21  # Criação e manipulação de partituras musicais
+
+# Integração de componentes personalizados no Streamlit
+import streamlit.components.v1 as components  # Carregar componentes de terceiros ou personalizados
+
+# Manipulação de arquivos MIDI e sintetização de áudio
+import pretty_midi  # Processar e manipular arquivos MIDI
+import soundfile as sf  # Leitura e escrita de arquivos de áudio em formatos variados (ex.: WAV, FLAC)
+"""
+### Funções e Aplicações Prováveis
+
+- **`os`, `shutil`, `tempfile`, `zipfile`:** Auxiliam na manipulação de arquivos e diretórios, especialmente para uploads, extrações e operações temporárias.
+- **`numpy`, `pandas`:** Usados para cálculos numéricos e manipulação de datasets estruturados.
+- **`matplotlib`, `seaborn`:** Criam gráficos para análise visual de resultados (ex.: métricas de avaliação, espectrogramas).
+- **`torch`, `tensorflow`:** Principais frameworks para aprendizado profundo, fornecendo suporte a redes neurais.
+- **`librosa`, `scipy`:** Processamento de sinais e análise de áudio.
+- **`streamlit`:** Construção de uma interface de usuário interativa para executar e visualizar o projeto.
+- **`music21`, `pretty_midi`:** Manipulação e geração de notação musical (partituras) e conversão para arquivos MIDI.
+- **`requests`:** Realiza o download automatizado de recursos (ex.: arquivos de áudio ou modelos pré-treinados).
+
+Se precisar de mais comentários ou análises específicas sobre algum trecho do código, posso detalhar!
+
+"""
 
 # Suprimir avisos relacionados ao torch.classes
-import warnings
+import warnings  # Biblioteca padrão para manipulação de avisos e mensagens no Python
+# Ignorar avisos específicos do tipo UserWarning que contenham "torch.classes" na mensagem
+# Isso é útil para evitar poluição do log com mensagens irrelevantes, especialmente quando
+# a biblioteca Torch (PyTorch) está sendo usada e emite avisos que não afetam o funcionamento.
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 
 # Definir o dispositivo (CPU ou GPU)
+# `torch.device` é usado para definir se o código será executado na CPU ou na GPU.
+# Se uma GPU compatível com CUDA estiver disponível, será usada. Caso contrário, a CPU será usada.
+# Isso é fundamental em deep learning para aproveitar o desempenho da GPU.
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Configurações para gráficos mais bonitos
+# `sns.set_style` define o estilo visual dos gráficos gerados pelo Seaborn (e, em muitos casos, pelo Matplotlib).
+# Aqui, o estilo escolhido é "whitegrid", que aplica uma grade branca ao fundo dos gráficos,
+# facilitando a visualização e leitura de informações nos gráficos.
 sns.set_style('whitegrid')
+"""
+### Explicação detalhada:
+1. **Supressão de avisos:**
+   - Em projetos grandes, bibliotecas como PyTorch podem emitir muitos avisos que não afetam o funcionamento.
+   - Suprimir avisos irrelevantes ajuda a manter os logs mais limpos e focados em mensagens importantes.
+   - Nesse caso, apenas mensagens relacionadas a `torch.classes` são ignoradas.
 
+2. **Configuração do dispositivo:**
+   - `torch.cuda.is_available()` verifica se há suporte a CUDA no sistema, o que indica a presença de uma GPU compatível.
+   - A GPU acelera o treinamento e a inferência de modelos de deep learning, enquanto a CPU é usada como fallback.
+
+3. **Estilização de gráficos:**
+   - A biblioteca Seaborn permite aplicar temas e estilos predefinidos aos gráficos.
+   - O estilo "whitegrid" é ideal para gráficos de dados quantitativos, pois facilita a leitura ao adicionar grades discretas em um fundo claro.
+
+"""
 # Definir seed para reprodutibilidade
 def set_seed(seed):
+    """
+    Configura a semente de geração aleatória para várias bibliotecas e componentes,
+    garantindo reprodutibilidade em experimentos científicos e de machine learning.
+
+    Argumentos:
+    - seed (int): O valor da semente a ser usado para inicializar os geradores de números aleatórios.
+    """
+    # Define a semente para o gerador de números aleatórios do Python
     random.seed(seed)
+
+    # Define a semente para o gerador de números aleatórios do NumPy
     np.random.seed(seed)
+
+    # Define a semente para o gerador de números aleatórios do PyTorch (CPU)
     torch.manual_seed(seed)
+
+    # Se CUDA estiver disponível (ou seja, há suporte a GPU),
+    # define a semente para o gerador de números aleatórios em todas as GPUs disponíveis.
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    # Garantir reprodutibilidade
+
+    # Configurações adicionais para garantir reprodutibilidade no PyTorch
+    # Define os cálculos do backend do PyTorch como determinísticos,
+    # ou seja, os mesmos inputs produzirão os mesmos outputs.
     torch.backends.cudnn.deterministic = True
+
+    # Desativa otimizações dinâmicas para evitar variações nos resultados devido a diferenças no caminho de execução.
     torch.backends.cudnn.benchmark = False
 
-set_seed(42)  # Definir a seed
+# Chamada da função para configurar a semente
+set_seed(42)  # Define a semente como 42 para todos os componentes
+"""
+### Explicação detalhada:
+
+1. **Reprodutibilidade em experimentos:**
+   - Quando se trabalha com machine learning, deep learning ou qualquer aplicação que dependa de números aleatórios, é importante que os experimentos sejam reprodutíveis.
+   - Definir uma semente fixa (`seed`) garante que, ao executar o mesmo código várias vezes, ele produzirá os mesmos resultados.
+
+2. **Configurações específicas para bibliotecas:**
+   - **`random.seed(seed)`**: Define a semente para o gerador de números aleatórios da biblioteca padrão do Python.
+   - **`np.random.seed(seed)`**: Define a semente para o gerador de números aleatórios da biblioteca NumPy.
+   - **`torch.manual_seed(seed)`**: Define a semente para o gerador de números aleatórios no PyTorch para cálculos na CPU.
+   - **`torch.cuda.manual_seed_all(seed)`**: Define a semente para o gerador de números aleatórios na GPU, se disponível.
+
+3. **Configurações avançadas do PyTorch:**
+   - **`torch.backends.cudnn.deterministic = True`**:
+     - Faz com que o backend CUDA no PyTorch siga caminhos de execução determinísticos.
+     - Pode tornar os cálculos um pouco mais lentos, mas garante que os resultados sejam consistentes.
+   - **`torch.backends.cudnn.benchmark = False`**:
+     - Desativa a busca por configurações de execução mais rápidas no backend CUDA, evitando variações nos tempos de execução e nos resultados.
+
+4. **Chamada da função com a semente 42:**
+   - O valor `42` é uma escolha comum como semente, muitas vezes usada por convenção em exemplos e tutoriais. 
+   - Essa semente será usada para garantir que todas as operações aleatórias em Python, NumPy e PyTorch sejam reprodutíveis.
+
+"""
 
 @st.cache_resource
 def load_yamnet_model():
