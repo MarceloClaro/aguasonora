@@ -477,6 +477,52 @@ def showMusicXML(xml):
     """
     components.html(html_content, height=600)
 
+def download_soundfont(soundfont_dir='sounds', soundfont_filename='FluidR3_GM.sf2'):
+    """
+    Verifica se o SoundFont existe. Se não, faz o download e salva na pasta especificada.
+    """
+    soundfont_path = os.path.join(soundfont_dir, soundfont_filename)
+    
+    if not os.path.exists(soundfont_path):
+        st.info("Baixando SoundFont necessário...")
+        os.makedirs(soundfont_dir, exist_ok=True)
+        try:
+            sf_url = "https://musical-artifacts.com/artifacts/738/FluidR3_GM.sf2/download"
+            response = requests.get(sf_url, stream=True)
+            response.raise_for_status()
+            with open(soundfont_path, 'wb') as f:
+                shutil.copyfileobj(response.raw, f)
+            st.success("SoundFont baixado com sucesso.")
+        except Exception as e:
+            st.error(f"Erro ao baixar o SoundFont: {e}")
+            st.markdown(f"**[Clique aqui para baixar manualmente o SoundFont `FluidR3_GM.sf2`](https://musical-artifacts.com/artifacts/738/FluidR3_GM.sf2/download)**")
+            return None
+    else:
+        st.info("SoundFont já existe. Pulando o download.")
+    
+    return soundfont_path
+
+def validate_and_append_notes(notes_list, part, tempo):
+    """
+    Valida e adiciona notas e rests à partitura.
+    """
+    for snote in notes_list:
+        if snote == 'Rest':
+            note_obj = music21.note.Rest()
+            note_obj.duration.type = 'quarter'
+            part.append(note_obj)
+        else:
+            try:
+                note_obj = music21.note.Note(snote)
+                note_obj.duration.type = 'quarter'
+                part.append(note_obj)
+            except music21.pitch.PitchException:
+                st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
+                continue
+    # Adicionar a assinatura de tempo após as notas
+    a = music21.tempo.MetronomeMark(number=tempo)
+    part.insert(0, a)
+
 def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path):
     """
     Cria e renderiza a partitura musical usando music21.
