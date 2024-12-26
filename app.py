@@ -409,6 +409,47 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     return classifier
 
+def showScore(score):
+    """
+    Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
+    """
+    xml = score.write('musicxml')
+    showMusicXML(xml)
+
+def showMusicXML(xml):
+    """
+    Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
+    """
+    DIV_ID = "OSMD_div"
+    html_content = f"""
+    <div id="{DIV_ID}">Carregando OpenSheetMusicDisplay...</div>
+    <script>
+    (function() {{
+        // Carregar OpenSheetMusicDisplay se ainda não estiver carregado
+        if (!window.opensheetmusicdisplay) {{
+            var script = document.createElement('script');
+            script.src = "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@0.7.6/build/opensheetmusicdisplay.min.js";
+            script.onload = function() {{
+                initializeOSMD();
+            }};
+            document.head.appendChild(script);
+        }} else {{
+            initializeOSMD();
+        }}
+
+        function initializeOSMD() {{
+            var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("{DIV_ID}", {{
+                drawingParameters: "compacttight"
+            }});
+            osmd.load(`{xml}`).then(function() {{
+                osmd.render();
+            }});
+        }}
+    }})();
+    </script>
+    """
+    components.html(html_content, height=600)
+
 def main():
     # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
     st.set_page_config(page_title="Classificação de Áudio com YAMNet e SPICE", layout="wide")
