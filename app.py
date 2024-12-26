@@ -15,58 +15,51 @@ from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
 from torchvision.models.segmentation import fcn_resnet50, FCN_ResNet50_Weights
-
 from sklearn.cluster import AgglomerativeClustering, KMeans
-from sklearn.metrics import (
-    adjusted_rand_score,
-    normalized_mutual_info_score,
-    confusion_matrix,
-    classification_report,
-    roc_auc_score,
-    roc_curve,
-)
+from sklearn.metrics import (adjusted_rand_score, normalized_mutual_info_score,
+                             confusion_matrix, classification_report,
+                             roc_auc_score, roc_curve)
 from sklearn.preprocessing import label_binarize
 from sklearn.decomposition import PCA
-
 import streamlit as st
 import gc
 import logging
 import base64
-
-# ==== Bibliotecas para Grad-CAM com torchcam:
 from torchcam.methods import SmoothGradCAMpp
 from torchcam.utils import overlay_mask
-
-# Transformações de imagem
 from torchvision.transforms.functional import to_pil_image
 import cv2
 import io
 import warnings
-from datetime import datetime
+from datetime import datetime  # Importação para data e hora
+import tensorflow as tf
+import tensorflow_hub as hub
 
-# Supressão de avisos relacionados ao torch.classes
+# Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 
-# Definir dispositivo
+# Definir o dispositivo (CPU ou GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Configurações gerais de plots
+# Configurações para tornar os gráficos mais bonitos
 sns.set_style('whitegrid')
 
 def set_seed(seed):
-    """Define uma seed para garantir reprodutibilidade."""
+    """
+    Define uma seed para garantir a reprodutibilidade.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    # Garantindo consistência
+    # As linhas abaixo são recomendadas para garantir reprodutibilidade
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-set_seed(42)
+set_seed(42)  # Definir a seed para reprodutibilidade
 
-# Transforms para data augmentation e teste
+# Definir as transformações para aumento de dados (aplicando transformações aleatórias)
 train_transforms = transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomRotation(degrees=45),
@@ -80,13 +73,15 @@ train_transforms = transforms.Compose([
     transforms.CenterCrop(224),
     transforms.ToTensor(),
 ])
+
+# Transformações para validação e teste
 test_transforms = transforms.Compose([
     transforms.Resize(256),
     transforms.CenterCrop(224),
     transforms.ToTensor(),
 ])
 
-# Dataset customizado
+# Dataset personalizado para classificação
 class CustomDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, transform=None):
         self.dataset = dataset
@@ -101,7 +96,7 @@ class CustomDataset(torch.utils.data.Dataset):
             image = self.transform(image)
         return image, label
 
-# Dataset customizado para Segmentação
+# Dataset personalizado para segmentação
 class SegmentationDataset(torch.utils.data.Dataset):
     def __init__(self, images_dir, masks_dir, transform=None, target_transform=None):
         self.images_dir = images_dir
@@ -123,51 +118,90 @@ class SegmentationDataset(torch.utils.data.Dataset):
 
         if self.transform:
             image = self.transform(image)
+
         if self.target_transform:
             mask = self.target_transform(mask)
 
         return image, mask
 
 def seed_worker(worker_id):
-    """Garante reprodutibilidade nos DataLoaders."""
+    """
+    Função para definir a seed em cada worker do DataLoader.
+    """
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 def visualize_data(dataset, classes):
-    """Mostra algumas imagens do dataset."""
-    st.write("Visualização de algumas imagens do dataset:")
+    """
+    Exibe algumas imagens do conjunto de dados com suas classes.
+    """
+    st.write("Visualização de algumas imagens do conjunto de dados:")
     fig, axes = plt.subplots(1, 10, figsize=(20, 4))
     for i in range(10):
         idx = np.random.randint(len(dataset))
         image, label = dataset[idx]
-        image = np.array(image)
+        image = np.array(image)  # Converter a imagem PIL em array NumPy
         axes[i].imshow(image)
         axes[i].set_title(classes[label])
         axes[i].axis('off')
     st.pyplot(fig)
-    plt.close(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
 
 def plot_class_distribution(dataset, classes):
-    """Mostra contagem de classes no dataset."""
+    """
+    Exibe a distribuição das classes no conjunto de dados e mostra os valores quantitativos.
+    """
+    # Extrair os rótulos das classes para todas as imagens no dataset
     labels = [label for _, label in dataset]
+
+    # Criar um DataFrame para facilitar o plot com Seaborn
     df = pd.DataFrame({'Classe': labels})
+
+    # Plotar o gráfico com as contagens
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.countplot(x='Classe', data=df, ax=ax, palette="Set2", hue='Classe', dodge=False)
+
+    # Definir ticks e labels
     ax.set_xticks(range(len(classes)))
     ax.set_xticklabels(classes, rotation=45)
+
+    # Remover a legenda
     ax.get_legend().remove()
+
+    # Adicionar as contagens acima das barras
     class_counts = df['Classe'].value_counts().sort_index()
     for i, count in enumerate(class_counts):
         ax.text(i, count, str(count), ha='center', va='bottom', fontweight='bold')
+
     ax.set_title("Distribuição das Classes (Quantidade de Imagens)")
     ax.set_xlabel("Classes")
     ax.set_ylabel("Número de Imagens")
+
     st.pyplot(fig)
-    plt.close(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
+
+@st.cache_resource
+def load_yamnet_model():
+    """
+    Carrega o modelo YAMNet do TF Hub (sem causar pickle do objeto).
+    """
+    yam_model = hub.load('https://tfhub.dev/google/yamnet/1')
+    return yam_model
+
+def ensure_sample_rate(original_sr, waveform, desired_sr=16000):
+    """
+    Resample se não estiver em 16 kHz.
+    """
+    if original_sr != desired_sr:
+        desired_length = int(round(float(len(waveform)) / original_sr * desired_sr))
+        waveform = scipy.signal.resample(waveform, desired_length)
+    return desired_sr, waveform
 
 def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
-    """Retorna modelo pré-treinado para classificação."""
+    """
+    Retorna o modelo pré-treinado selecionado para classificação.
+    """
     if model_name == 'ResNet18':
         weights = ResNet18_Weights.DEFAULT
         model = resnet18(weights=weights)
@@ -181,12 +215,10 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
         st.error("Modelo não suportado.")
         return None
 
-    # Congelar ou não
     if not fine_tune:
         for param in model.parameters():
             param.requires_grad = False
 
-    # Ajustar camadas de saída
     if model_name.startswith('ResNet'):
         num_ftrs = model.fc.in_features
         model.fc = nn.Sequential(
@@ -200,26 +232,33 @@ def get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False):
             nn.Linear(num_ftrs, num_classes)
         )
     else:
-        st.error("Modelo não suportado (camada final).")
+        st.error("Modelo não suportado.")
         return None
 
     model = model.to(device)
     return model
 
 def get_segmentation_model(num_classes, fine_tune=False):
-    """Retorna modelo para segmentação (FCN-ResNet50)."""
+    """
+    Retorna o modelo pré-treinado para segmentação.
+    """
     weights = FCN_ResNet50_Weights.DEFAULT
     model = fcn_resnet50(weights=weights)
     if not fine_tune:
         for param in model.parameters():
             param.requires_grad = False
+
+    # Ajustar a última camada para o número de classes do usuário
     model.classifier[4] = nn.Conv2d(512, num_classes, kernel_size=1)
     model.aux_classifier[4] = nn.Conv2d(256, num_classes, kernel_size=1)
     model = model.to(device)
     return model
 
 def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16):
-    """Extrai embeddings das imagens + Data Augmentation."""
+    """
+    Aplica as transformações às imagens, extrai os embeddings e retorna um DataFrame.
+    """
+    # Definir função de coleta personalizada
     def pil_collate_fn(batch):
         images, labels = zip(*batch)
         return list(images), torch.tensor(labels)
@@ -230,13 +269,13 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
     file_paths_list = []
     augmented_images_list = []
 
-    # Remove a última camada
+    # Remover a última camada do modelo para extrair os embeddings
     model_embedding = nn.Sequential(*list(model.children())[:-1])
     model_embedding.eval()
     model_embedding.to(device)
 
     indices = dataset.indices if hasattr(dataset, 'indices') else list(range(len(dataset)))
-    index_pointer = 0
+    index_pointer = 0  # Ponteiro para acompanhar os índices
 
     with torch.no_grad():
         for images, labels in data_loader:
@@ -247,6 +286,7 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
             embeddings_list.extend(embeddings)
             labels_list.extend(labels.numpy())
             augmented_images_list.extend([img.permute(1, 2, 0).numpy() for img in images_augmented.cpu()])
+            # Atualizar o file_paths_list para corresponder às imagens atuais
             if hasattr(dataset, 'dataset') and hasattr(dataset.dataset, 'samples'):
                 batch_indices = indices[index_pointer:index_pointer + len(images)]
                 file_paths = [dataset.dataset.samples[i][0] for i in batch_indices]
@@ -255,27 +295,34 @@ def apply_transforms_and_get_embeddings(dataset, model, transform, batch_size=16
             else:
                 file_paths_list.extend(['N/A'] * len(labels))
 
+    # Criar o DataFrame
     df = pd.DataFrame({
         'file_path': file_paths_list,
         'label': labels_list,
         'embedding': embeddings_list,
         'augmented_image': augmented_images_list
     })
+
     return df
 
 def display_all_augmented_images(df, class_names, max_images=None):
-    """Exibe imagens augmentadas."""
+    """
+    Exibe todas as imagens augmentadas do DataFrame de forma organizada.
+    """
     if max_images is not None:
         df = df.head(max_images)
-        st.write(f"**Visualização das Primeiras {max_images} Imagens**")
+        st.write(f"**Visualização das Primeiras {max_images} Imagens após Data Augmentation:**")
     else:
-        st.write("**Visualização de Todas as Imagens**")
+        st.write("**Visualização de Todas as Imagens após Data Augmentation:**")
+    
     num_images = len(df)
     if num_images == 0:
         st.write("Nenhuma imagem para exibir.")
         return
-    cols_per_row = 5
-    rows = (num_images + cols_per_row - 1) // cols_per_row
+    
+    cols_per_row = 5  # Número de colunas por linha
+    rows = (num_images + cols_per_row - 1) // cols_per_row  # Calcula o número de linhas necessárias
+    
     for row in range(rows):
         cols = st.columns(cols_per_row)
         for col in range(cols_per_row):
@@ -287,154 +334,465 @@ def display_all_augmented_images(df, class_names, max_images=None):
                     st.image(image, caption=class_names[label], use_column_width=True)
 
 def visualize_embeddings(df, class_names):
-    """PCA em embeddings."""
+    """
+    Reduz a dimensionalidade dos embeddings e os visualiza em 2D.
+    
+    Args:
+        df (pd.DataFrame): DataFrame contendo os embeddings e rótulos.
+        class_names (list): Lista com os nomes das classes.
+    """
     embeddings = np.vstack(df['embedding'].values)
     labels = df['label'].values
+
+    # Redução de dimensionalidade com PCA
     pca = PCA(n_components=2)
     embeddings_2d = pca.fit_transform(embeddings)
+
+    # Criar DataFrame para plotagem
     plot_df = pd.DataFrame({
         'PC1': embeddings_2d[:, 0],
         'PC2': embeddings_2d[:, 1],
         'label': labels
     })
+
+    # Plotar
     plt.figure(figsize=(10, 7))
     sns.scatterplot(data=plot_df, x='PC1', y='PC2', hue='label', palette='Set2', legend='full')
-    plt.title('Embeddings PCA')
+
+    # Configurações do gráfico
+    plt.title('Visualização dos Embeddings com PCA')
     plt.legend(title='Classes', labels=class_names)
-    plt.xlabel('PC1')
-    plt.ylabel('PC2')
+    plt.xlabel('Componente Principal 1')
+    plt.ylabel('Componente Principal 2')
+    
+    # Exibir no Streamlit
     st.pyplot(plt)
-    plt.close()
+    plt.close()  # Fechar a figura para liberar memória
 
-def train_segmentation_model(images_dir, masks_dir, num_classes):
-    """Treina modelo de segmentação básico (FCN-ResNet50)."""
-    set_seed(42)
-    batch_size = 4
-    num_epochs = 25
-    learning_rate = 0.001
+def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies):
+    """
+    Plota os gráficos de perda e acurácia.
+    """
+    epochs_range = range(1, len(train_losses) + 1)
+    fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
-    input_transforms = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-    ])
-    target_transforms = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-    ])
-    dataset = SegmentationDataset(images_dir, masks_dir, transform=input_transforms, target_transform=target_transforms)
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    if train_size == 0 or val_size == 0:
-        st.error("Dataset de segmentação muito pequeno.")
-        return None
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker)
-    model = get_segmentation_model(num_classes=num_classes, fine_tune=True)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    # Get current timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    for epoch in range(num_epochs):
-        model.train()
-        running_loss = 0.0
-        for inputs, masks in train_loader:
+    # Gráfico de Perda
+    ax[0].plot(epochs_range, train_losses, label='Treino')
+    ax[0].plot(epochs_range, valid_losses, label='Validação')
+    ax[0].set_title(f'Perda por Época ({timestamp})')
+    ax[0].set_xlabel('Épocas')
+    ax[0].set_ylabel('Perda')
+    ax[0].legend()
+
+    # Gráfico de Acurácia
+    ax[1].plot(epochs_range, train_accuracies, label='Treino')
+    ax[1].plot(epochs_range, valid_accuracies, label='Validação')
+    ax[1].set_title(f'Acurácia por Época ({timestamp})')
+    ax[1].set_xlabel('Épocas')
+    ax[1].set_ylabel('Acurácia')
+    ax[1].legend()
+
+    st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
+
+def compute_metrics(model, dataloader, classes):
+    """
+    Calcula métricas detalhadas e exibe matriz de confusão e relatório de classificação.
+    """
+    model.eval()
+    all_preds = []
+    all_labels = []
+    all_probs = []
+
+    with torch.no_grad():
+        for inputs, labels in dataloader:
             inputs = inputs.to(device)
-            masks = masks.to(device).long().squeeze(1)
-            optimizer.zero_grad()
-            outputs = model(inputs)['out']
-            loss = criterion(outputs, masks)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item() * inputs.size(0)
-        epoch_loss = running_loss / len(train_loader.dataset)
-        st.write(f"Época [{epoch+1}/{num_epochs}], Perda Treino: {epoch_loss:.4f}")
-        # Valid
-        model.eval()
-        val_loss = 0.0
+            labels = labels.to(device)
+
+            outputs = model(inputs)
+            probabilities = torch.nn.functional.softmax(outputs, dim=1)
+            _, preds = torch.max(outputs, 1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+            all_probs.extend(probabilities.cpu().numpy())
+
+    # Relatório de Classificação
+    try:
+        report = classification_report(all_labels, all_preds, target_names=classes, output_dict=True, labels=range(len(classes)))
+        st.text("Relatório de Classificação:")
+        st.write(pd.DataFrame(report).transpose())
+    except ValueError as e:
+        st.error(f"Erro ao gerar classification_report: {e}")
+
+    # Matriz de Confusão Normalizada
+    try:
+        cm = confusion_matrix(all_labels, all_preds, normalize='true', labels=range(len(classes)))
+        fig, ax = plt.subplots()
+        sns.heatmap(cm, annot=True, fmt='.2f', cmap='Blues', xticklabels=classes, yticklabels=classes, ax=ax)
+        ax.set_xlabel('Predito')
+        ax.set_ylabel('Verdadeiro')
+        ax.set_title('Matriz de Confusão Normalizada')
+        st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
+    except ValueError as e:
+        st.error(f"Erro ao gerar confusion_matrix: {e}")
+
+    # Curva ROC
+    if len(classes) == 2:
+        try:
+            y_true = np.array(all_labels)
+            y_scores = np.array(all_probs)[:, 1]
+            fpr, tpr, thresholds = roc_curve(y_true, y_scores, pos_label=1)
+            roc_auc = roc_auc_score(y_true, y_scores)
+            fig, ax = plt.subplots()
+            ax.plot(fpr, tpr, label='AUC = %0.2f' % roc_auc)
+            ax.plot([0, 1], [0, 1], 'k--')
+            ax.set_xlabel('Taxa de Falsos Positivos')
+            ax.set_ylabel('Taxa de Verdadeiros Positivos')
+            ax.set_title('Curva ROC')
+            ax.legend(loc='lower right')
+            st.pyplot(fig)
+            plt.close(fig)  # Fechar a figura para liberar memória
+        except ValueError as e:
+            st.error(f"Erro ao gerar curva ROC: {e}")
+    else:
+        # Multiclasse
+        try:
+            binarized_labels = label_binarize(all_labels, classes=range(len(classes)))
+            y_scores = np.array(all_probs)
+            roc_auc = roc_auc_score(binarized_labels, y_scores, average='weighted', multi_class='ovr')
+            st.write(f"AUC-ROC Média Ponderada: {roc_auc:.4f}")
+        except ValueError as e:
+            st.error(f"Erro ao calcular AUC-ROC: {e}")
+
+def error_analysis(model, dataloader, classes):
+    """
+    Realiza análise de erros mostrando algumas imagens mal classificadas.
+    """
+    model.eval()
+    misclassified_images = []
+    misclassified_labels = []
+    misclassified_preds = []
+
+    with torch.no_grad():
+        for inputs, labels in dataloader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+
+            incorrect = preds != labels
+            if incorrect.any():
+                misclassified_images.extend(inputs[incorrect].cpu())
+                misclassified_labels.extend(labels[incorrect].cpu())
+                misclassified_preds.extend(preds[incorrect].cpu())
+                if len(misclassified_images) >= 5:
+                    break
+
+    if misclassified_images:
+        st.write("Algumas imagens mal classificadas:")
+        fig, axes = plt.subplots(1, min(5, len(misclassified_images)), figsize=(15, 3))
+        for i in range(min(5, len(misclassified_images))):
+            image = misclassified_images[i]
+            image = image.permute(1, 2, 0).numpy()
+            axes[i].imshow(image)
+            axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
+            axes[i].axis('off')
+        st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
+    else:
+        st.write("Nenhuma imagem mal classificada encontrada.")
+
+def perform_clustering(model, dataloader, classes):
+    """
+    Realiza a extração de features e aplica algoritmos de clusterização.
+    """
+    # Extrair features usando o modelo pré-treinado
+    features = []
+    labels = []
+
+    # Remover a última camada (classificador)
+    if isinstance(model, nn.Sequential):
+        model_feat = model
+    else:
+        model_feat = nn.Sequential(*list(model.children())[:-1])
+    model_feat.eval()
+    model_feat.to(device)
+
+    with torch.no_grad():
+        for inputs, label in dataloader:
+            inputs = inputs.to(device)
+            output = model_feat(inputs)
+            output = output.view(output.size(0), -1)
+            features.append(output.cpu().numpy())
+            labels.extend(label.numpy())
+
+    features = np.vstack(features)
+    labels = np.array(labels)
+
+    # Redução de dimensionalidade com PCA
+    pca = PCA(n_components=2)
+    features_2d = pca.fit_transform(features)
+
+    # Clusterização com KMeans
+    kmeans = KMeans(n_clusters=len(classes), random_state=42)
+    clusters_kmeans = kmeans.fit_predict(features)
+
+    # Clusterização Hierárquica
+    agglo = AgglomerativeClustering(n_clusters=len(classes))
+    clusters_agglo = agglo.fit_predict(features)
+
+    # Plotagem dos resultados
+    fig, ax = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Gráfico KMeans
+    scatter = ax[0].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_kmeans, cmap='viridis')
+    legend1 = ax[0].legend(*scatter.legend_elements(), title="Clusters")
+    ax[0].add_artist(legend1)
+    ax[0].set_title('Clusterização com KMeans')
+
+    # Gráfico Agglomerative Clustering
+    scatter = ax[1].scatter(features_2d[:, 0], features_2d[:, 1], c=clusters_agglo, cmap='viridis')
+    legend1 = ax[1].legend(*scatter.legend_elements(), title="Clusters")
+    ax[1].add_artist(legend1)
+    ax[1].set_title('Clusterização Hierárquica')
+
+    st.pyplot(fig)
+    plt.close(fig)  # Fechar a figura para liberar memória
+
+    # Métricas de Avaliação
+    ari_kmeans = adjusted_rand_score(labels, clusters_kmeans)
+    nmi_kmeans = normalized_mutual_info_score(labels, clusters_kmeans)
+    ari_agglo = adjusted_rand_score(labels, clusters_agglo)
+    nmi_agglo = normalized_mutual_info_score(labels, clusters_agglo)
+
+    st.write(f"**KMeans** - ARI: {ari_kmeans:.4f}, NMI: {nmi_kmeans:.4f}")
+    st.write(f"**Agglomerative Clustering** - ARI: {ari_agglo:.4f}, NMI: {nmi_agglo:.4f}")
+
+def evaluate_image(model, image, classes, test_transforms):
+    """
+    Avalia uma única imagem e retorna a classe predita e a confiança.
+    """
+    model.eval()
+    image_tensor = test_transforms(image).unsqueeze(0).to(device)
+    with torch.no_grad():
+        output = model(image_tensor)
+        probabilities = torch.nn.functional.softmax(output, dim=1)
+        confidence, predicted = torch.max(probabilities, 1)
+        class_idx = predicted.item()
+        class_name = classes[class_idx]
+        return class_name, confidence.item()
+
+def label_to_color_image(label):
+    """
+    Mapeia uma máscara de segmentação para uma imagem colorida.
+    """
+    colormap = create_pascal_label_colormap()
+    return colormap[label]
+
+def create_pascal_label_colormap():
+    """
+    Cria um mapa de cores para o conjunto de dados PASCAL VOC.
+    """
+    colormap = np.zeros((256, 3), dtype=int)
+    ind = np.arange(256, dtype=int)
+
+    for shift in reversed(range(8)):
+        for channel in range(3):
+            colormap[:, channel] |= ((ind >> channel) & 1) << shift
+        ind >>= 3
+
+    return colormap
+
+def visualize_activations(model, image, class_names, model_name, test_transforms, segmentation_model=None, segmentation=False):
+    """
+    Visualiza as ativações na imagem usando Grad-CAM e adiciona a segmentação de objetos.
+    """
+    model.eval()  # Coloca o modelo em modo de avaliação
+    input_tensor = test_transforms(image).unsqueeze(0).to(device)
+
+    # Verificar se o modelo é suportado
+    if model_name.startswith('ResNet'):
+        target_layer = 'layer4'
+    elif model_name.startswith('DenseNet'):
+        target_layer = 'features.denseblock4'
+    else:
+        st.error("Modelo não suportado para Grad-CAM.")
+        return
+
+    # Criar o objeto CAM usando torchcam
+    cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
+
+    # Ativar Grad-CAM
+    with torch.set_grad_enabled(True):
+        out = model(input_tensor)  # Faz a previsão
+        probabilities = torch.nn.functional.softmax(out, dim=1)
+        confidence, pred = torch.max(probabilities, 1)  # Obtém a classe predita
+        pred_class = pred.item()
+
+        # Gerar o mapa de ativação
+        activation_map = cam_extractor(pred_class, out)
+
+    # Converter o mapa de ativação para PIL Image
+    activation_map = activation_map[0]
+    result = overlay_mask(to_pil_image(input_tensor.squeeze().cpu()), to_pil_image(activation_map.squeeze(), mode='F'), alpha=0.5)
+
+    # Converter a imagem para array NumPy
+    image_np = np.array(image)
+
+    if segmentation and segmentation_model is not None:
+        # Aplicar o modelo de segmentação
+        segmentation_model.eval()
         with torch.no_grad():
-            for inputs, masks in val_loader:
-                inputs = inputs.to(device)
-                masks = masks.to(device).long().squeeze(1)
-                outputs = model(inputs)['out']
-                loss = criterion(outputs, masks)
-                val_loss += loss.item() * inputs.size(0)
-        val_loss /= len(val_loader.dataset)
-        st.write(f"Época [{epoch+1}/{num_epochs}], Perda Validação: {val_loss:.4f}")
-    return model
+            segmentation_output = segmentation_model(input_tensor)['out']
+            segmentation_mask = torch.argmax(segmentation_output.squeeze(), dim=0).cpu().numpy()
+
+        # Mapear o índice da classe para uma cor
+        segmentation_colored = label_to_color_image(segmentation_mask).astype(np.uint8)
+        segmentation_colored = cv2.resize(segmentation_colored, (image.size[0], image.size[1]))
+
+        # Exibir as imagens: Imagem Original, Grad-CAM e Segmentação
+        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+
+        # Imagem original
+        ax[0].imshow(image_np)
+        ax[0].set_title('Imagem Original')
+        ax[0].axis('off')
+
+        # Imagem com Grad-CAM
+        ax[1].imshow(result)
+        ax[1].set_title('Grad-CAM')
+        ax[1].axis('off')
+
+        # Imagem com Segmentação
+        ax[2].imshow(image_np)
+        ax[2].imshow(segmentation_colored, alpha=0.6)
+        ax[2].set_title('Segmentação')
+        ax[2].axis('off')
+
+        # Exibir as imagens com o Streamlit
+        st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
+    else:
+        # Exibir as imagens: Imagem Original e Grad-CAM
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+
+        # Imagem original
+        ax[0].imshow(image_np)
+        ax[0].set_title('Imagem Original')
+        ax[0].axis('off')
+
+        # Imagem com Grad-CAM
+        ax[1].imshow(result)
+        ax[1].set_title('Grad-CAM')
+        ax[1].axis('off')
+
+        # Exibir as imagens com o Streamlit
+        st.pyplot(fig)
+        plt.close(fig)  # Fechar a figura para liberar memória
 
 def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience):
     """
-    Treinamento do modelo de classificação.
+    Função principal para treinamento do modelo de classificação.
     """
     set_seed(42)
+
+    # Carregar o dataset original sem transformações
     full_dataset = datasets.ImageFolder(root=data_dir)
+
+    # Verificar se há classes suficientes
     if len(full_dataset.classes) < num_classes:
-        st.error(f"Menos classes ({len(full_dataset.classes)}) do que o especificado ({num_classes}).")
+        st.error(f"O número de classes encontradas ({len(full_dataset.classes)}) é menor do que o número especificado ({num_classes}).")
         return None
+
+    # Exibir dados
     visualize_data(full_dataset, full_dataset.classes)
     plot_class_distribution(full_dataset, full_dataset.classes)
+
+    # Divisão dos dados
     dataset_size = len(full_dataset)
     indices = list(range(dataset_size))
     np.random.shuffle(indices)
+
     train_end = int(train_split * dataset_size)
     valid_end = int((train_split + valid_split) * dataset_size)
+
     train_indices = indices[:train_end]
     valid_indices = indices[train_end:valid_end]
     test_indices = indices[valid_end:]
+
+    # Verificar se há dados suficientes em cada conjunto
     if len(train_indices) == 0 or len(valid_indices) == 0 or len(test_indices) == 0:
-        st.error("Divisão de dados resultou em algum conjunto vazio.")
+        st.error("Divisão dos dados resultou em um conjunto vazio. Ajuste os percentuais de divisão.")
         return None
+
+    # Criar datasets para treino, validação e teste
     train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
     valid_dataset = torch.utils.data.Subset(full_dataset, valid_indices)
     test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
 
-    # Modelo para extrair embeddings
+    # Criar dataframes para os conjuntos de treinamento, validação e teste com data augmentation e embeddings
     model_for_embeddings = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
     if model_for_embeddings is None:
         return None
 
-    st.write("**Processando Treino (Data Aug + Embeddings)**")
+    st.write("**Processando o conjunto de treinamento para incluir Data Augmentation e Embeddings...**")
     train_df = apply_transforms_and_get_embeddings(train_dataset, model_for_embeddings, train_transforms, batch_size=batch_size)
-    st.write("**Processando Validação**")
+    st.write("**Processando o conjunto de validação...**")
     valid_df = apply_transforms_and_get_embeddings(valid_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
-    st.write("**Processando Teste**")
+    st.write("**Processando o conjunto de teste...**")
     test_df = apply_transforms_and_get_embeddings(test_dataset, model_for_embeddings, test_transforms, batch_size=batch_size)
 
+    # Mapear rótulos para nomes de classes
     class_to_idx = full_dataset.class_to_idx
     idx_to_class = {v: k for k, v in class_to_idx.items()}
+
     train_df['class_name'] = train_df['label'].map(idx_to_class)
     valid_df['class_name'] = valid_df['label'].map(idx_to_class)
     test_df['class_name'] = test_df['label'].map(idx_to_class)
 
-    st.write("**DF Treino c/ Aug + Embeddings:**")
+    # Exibir dataframes no Streamlit sem a coluna 'augmented_image' e sem limitar a 5 linhas
+    st.write("**Dataframe do Conjunto de Treinamento com Data Augmentation e Embeddings:**")
     st.dataframe(train_df.drop(columns=['augmented_image']))
-    st.write("**DF Val:**")
+
+    st.write("**Dataframe do Conjunto de Validação:**")
     st.dataframe(valid_df.drop(columns=['augmented_image']))
-    st.write("**DF Test:**")
+
+    st.write("**Dataframe do Conjunto de Teste:**")
     st.dataframe(test_df.drop(columns=['augmented_image']))
 
-    display_all_augmented_images(train_df, full_dataset.classes, max_images=50)
+    # Exibir todas as imagens augmentadas (ou limitar conforme necessário)
+    display_all_augmented_images(train_df, full_dataset.classes, max_images=100)  # Ajuste 'max_images' conforme necessário
+
+    # Visualizar os embeddings
     visualize_embeddings(train_df, full_dataset.classes)
 
-    st.write("**Distribuição de Classes (Treino)**")
+    # Exibir contagem de imagens por classe nos conjuntos de treinamento e teste
+    st.write("**Distribuição das Classes no Conjunto de Treinamento:**")
     train_class_counts = train_df['class_name'].value_counts()
     st.bar_chart(train_class_counts)
-    st.write("**Distribuição de Classes (Teste)**")
+
+    st.write("**Distribuição das Classes no Conjunto de Teste:**")
     test_class_counts = test_df['class_name'].value_counts()
     st.bar_chart(test_class_counts)
 
-    # Reconfigurar para DataLoader
+    # Atualizar os datasets com as transformações para serem usados nos DataLoaders
     train_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, train_indices), transform=train_transforms)
     valid_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, valid_indices), transform=test_transforms)
     test_dataset = CustomDataset(torch.utils.data.Subset(full_dataset, test_indices), transform=test_transforms)
 
+    # Dataloaders
     g = torch.Generator()
     g.manual_seed(42)
 
     if use_weighted_loss:
         targets = [full_dataset.targets[i] for i in train_indices]
         class_counts = np.bincount(targets)
-        class_counts = class_counts + 1e-6
+        class_counts = class_counts + 1e-6  # Para evitar divisão por zero
         class_weights = 1.0 / class_counts
         class_weights = torch.FloatTensor(class_weights).to(device)
         criterion = nn.CrossEntropyLoss(weight=class_weights)
@@ -445,12 +803,15 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker, generator=g)
 
-    # Modelo final
+    # Carregar o modelo
     model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=fine_tune)
     if model is None:
         return None
 
+    # Definir o otimizador com L2 regularization (weight_decay)
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=l2_lambda)
+
+    # Inicializar as listas de perdas e acurácias no st.session_state
     if 'train_losses' not in st.session_state:
         st.session_state.train_losses = []
     if 'valid_losses' not in st.session_state:
@@ -460,14 +821,17 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
     if 'valid_accuracies' not in st.session_state:
         st.session_state.valid_accuracies = []
 
+    # Early Stopping
     best_valid_loss = float('inf')
     epochs_no_improve = 0
-    best_model_wts = None
+    best_model_wts = None  # Inicializar
 
+    # Placeholders para gráficos dinâmicos
     placeholder = st.empty()
     progress_bar = st.progress(0)
     epoch_text = st.empty()
 
+    # Treinamento
     for epoch in range(epochs):
         set_seed(42 + epoch)
         running_loss = 0.0
@@ -477,12 +841,14 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         for inputs, labels in train_loader:
             inputs = inputs.to(device)
             labels = labels.to(device)
+
             optimizer.zero_grad()
             try:
                 outputs = model(inputs)
             except Exception as e:
-                st.error(f"Erro durante treinamento: {e}")
+                st.error(f"Erro durante o treinamento: {e}")
                 return None
+
             _, preds = torch.max(outputs, 1)
             loss = criterion(outputs, labels)
             loss.backward()
@@ -496,26 +862,36 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         st.session_state.train_losses.append(epoch_loss)
         st.session_state.train_accuracies.append(epoch_acc.item())
 
+        # Validação
         model.eval()
         valid_running_loss = 0.0
         valid_running_corrects = 0
+
         with torch.no_grad():
             for inputs, labels in valid_loader:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
+
                 outputs = model(inputs)
                 _, preds = torch.max(outputs, 1)
                 loss = criterion(outputs, labels)
+
                 valid_running_loss += loss.item() * inputs.size(0)
                 valid_running_corrects += torch.sum(preds == labels.data)
+
         valid_epoch_loss = valid_running_loss / len(valid_dataset)
         valid_epoch_acc = valid_running_corrects.double() / len(valid_dataset)
         st.session_state.valid_losses.append(valid_epoch_loss)
         st.session_state.valid_accuracies.append(valid_epoch_acc.item())
 
+        # Atualizar gráficos dinamicamente
         with placeholder.container():
             fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+
+            # Get current timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Gráfico de Perda
             ax[0].plot(range(1, len(st.session_state.train_losses) + 1), st.session_state.train_losses, label='Treino')
             ax[0].plot(range(1, len(st.session_state.valid_losses) + 1), st.session_state.valid_losses, label='Validação')
             ax[0].set_title(f'Perda por Época ({timestamp})')
@@ -523,6 +899,7 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             ax[0].set_ylabel('Perda')
             ax[0].legend()
 
+            # Gráfico de Acurácia
             ax[1].plot(range(1, len(st.session_state.train_accuracies) + 1), st.session_state.train_accuracies, label='Treino')
             ax[1].plot(range(1, len(st.session_state.valid_accuracies) + 1), st.session_state.valid_accuracies, label='Validação')
             ax[1].set_title(f'Acurácia por Época ({timestamp})')
@@ -531,13 +908,47 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
             ax[1].legend()
 
             st.pyplot(fig)
-            plt.close(fig)
+            plt.close(fig)  # Fechar a figura para liberar memória
 
+        # Atualizar texto de progresso
         progress = (epoch + 1) / epochs
         progress_bar.progress(progress)
         epoch_text.text(f'Época {epoch+1}/{epochs}')
 
-        # EarlyStopping
+        # Atualizar histórico na barra lateral
+        with st.sidebar.expander("Histórico de Treinamento", expanded=True):
+            timestamp_hist = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # Gráfico de Perda
+            fig_loss, ax_loss = plt.subplots(figsize=(5, 3))
+            ax_loss.plot(st.session_state.train_losses, label='Perda de Treino')
+            ax_loss.plot(st.session_state.valid_losses, label='Perda de Validação')
+            ax_loss.set_title(f'Histórico de Perda ({timestamp_hist})')
+            ax_loss.set_xlabel('Época')
+            ax_loss.set_ylabel('Perda')
+            ax_loss.legend()
+            st.pyplot(fig_loss)
+            plt.close(fig_loss)  # Fechar a figura para liberar memória
+
+            # Gráfico de Acurácia
+            fig_acc, ax_acc = plt.subplots(figsize=(5, 3))
+            ax_acc.plot(st.session_state.train_accuracies, label='Acurácia de Treino')
+            ax_acc.plot(st.session_state.valid_accuracies, label='Acurácia de Validação')
+            ax_acc.set_title(f'Histórico de Acurácia ({timestamp_hist})')
+            ax_acc.set_xlabel('Época')
+            ax_acc.set_ylabel('Acurácia')
+            ax_acc.legend()
+            st.pyplot(fig_acc)
+            plt.close(fig_acc)  # Fechar a figura para liberar memória
+
+            # Botão para limpar o histórico
+            if st.button("Limpar Histórico", key=f"limpar_historico_epoch_{epoch}"):
+                st.session_state.train_losses = []
+                st.session_state.valid_losses = []
+                st.session_state.train_accuracies = []
+                st.session_state.valid_accuracies = []
+                st.experimental_rerun()
+
+        # Early Stopping
         if valid_epoch_loss < best_valid_loss:
             best_valid_loss = valid_epoch_loss
             epochs_no_improve = 0
@@ -545,437 +956,489 @@ def train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_r
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                st.write("Early stopping!")
+                st.write('Early stopping!')
                 if best_model_wts is not None:
                     model.load_state_dict(best_model_wts)
                 break
 
+    # Carregar os melhores pesos do modelo se houver
     if best_model_wts is not None:
         model.load_state_dict(best_model_wts)
 
-    # Plotagem final
-    plot_metrics(st.session_state.train_losses, st.session_state.valid_losses,
-                 st.session_state.train_accuracies, st.session_state.valid_accuracies)
+    # Gráficos de Perda e Acurácia finais
+    plot_metrics(st.session_state.train_losses, st.session_state.valid_losses, 
+                st.session_state.train_accuracies, st.session_state.valid_accuracies)
 
+    # Avaliação Final no Conjunto de Teste
     st.write("**Avaliação no Conjunto de Teste**")
     compute_metrics(model, test_loader, full_dataset.classes)
+
+    # Análise de Erros
     st.write("**Análise de Erros**")
     error_analysis(model, test_loader, full_dataset.classes)
-    st.write("**Clusterização**")
+
+    # **Clusterização e Análise Comparativa**
+    st.write("**Análise de Clusterização**")
     perform_clustering(model, test_loader, full_dataset.classes)
 
+    # Liberar memória
     del train_loader, valid_loader
     gc.collect()
+
+    # Armazenar o modelo e as classes no st.session_state
     st.session_state['model'] = model
     st.session_state['classes'] = full_dataset.classes
-    st.session_state['trained_model_name'] = model_name
+    st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
 
     return model, full_dataset.classes
 
-def plot_metrics(train_losses, valid_losses, train_accuracies, valid_accuracies):
-    """Gráfico final de Perda e Acurácia."""
-    epochs_range = range(1, len(train_losses) + 1)
-    fig, ax = plt.subplots(1, 2, figsize=(14, 5))
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def train_segmentation_model(images_dir, masks_dir, num_classes):
+    """
+    Treina o modelo de segmentação com o conjunto de dados fornecido pelo usuário.
+    """
+    set_seed(42)
+    batch_size = 4
+    num_epochs = 25
+    learning_rate = 0.001
 
-    ax[0].plot(epochs_range, train_losses, label='Treino')
-    ax[0].plot(epochs_range, valid_losses, label='Validação')
-    ax[0].set_title(f'Perda por Época ({timestamp})')
-    ax[0].set_xlabel('Épocas')
-    ax[0].set_ylabel('Perda')
-    ax[0].legend()
+    # Transformações
+    input_transforms = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+    ])
+    target_transforms = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+    ])
 
-    ax[1].plot(epochs_range, train_accuracies, label='Treino')
-    ax[1].plot(epochs_range, valid_accuracies, label='Validação')
-    ax[1].set_title(f'Acurácia por Época ({timestamp})')
-    ax[1].set_xlabel('Épocas')
-    ax[1].set_ylabel('Acurácia')
-    ax[1].legend()
+    # Dataset
+    dataset = SegmentationDataset(images_dir, masks_dir, transform=input_transforms, target_transform=target_transforms)
 
-    st.pyplot(fig)
-    plt.close(fig)
+    # Dividir em treino e validação
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    if train_size == 0 or val_size == 0:
+        st.error("Conjunto de dados de segmentação muito pequeno para dividir em treino e validação.")
+        return None
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-def compute_metrics(model, dataloader, classes):
-    """Calcula métricas, imprime matriz de confusão e classification_report."""
-    model.eval()
-    all_preds = []
-    all_labels = []
-    all_probs = []
-    with torch.no_grad():
-        for inputs, labels in dataloader:
+    # Dataloaders
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=seed_worker)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, worker_init_fn=seed_worker)
+
+    # Modelo
+    model = get_segmentation_model(num_classes=num_classes, fine_tune=True)
+
+    # Otimizador e função de perda
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    # Treinamento
+    for epoch in range(num_epochs):
+        model.train()
+        running_loss = 0.0
+
+        for inputs, masks in train_loader:
             inputs = inputs.to(device)
-            labels = labels.to(device)
-            outputs = model(inputs)
-            probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            _, preds = torch.max(outputs, 1)
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-            all_probs.extend(probabilities.cpu().numpy())
-    report = classification_report(all_labels, all_preds, target_names=classes, output_dict=True)
-    st.text("Relatório de Classificação:")
-    st.write(pd.DataFrame(report).transpose())
+            masks = masks.to(device).long().squeeze(1)  # Ajustar dimensões
 
-    cm = confusion_matrix(all_labels, all_preds, normalize='true')
-    fig, ax = plt.subplots()
-    sns.heatmap(cm, annot=True, fmt='.2f', cmap='Blues', xticklabels=classes, yticklabels=classes, ax=ax)
-    ax.set_xlabel('Predito')
-    ax.set_ylabel('Verdadeiro')
-    ax.set_title('Matriz de Confusão (Normalizada)')
-    st.pyplot(fig)
-    plt.close(fig)
+            optimizer.zero_grad()
+            outputs = model(inputs)['out']
+            loss = criterion(outputs, masks)
+            loss.backward()
+            optimizer.step()
 
-    if len(classes) == 2:
-        fpr, tpr, thresholds = roc_curve(all_labels, [p[1] for p in all_probs])
-        roc_auc = roc_auc_score(all_labels, [p[1] for p in all_probs])
-        fig, ax = plt.subplots()
-        ax.plot(fpr, tpr, label=f'AUC={roc_auc:.2f}')
-        ax.plot([0,1],[0,1],'k--')
-        ax.set_xlabel('FPR')
-        ax.set_ylabel('TPR')
-        ax.set_title('Curva ROC (Binária)')
-        ax.legend()
-        st.pyplot(fig)
-        plt.close(fig)
-    else:
-        binarized_labels = label_binarize(all_labels, classes=range(len(classes)))
-        roc_auc = roc_auc_score(binarized_labels, np.array(all_probs), average='weighted', multi_class='ovr')
-        st.write(f"AUC-ROC Média Ponderada (multiclasse): {roc_auc:.4f}")
+            running_loss += loss.item() * inputs.size(0)
 
-def error_analysis(model, dataloader, classes):
-    """Exibir imagens mal classificadas."""
-    model.eval()
-    misclassified_images = []
-    misclassified_labels = []
-    misclassified_preds = []
-    with torch.no_grad():
-        for inputs, labels in dataloader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-            outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            incorrect = preds != labels
-            if incorrect.any():
-                misclassified_images.extend(inputs[incorrect].cpu())
-                misclassified_labels.extend(labels[incorrect].cpu())
-                misclassified_preds.extend(preds[incorrect].cpu())
-                if len(misclassified_images) >= 5:
-                    break
-    if misclassified_images:
-        st.write("Imagens mal classificadas:")
-        fig, axes = plt.subplots(1, min(5, len(misclassified_images)), figsize=(15,3))
-        for i in range(min(5, len(misclassified_images))):
-            image = misclassified_images[i].permute(1,2,0).numpy()
-            axes[i].imshow(image)
-            axes[i].set_title(f"V: {classes[misclassified_labels[i]]}\nP: {classes[misclassified_preds[i]]}")
-            axes[i].axis('off')
-        st.pyplot(fig)
-        plt.close(fig)
-    else:
-        st.write("Nenhuma imagem mal classificada encontrada.")
+        epoch_loss = running_loss / len(train_loader.dataset)
+        st.write(f'Época [{epoch+1}/{num_epochs}], Perda de Treino: {epoch_loss:.4f}')
 
-def perform_clustering(model, dataloader, classes):
-    """Extração de features + clustering."""
-    features = []
-    labels = []
-    if isinstance(model, nn.Sequential):
-        model_feat = model
-    else:
-        model_feat = nn.Sequential(*list(model.children())[:-1])
-    model_feat.eval()
-    model_feat.to(device)
-
-    with torch.no_grad():
-        for inputs, lbl in dataloader:
-            inputs = inputs.to(device)
-            out = model_feat(inputs)
-            out = out.view(out.size(0), -1)
-            features.append(out.cpu().numpy())
-            labels.extend(lbl.numpy())
-    features = np.vstack(features)
-    labels = np.array(labels)
-
-    pca = PCA(n_components=2)
-    feats_2d = pca.fit_transform(features)
-
-    kmeans = KMeans(n_clusters=len(classes), random_state=42)
-    clusters_km = kmeans.fit_predict(features)
-
-    agglo = AgglomerativeClustering(n_clusters=len(classes))
-    clusters_ag = agglo.fit_predict(features)
-
-    fig, ax = plt.subplots(1,2, figsize=(14,6))
-
-    sc = ax[0].scatter(feats_2d[:,0], feats_2d[:,1], c=clusters_km, cmap='viridis')
-    ax[0].legend(*sc.legend_elements(), title="Clusters")
-    ax[0].set_title("K-Means")
-
-    sc = ax[1].scatter(feats_2d[:,0], feats_2d[:,1], c=clusters_ag, cmap='viridis')
-    ax[1].legend(*sc.legend_elements(), title="Clusters")
-    ax[1].set_title("Hierárquico")
-
-    st.pyplot(fig)
-    plt.close(fig)
-
-    ari_km = adjusted_rand_score(labels, clusters_km)
-    nmi_km = normalized_mutual_info_score(labels, clusters_km)
-    ari_ag = adjusted_rand_score(labels, clusters_ag)
-    nmi_ag = normalized_mutual_info_score(labels, clusters_ag)
-
-    st.write(f"K-Means ARI={ari_km:.4f}, NMI={nmi_km:.4f}")
-    st.write(f"Agglo ARI={ari_ag:.4f}, NMI={nmi_ag:.4f}")
-
-def evaluate_image(model, image, classes):
-    """Faz uma predição para imagem individual."""
-    model.eval()
-    image_tensor = test_transforms(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        output = model(image_tensor)
-        probs = torch.nn.functional.softmax(output, dim=1)
-        conf, pred = torch.max(probs, 1)
-        idx = pred.item()
-        cname = classes[idx]
-        return cname, conf.item()
-
-def label_to_color_image(label):
-    """Mapeia label de segmentação para imagem colorida."""
-    colormap = create_pascal_label_colormap()
-    return colormap[label]
-
-def create_pascal_label_colormap():
-    """Colormap Pascal VOC."""
-    colormap = np.zeros((256,3), dtype=int)
-    ind = np.arange(256, dtype=int)
-    for shift in reversed(range(8)):
-        for channel in range(3):
-            colormap[:,channel] |= ((ind >> channel) & 1) << shift
-        ind >>= 3
-    return colormap
-
-def visualize_activations(model, image, class_names, model_name, segmentation_model=None, segmentation=False):
-    """Visualização com Grad-CAM + Segmentação opcional."""
-    model.eval()
-    input_tensor = test_transforms(image).unsqueeze(0).to(device)
-
-    # Indica a camada-alvo para ResNet ou DenseNet
-    if model_name.startswith('ResNet'):
-        target_layer = 'layer4'
-    elif model_name.startswith('DenseNet'):
-        target_layer = 'features.denseblock4'
-    else:
-        st.error("Modelo não suportado para Grad-CAM.")
-        return
-
-    cam_extractor = SmoothGradCAMpp(model, target_layer=target_layer)
-
-    with torch.set_grad_enabled(True):
-        out = model(input_tensor)
-        probs = torch.nn.functional.softmax(out, dim=1)
-        conf, pred = torch.max(probs, 1)
-        pred_class = pred.item()
-        activation_map = cam_extractor(pred_class, out)
-
-    activation_map = activation_map[0]
-    result = overlay_mask(
-        to_pil_image(input_tensor.squeeze().cpu()),
-        to_pil_image(activation_map.squeeze(), mode='F'),
-        alpha=0.5
-    )
-
-    image_np = np.array(image)
-
-    if segmentation and segmentation_model is not None:
-        segmentation_model.eval()
+        # Validação
+        model.eval()
+        val_loss = 0.0
         with torch.no_grad():
-            seg_output = segmentation_model(input_tensor)['out']
-            seg_mask = torch.argmax(seg_output.squeeze(), dim=0).cpu().numpy()
-        seg_colored = label_to_color_image(seg_mask).astype(np.uint8)
-        seg_colored = cv2.resize(seg_colored, (image.size[0], image.size[1]))
+            for inputs, masks in val_loader:
+                inputs = inputs.to(device)
+                masks = masks.to(device).long().squeeze(1)
 
-        fig, ax = plt.subplots(1, 3, figsize=(15,5))
-        ax[0].imshow(image_np)
-        ax[0].set_title("Original")
-        ax[0].axis('off')
+                outputs = model(inputs)['out']
+                loss = criterion(outputs, masks)
+                val_loss += loss.item() * inputs.size(0)
 
-        ax[1].imshow(result)
-        ax[1].set_title("Grad-CAM")
-        ax[1].axis('off')
+        val_epoch_loss = val_loss / len(val_loader.dataset)
+        st.write(f'Época [{epoch+1}/{num_epochs}], Perda de Validação: {val_epoch_loss:.4f}')
 
-        ax[2].imshow(image_np)
-        ax[2].imshow(seg_colored, alpha=0.6)
-        ax[2].set_title("Segmentação")
-        ax[2].axis('off')
-
-        st.pyplot(fig)
-        plt.close(fig)
-    else:
-        fig, ax = plt.subplots(1,2, figsize=(10,5))
-        ax[0].imshow(image_np)
-        ax[0].set_title("Imagem Original")
-        ax[0].axis('off')
-        ax[1].imshow(result)
-        ax[1].set_title("Grad-CAM")
-        ax[1].axis('off')
-        st.pyplot(fig)
-        plt.close(fig)
+    return model
 
 def main():
-    icon_path = "logo.png"
+    # Definir o caminho do ícone
+    icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
+
+    # Verificar se o arquivo de ícone existe antes de configurá-lo
     if os.path.exists(icon_path):
         try:
             st.set_page_config(page_title="Geomaker", page_icon=icon_path, layout="wide")
-            logging.info(f"Ícone {icon_path} carregado.")
+            logging.info(f"Ícone {icon_path} carregado com sucesso.")
         except Exception as e:
             st.set_page_config(page_title="Geomaker", layout="wide")
+            logging.warning(f"Erro ao carregar o ícone {icon_path}: {e}")
     else:
+        # Se o ícone não for encontrado, carrega sem favicon
         st.set_page_config(page_title="Geomaker", layout="wide")
+        logging.warning(f"Ícone {icon_path} não encontrado, carregando sem favicon.")
 
+    # Layout da página
     if os.path.exists('capa.png'):
         try:
-            st.image('capa.png', width=100,
-                     caption='Laboratório de Educação e IA - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay',
-                     use_container_width=True)
+            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_column_width=True)
         except UnidentifiedImageError:
-            st.warning("capa.png corrompida.")
+            st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
     else:
-        st.warning("capa.png não encontrada.")
+        st.warning("Imagem 'capa.png' não encontrada.")
 
+    # Carregar o logotipo na barra lateral
     if os.path.exists("logo.png"):
         try:
             st.sidebar.image("logo.png", width=200)
         except UnidentifiedImageError:
-            st.sidebar.text("logo.png corrompido.")
+            st.sidebar.text("Imagem do logotipo não pôde ser carregada ou está corrompida.")
     else:
-        st.sidebar.text("logo.png não encontrado.")
+        st.sidebar.text("Imagem do logotipo não encontrada.")
 
-    st.title("Classificação e Segmentação de Imagens + Grad-CAM (SmoothGradCAMpp)")
-    st.write("Exemplo de aplicativo Streamlit com PyTorch, Data Aug, Grad-CAM e Segmentação.")
-    st.write("Caso o `torchcam` não esteja instalado, execute: `pip install torch-cam`")
+    st.title("Classificação e Segmentação de Imagens com Aprendizado Profundo")
+    st.write("Este aplicativo permite treinar um modelo de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar segmentação de objetos.")
+    st.write("As etapas são cuidadosamente documentadas para auxiliar na reprodução e análise científica.")
 
-    # Decidir se iremos usar segmentação
-    st.subheader("Opções de Segmentação")
-    segmentation_option = st.selectbox("Deseja utilizar Segmentação?", ["Não", "Pré-treinado FCN ResNet50", "Treinar um novo para segmentação"])
+    # Inicializar segmentation_model
     segmentation_model = None
-    if segmentation_option == "Pré-treinado FCN ResNet50":
-        num_classes_seg = st.number_input("Número de classes (FCN)", min_value=1, value=21)
-        segmentation_model = get_segmentation_model(num_classes_seg)
-        st.write("Modelo de segmentação pré-treinado OK.")
-    elif segmentation_option == "Treinar um novo para segmentação":
-        num_classes_seg = st.number_input("Número classes segmentação:", min_value=1, value=2)
-        seg_zip = st.file_uploader("Zip com pasta images/ e masks/", type=["zip"])
-        if seg_zip:
+
+    # Opções para o modelo de segmentação
+    st.subheader("Opções para o Modelo de Segmentação")
+    segmentation_option = st.selectbox("Deseja utilizar um modelo de segmentação?", ["Não", "Utilizar modelo pré-treinado", "Treinar novo modelo de segmentação"], key="segmentation_option")
+    if segmentation_option == "Utilizar modelo pré-treinado":
+        num_classes_segmentation = st.number_input("Número de Classes para Segmentação (Modelo Pré-treinado):", min_value=1, step=1, value=21, key="num_classes_segmentation")
+        segmentation_model = get_segmentation_model(num_classes=num_classes_segmentation)
+        st.write("Modelo de segmentação pré-treinado carregado.")
+    elif segmentation_option == "Treinar novo modelo de segmentação":
+        st.write("Treinamento do modelo de segmentação com seu próprio conjunto de dados.")
+        num_classes_segmentation = st.number_input("Número de Classes para Segmentação:", min_value=1, step=1, key="num_classes_segmentation_train")
+        # Upload do conjunto de dados de segmentação
+        segmentation_zip = st.file_uploader("Faça upload de um arquivo ZIP contendo as imagens e máscaras de segmentação", type=["zip"], key="segmentation_zip")
+        if segmentation_zip is not None:
             temp_seg_dir = tempfile.mkdtemp()
             zip_path = os.path.join(temp_seg_dir, "segmentation.zip")
             with open(zip_path, "wb") as f:
-                f.write(seg_zip.read())
+                f.write(segmentation_zip.read())
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_seg_dir)
+
+            # Espera-se que as imagens estejam em 'images/' e as máscaras em 'masks/' dentro do ZIP
             images_dir = os.path.join(temp_seg_dir, 'images')
             masks_dir = os.path.join(temp_seg_dir, 'masks')
+
             if os.path.exists(images_dir) and os.path.exists(masks_dir):
-                st.write("Treinando modelo de segmentação..")
-                segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_seg)
+                # Treinar o modelo de segmentação
+                st.write("Iniciando o treinamento do modelo de segmentação...")
+                segmentation_model = train_segmentation_model(images_dir, masks_dir, num_classes_segmentation)
                 if segmentation_model is not None:
-                    st.success("Segmentação treinada.")
+                    st.success("Treinamento do modelo de segmentação concluído!")
             else:
-                st.error("Estrutura de pastas não encontrada (images/, masks/).")
+                st.error("Estrutura de diretórios inválida no arquivo ZIP. Certifique-se de que as imagens estão em 'images/' e as máscaras em 'masks/'.")
+        else:
+            st.warning("Aguardando o upload do conjunto de dados de segmentação.")
+    else:
+        segmentation_model = None
 
-    # Configs de Classificação
-    st.sidebar.title("Configurações de Classificação")
-    num_classes = st.sidebar.number_input("Nº classes", min_value=2, value=2)
-    model_name = st.sidebar.selectbox("Modelo:", ["ResNet18","ResNet50","DenseNet121"])
-    fine_tune = st.sidebar.checkbox("Fine Tune", value=False)
-    epochs = st.sidebar.slider("Épocas", min_value=1, max_value=200, value=10)
-    learning_rate = st.sidebar.select_slider("LR:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
-    batch_size = st.sidebar.selectbox("Batch Size", [4,8,16,32], index=2)
-    train_split = st.sidebar.slider("Treino (%)", 0.5, 0.9, 0.7, 0.05)
-    valid_split = st.sidebar.slider("Val (%)", 0.05, 0.4, 0.15, 0.05)
-    l2_lambda = st.sidebar.number_input("Weight Decay (L2):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
-    patience = st.sidebar.number_input("EarlyStopping Paciencia:", min_value=1, max_value=10, value=3)
-    use_weighted_loss = st.sidebar.checkbox("Loss Ponderada p/ Desbalanceamento?", value=False)
-
+    # Barra Lateral de Configurações
+    st.sidebar.title("Configurações do Treinamento")
+    num_classes = st.sidebar.number_input("Número de Classes:", min_value=2, step=1, key="num_classes")
+    model_name = st.sidebar.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name")
+    fine_tune = st.sidebar.checkbox("Fine-Tuning Completo", value=False, key="fine_tune")
+    epochs = st.sidebar.slider("Número de Épocas:", min_value=1, max_value=500, value=200, step=1, key="epochs")
+    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.0001, key="learning_rate")
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[4, 8, 16, 32, 64], index=2, key="batch_size")
+    train_split = st.sidebar.slider("Percentual de Treinamento:", min_value=0.5, max_value=0.9, value=0.7, step=0.05, key="train_split")
+    valid_split = st.sidebar.slider("Percentual de Validação:", min_value=0.05, max_value=0.4, value=0.15, step=0.05, key="valid_split")
+    l2_lambda = st.sidebar.number_input("L2 Regularization (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda")
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1, key="patience")
+    use_weighted_loss = st.sidebar.checkbox("Usar Perda Ponderada para Classes Desbalanceadas", value=False, key="use_weighted_loss")
+    st.sidebar.image("eu.ico", width=80)
     st.sidebar.write("""
-    By [Geomaker+IA](https://doi.org/10.5281/zenodo.13910277).  
-    - Prof. Marcelo Claro  
-    - Contatos: marceloclaro@gmail.com
+    Produzido pelo:
+
+    Projeto Geomaker + IA 
+
+    https://doi.org/10.5281/zenodo.13910277
+
+    - Professor: Marcelo Claro.
+
+    Contatos: marceloclaro@gmail.com
+
+    Whatsapp: (88)981587145
+
+    Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
     """)
 
-    model_option = st.selectbox("Carregar / Treinar?", ["Treinar Novo Modelo", "Carregar Modelo Existente"])
-    if model_option == "Carregar Modelo Existente":
-        loaded_model_file = st.file_uploader("Modelo .pth", type=["pth","pt"])
-        if loaded_model_file is not None:
-            model_loaded = get_model(model_name, num_classes, 0.5, fine_tune=False)
-            if model_loaded is None:
-                st.error("Erro ao criar arch do modelo.")
+    # Verificar se a soma dos splits é válida
+    if train_split + valid_split > 0.95:
+        st.sidebar.error("A soma dos splits de treinamento e validação deve ser menor ou igual a 0.95.")
+
+    # Opções de carregamento do modelo
+    st.header("Opções de Carregamento do Modelo")
+
+    model_option = st.selectbox("Escolha uma opção:", ["Treinar um novo modelo", "Carregar um modelo existente"], key="model_option_main")
+    if model_option == "Carregar um modelo existente":
+        # Upload do modelo pré-treinado
+        model_file = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_main")
+        if model_file is not None and num_classes > 0:
+            # Carregar o modelo
+            model = get_model(model_name, num_classes, dropout_p=0.5, fine_tune=False)
+            if model is None:
+                st.error("Erro ao carregar o modelo.")
                 return
+
+            # Carregar os pesos do modelo
             try:
-                loaded_sd = torch.load(loaded_model_file, map_location=device)
-                model_loaded.load_state_dict(loaded_sd)
-                st.session_state['model'] = model_loaded
-                st.success("Modelo carregado!")
+                state_dict = torch.load(model_file, map_location=device)
+                model.load_state_dict(state_dict)
+                st.session_state['model'] = model
+                st.session_state['trained_model_name'] = model_name  # Armazena o nome do modelo treinado
+                st.success("Modelo carregado com sucesso!")
             except Exception as e:
-                st.error(f"Falha ao load: {e}")
+                st.error(f"Erro ao carregar o modelo: {e}")
+                return
 
-        classes_file = st.file_uploader("classes.txt", type=["txt"])
-        if classes_file:
-            cls_text = classes_file.read().decode("utf-8").splitlines()
-            st.session_state['classes'] = cls_text
-            st.write(f"Classes: {cls_text}")
-    else:
-        # Treino do zero
-        zip_file = st.file_uploader("ZIP com as imagens (pastas=classes)", type=["zip"])
-        if zip_file and train_split+valid_split <=0.95:
-            tmp_dir = tempfile.mkdtemp()
-            zpath = os.path.join(tmp_dir, "images.zip")
-            with open(zpath, "wb") as f:
+            # Carregar as classes
+            classes_file = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_main")
+            if classes_file is not None:
+                classes = classes_file.read().decode("utf-8").splitlines()
+                st.session_state['classes'] = classes
+                st.write(f"Classes carregadas: {classes}")
+            else:
+                st.error("Por favor, forneça o arquivo com as classes.")
+
+        else:
+            st.warning("Por favor, forneça o modelo e o número de classes.")
+
+    elif model_option == "Treinar um novo modelo":
+        # Upload do arquivo ZIP
+        zip_file = st.file_uploader("Upload do arquivo ZIP com as imagens", type=["zip"], key="zip_file_uploader")
+        if zip_file is not None and num_classes > 0 and train_split + valid_split <= 0.95:
+            temp_dir = tempfile.mkdtemp()
+            zip_path = os.path.join(temp_dir, "uploaded.zip")
+            with open(zip_path, "wb") as f:
                 f.write(zip_file.read())
-            with zipfile.ZipFile(zpath,'r') as zip_ref:
-                zip_ref.extractall(tmp_dir)
-            data_dir = tmp_dir
-            st.write("Treinando..")
-            train_res = train_model(
-                data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size,
-                train_split, valid_split, use_weighted_loss, l2_lambda, patience
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+            data_dir = temp_dir
+
+            st.write("Iniciando o treinamento supervisionado...")
+            model_data = train_model(data_dir, num_classes, model_name, fine_tune, epochs, learning_rate, batch_size, train_split, valid_split, use_weighted_loss, l2_lambda, patience)
+
+            if model_data is None:
+                st.error("Erro no treinamento do modelo.")
+                shutil.rmtree(temp_dir)
+                return
+
+            model, classes = model_data
+            # O modelo e as classes já estão armazenados no st.session_state
+            st.success("Treinamento concluído!")
+
+            # Opção para baixar o modelo treinado
+            st.write("Faça o download do modelo treinado:")
+            buffer = io.BytesIO()
+            torch.save(model.state_dict(), buffer)
+            buffer.seek(0)
+            btn = st.download_button(
+                label="Download do Modelo",
+                data=buffer,
+                file_name="modelo_treinado.pth",
+                mime="application/octet-stream",
+                key="download_model_button"
             )
-            if train_res:
-                model_tr, classes_tr = train_res
-                st.success("Treino concluído!")
-                # Download do modelo
-                buf = io.BytesIO()
-                torch.save(model_tr.state_dict(), buf)
-                buf.seek(0)
-                st.download_button("Baixar Modelo Treinado", data=buf.getvalue(), file_name="modelo_treinado.pth", mime="application/octet-stream")
-                # Baixar classes
-                cls_str = "\n".join(classes_tr)
-                st.download_button("Baixar Classes", data=cls_str, file_name="classes.txt", mime="text/plain")
 
-            # Limpeza
-            shutil.rmtree(tmp_dir)
+            # Salvar as classes em um arquivo
+            classes_data = "\n".join(classes)
+            st.download_button(
+                label="Download das Classes",
+                data=classes_data,
+                file_name="classes.txt",
+                mime="text/plain",
+                key="download_classes_button"
+            )
+
+            # Limpar o diretório temporário
+            shutil.rmtree(temp_dir)
+
         else:
-            st.info("Aguardando ZIP ou splits adequados.")
+            st.warning("Por favor, forneça os dados e as configurações corretas.")
 
-    # Avaliar imagem
-    st.header("Avaliar Imagem")
-    eval_choice = st.radio("Deseja avaliar?", ["Sim","Não"])
-    if eval_choice=="Sim":
+    # Avaliação de uma imagem individual
+    st.header("Avaliação de Imagem")
+    evaluate = st.radio("Deseja avaliar uma imagem?", ("Sim", "Não"), key="evaluate_option")
+    if evaluate == "Sim":
+        # Verificar se o modelo já foi carregado ou treinado
         if 'model' not in st.session_state or 'classes' not in st.session_state:
-            st.warning("Sem modelo ou classes.")
-        else:
-            up_img_eval = st.file_uploader("Imagem", type=["png","jpg","jpeg","bmp"])
-            if up_img_eval:
-                up_img_eval.seek(0)
+            st.warning("Nenhum modelo carregado ou treinado. Por favor, carregue um modelo existente ou treine um novo modelo.")
+            # Opção para carregar um modelo existente
+            model_file_eval = st.file_uploader("Faça upload do arquivo do modelo (.pt ou .pth)", type=["pt", "pth"], key="model_file_uploader_eval")
+            if model_file_eval is not None:
+                num_classes_eval = st.number_input("Número de Classes:", min_value=2, step=1, key="num_classes_eval")
+                model_name_eval = st.selectbox("Modelo Pré-treinado:", options=['ResNet18', 'ResNet50', 'DenseNet121'], key="model_name_eval")
+                model_eval = get_model(model_name_eval, num_classes_eval, dropout_p=0.5, fine_tune=False)
+                if model_eval is None:
+                    st.error("Erro ao carregar o modelo.")
+                    return
                 try:
-                    eval_im = Image.open(up_img_eval).convert("RGB")
-                    st.image(eval_im, caption='Imagem Avaliar', use_column_width=True)
-                    pred_cl, conf_ = evaluate_image(st.session_state['model'], eval_im, st.session_state['classes'])
-                    st.write(f"Classe Predita: {pred_cl}, Confiança={conf_:.4f}")
-                    # Visualizar Grad-CAM
-                    seg_checkbox = st.checkbox("Visualizar Segmentação (se disponível)?", value=False)
-                    seg_to_use = segmentation_model if seg_checkbox else None
-                    nm = st.session_state.get('trained_model_name', model_name)
-                    visualize_activations(st.session_state['model'], eval_im, st.session_state['classes'], nm, segmentation_model=seg_to_use, segmentation=seg_checkbox)
+                    state_dict = torch.load(model_file_eval, map_location=device)
+                    model_eval.load_state_dict(state_dict)
+                    st.session_state['model'] = model_eval
+                    st.session_state['trained_model_name'] = model_name_eval  # Armazena o nome do modelo treinado
+                    st.success("Modelo carregado com sucesso!")
                 except Exception as e:
-                    st.error(f"Erro ao abrir: {e}")
-    st.write("**Fim da execução**")
+                    st.error(f"Erro ao carregar o modelo: {e}")
+                    return
+
+                # Carregar as classes
+                classes_file_eval = st.file_uploader("Faça upload do arquivo com as classes (classes.txt)", type=["txt"], key="classes_file_uploader_eval")
+                if classes_file_eval is not None:
+                    classes_eval = classes_file_eval.read().decode("utf-8").splitlines()
+                    st.session_state['classes'] = classes_eval
+                    st.write(f"Classes carregadas: {classes_eval}")
+                else:
+                    st.error("Por favor, forneça o arquivo com as classes.")
+            else:
+                st.info("Aguardando o upload do modelo e das classes.")
+        else:
+            model_eval = st.session_state['model']
+            classes_eval = st.session_state['classes']
+            model_name_eval = st.session_state.get('trained_model_name', model_name)  # Usa o nome do modelo armazenado
+
+        eval_image_file = st.file_uploader("Faça upload da imagem para avaliação", type=["png", "jpg", "jpeg", "bmp", "gif"], key="eval_image_file")
+        if eval_image_file is not None:
+            eval_image_file.seek(0)
+            try:
+                eval_image = Image.open(eval_image_file).convert("RGB")
+            except Exception as e:
+                st.error(f"Erro ao abrir a imagem: {e}")
+                return
+
+            st.image(eval_image, caption='Imagem para avaliação', use_column_width=True)
+
+            if 'model' in st.session_state and 'classes' in st.session_state:
+                class_name, confidence = evaluate_image(st.session_state['model'], eval_image, st.session_state['classes'], test_transforms)
+                st.write(f"**Classe Predita:** {class_name}")
+                st.write(f"**Confiança:** {confidence:.4f}")
+
+                # Opção para visualizar segmentação
+                segmentation = False
+                if segmentation_model is not None:
+                    segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
+
+                # Visualizar ativações e segmentação
+                model_name_for_visualization = st.session_state.get('trained_model_name', model_name)
+                visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, test_transforms, segmentation_model=segmentation_model, segmentation=segmentation)
+            else:
+                st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
+
+    # Classificação de Áudio com YAMNet
+    st.header("Classificação de Áudio com YAMNet")
+    st.write("Este módulo permite a classificação de áudios utilizando o modelo YAMNet do TensorFlow Hub.")
+
+    # Upload de arquivo ZIP com áudios
+    zip_audio_file = st.file_uploader("Envie um arquivo ZIP contendo subpastas de áudio (.wav, .mp3, .ogg, .flac)", type=["zip"], key="zip_audio_uploader")
+    if zip_audio_file is not None:
+        # 1) Carregar modelo YAMNet (cache_resource evita pickle do objeto)
+        st.write("Carregando o modelo YAMNet do TensorFlow Hub...")
+        yamnet_model = load_yamnet_model()
+        st.success("Modelo YAMNet carregado com sucesso!")
+
+        # 2) Extrair o ZIP em um diretório temporário
+        with tempfile.TemporaryDirectory() as tmpdir_audio:
+            zip_path_audio = os.path.join(tmpdir_audio, "audios.zip")
+            with open(zip_path_audio, "wb") as f:
+                f.write(zip_audio_file.read())
+            with zipfile.ZipFile(zip_path_audio, "r") as zf:
+                zf.extractall(tmpdir_audio)
+
+            # 3) Descobrir arquivos de áudio
+            audio_files = []
+            for root, dirs, files in os.walk(tmpdir_audio):
+                for file in files:
+                    if file.lower().endswith(('.wav', '.mp3', '.ogg', '.flac')):
+                        audio_files.append(os.path.join(root, file))
+
+            if len(audio_files) == 0:
+                st.warning("Nenhum arquivo de áudio encontrado no ZIP.")
+            else:
+                st.write(f"Arquivos de áudio encontrados: {len(audio_files)}")
+                predictions_audio = []
+                file_names_audio = []
+
+                # 4) Processar cada áudio, normalizando e resamplando
+                for audio_path in audio_files:
+                    basename_audio = os.path.basename(audio_path)
+                    file_names_audio.append(basename_audio)
+                    try:
+                        sr_orig, wav_data = wavfile.read(audio_path)
+                        # Normalizar para [-1, 1]
+                        waveform = wav_data / np.iinfo(wav_data.dtype).max
+                        # Ajustar sample rate
+                        sr, waveform = ensure_sample_rate(sr_orig, waveform)
+
+                        # Executar o modelo YAMNet
+                        # yamnet_model retorna: scores, embeddings, spectrogram
+                        scores, embeddings, spectrogram = yamnet_model(waveform)
+
+                        # → scores.shape = [frames, 521]
+                        scores_np = scores.numpy()
+                        mean_scores = scores_np.mean(axis=0)  # média por frame
+                        pred_class = mean_scores.argmax()
+                        predictions_audio.append(pred_class)
+                    except Exception as e:
+                        st.error(f"Erro ao processar {basename_audio}: {e}")
+                        predictions_audio.append(-1)
+
+                # 5) Exibir resultados
+                st.subheader("Resultados da Classificação de Áudio")
+                result_list_audio = []
+                for fn, pred in zip(file_names_audio, predictions_audio):
+                    result_list_audio.append({"Arquivo": fn, "Classe Predita": pred})
+                st.write(result_list_audio)
+
+                # 6) (Opcional) Carregar o class_map do YAMNet
+                # Isso depende de como o YAMNet disponibiliza o class_map
+                # Aqui, como exemplo, vamos assumir que há um arquivo CSV com as classes
+                class_map = []
+                try:
+                    class_map_path = yamnet_model.class_map_path().numpy().decode('utf-8')
+                    import csv
+                    with tf.io.gfile.GFile(class_map_path) as csvfile:
+                        reader = csv.DictReader(csvfile)
+                        for row in reader:
+                            class_map.append(row['display_name'])
+                    st.write("Classes do YAMNet carregadas.")
+                except Exception as e:
+                    st.error(f"Erro ao carregar class_map do YAMNet: {e}")
+                    class_map = [str(i) for i in range(521)]  # Fallback
+
+                # Atualizar as classes no resultado
+                for item in result_list_audio:
+                    idx = item["Classe Predita"]
+                    if 0 <= idx < len(class_map):
+                        item["Classe Predita"] = class_map[idx]
+                    else:
+                        item["Classe Predita"] = "Desconhecida"
+
+                # Exibir novamente com nomes das classes
+                st.write("**Resultados da Classificação de Áudio (com Nomes das Classes):**")
+                st.write(result_list_audio)
+
+    st.write("### Documentação dos Procedimentos")
+    st.write("Todas as etapas foram cuidadosamente registradas. Utilize esta documentação para reproduzir o experimento e analisar os resultados.")
+
+    # Encerrar a aplicação
+    st.write("Obrigado por utilizar o aplicativo!")
 
 if __name__ == "__main__":
     main()
