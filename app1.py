@@ -31,6 +31,8 @@ import math
 import statistics
 import music21  # Importação adicionada
 import streamlit.components.v1 as components  # Importação adicionada
+import pretty_midi
+import soundfile as sf
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -87,7 +89,8 @@ def time_stretch(waveform, rate=1.1):
     """
     return librosa.effects.time_stretch(waveform, rate)
 
-def pitch_shift(waveform, sr, n_steps=2):
+# Função de Pitch Shift Renomeada para Evitar Conflitos
+def apply_pitch_shift(waveform, sr, n_steps=2):
     """
     Muda a altura do áudio.
     """
@@ -109,7 +112,7 @@ def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_st
                 st.warning(f"Erro ao aplicar Time Stretch: {e}")
         elif method == 'Pitch Shift':
             try:
-                shifted = pitch_shift(waveform, sr, n_steps=n_steps)
+                shifted = apply_pitch_shift(waveform, sr, n_steps=n_steps)  # Ajuste aqui
                 augmented_waveforms.append(shifted)
             except Exception as e:
                 st.warning(f"Erro ao aplicar Pitch Shift: {e}")
@@ -410,6 +413,19 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     return classifier
 
+def midi_to_wav(midi_path, wav_path, soundfont_path):
+    """
+    Converte um arquivo MIDI para WAV usando um SoundFont.
+    """
+    try:
+        midi_data = pretty_midi.PrettyMIDI(midi_path)
+        audio_data = midi_data.synthesize(fs=16000, sf2_path=soundfont_path)
+        sf.write(wav_path, audio_data, 16000)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao converter MIDI para WAV: {e}")
+        return False
+
 def showScore(score):
     """
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
@@ -460,6 +476,71 @@ def showMusicXML(xml):
     </script>
     """
     components.html(html_content, height=600)
+
+def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path):
+    """
+    Cria e renderiza a partitura musical usando music21.
+    """
+    if best_notes_and_rests:
+        sc = music21.stream.Score()
+        part = music21.stream.Part()
+        sc.insert(0, part)
+
+        # Adicionar a assinatura de tempo (compasso 4/4)
+        time_signature = music21.meter.TimeSignature('4/4')
+        part.insert(0, time_signature)
+
+        # Adicionar a assinatura de tempo com BPM inferido
+        a = music21.tempo.MetronomeMark(number=tempo)
+        part.insert(1, a)  # Inserir após a assinatura de tempo
+
+        for snote in best_notes_and_rests:
+            if snote == 'Rest':
+                note_obj = music21.note.Rest()
+                note_obj.duration.type = 'quarter'
+                part.append(note_obj)
+            else:
+                try:
+                    note_obj = music21.note.Note(snote)
+                    note_obj.duration.type = 'quarter'
+                    part.append(note_obj)
+                except music21.pitch.PitchException:
+                    st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
+                    continue
+
+        # Verificar se a partitura está bem-formada
+        if sc.isWellFormedNotation():
+            # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
+            showScore(sc)
+
+            # Converter as notas musicais em um arquivo MIDI
+            converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
+            sc.write('midi', fp=converted_audio_file_as_midi)
+
+            # Converter MIDI para WAV
+            soundfont_path = 'Path/para/seu/SoundFont.sf2'  # Atualize com o caminho para o seu SoundFont
+            converted_audio_file_as_wav = tmp_audio_path[:-4] + '.wav'
+            success = midi_to_wav(converted_audio_file_as_midi, converted_audio_file_as_wav, soundfont_path)
+
+            if success:
+                # Oferecer o arquivo WAV para download e reprodução
+                try:
+                    with open(converted_audio_file_as_wav, 'rb') as f:
+                        wav_data = f.read()
+                    st.download_button(
+                        label="Download do Arquivo WAV",
+                        data=wav_data,
+                        file_name=os.path.basename(converted_audio_file_as_wav),
+                        mime="audio/wav"
+                    )
+                    st.audio(wav_data, format='audio/wav')
+                    st.success("Arquivo WAV gerado, reproduzido e disponível para download.")
+                except Exception as e:
+                    st.error(f"Erro ao gerar ou reproduzir o arquivo WAV: {e}")
+            else:
+                st.error("Falha na conversão de MIDI para WAV.")
+        else:
+            st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
 
 def main():
     # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
@@ -638,13 +719,11 @@ def main():
                                 # Carregar o áudio usando librosa para aplicar augmentations
                                 try:
                                     waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
-                                    # Remover ruído de fundo opcionalmente
-                                    # waveform = remove_noise(waveform, sr)
                                     augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
                                     for aug_waveform in augmented_waveforms:
                                         # Salvar temporariamente o áudio aumentado para processar
                                         temp_audio_path = os.path.join(tmpdir, "temp_aug.wav")
-                                        wavfile.write(temp_audio_path, sr, (aug_waveform * 32767).astype(np.int16))
+                                        sf.write(temp_audio_path, aug_waveform, sr)
                                         _, aug_embedding = extract_yamnet_embeddings(yamnet_model, temp_audio_path)
                                         if aug_embedding is not None:
                                             embeddings.append(aug_embedding)
@@ -770,6 +849,9 @@ def main():
                 )
                 octave = h // 12
                 n = h % 12
+                if n < 0 or n >= len(note_names):
+                    st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
+                    return float('inf'), "Rest"
                 note = note_names[n] + str(octave)
                 # Erro de quantização é a diferença total da nota quantizada.
                 error = sum([
@@ -929,6 +1011,10 @@ def main():
 
                     # Conversão de Pitches para Notas Musicais
                     st.subheader("Notas Musicais Detectadas")
+                    # Definir constantes para conversão
+                    A4 = 440
+                    C0 = A4 * pow(2, -4.75)
+                    note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
                     def hz2offset(freq):
                         # Medir o erro de quantização para uma única nota.
@@ -947,6 +1033,60 @@ def main():
                     # Garantir que ideal_offset é float
                     ideal_offset = float(ideal_offset)
                     st.write(f"Ideal Offset: {ideal_offset:.4f}")
+
+                    # Função para quantizar previsões
+                    def quantize_predictions(group, ideal_offset):
+                        # Group values são ou 0, ou um pitch em Hz.
+                        non_zero_values = [v for v in group if v != 0]
+                        zero_values_count = len(group) - len(non_zero_values)
+
+                        # Criar um rest se 80% for silencioso, caso contrário, criar uma nota.
+                        if zero_values_count > 0.8 * len(group):
+                            # Interpretar como um rest. Contar cada nota descartada como um erro, ponderado um pouco pior que uma nota mal cantada (que 'custaria' 0.5).
+                            return 0.51 * len(non_zero_values), "Rest"
+                        else:
+                            # Interpretar como nota, estimando como média das previsões não-rest.
+                            h = round(
+                                statistics.mean([
+                                    12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                                ])
+                            )
+                            octave = h // 12
+                            n = h % 12
+                            if n < 0 or n >= len(note_names):
+                                st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
+                                return float('inf'), "Rest"
+                            note = note_names[n] + str(octave)
+                            # Erro de quantização é a diferença total da nota quantizada.
+                            error = sum([
+                                abs(12 * math.log2(freq / C0) - ideal_offset - h)
+                                for freq in non_zero_values
+                            ])
+                            return error, note
+
+                    # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
+                    predictions_per_eighth = 40  # Aumentou de 20 para 40
+                    prediction_start_offset = 0  # Ajustar conforme necessário
+
+                    def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
+                                                   prediction_start_offset, ideal_offset):
+                        # Aplicar o offset inicial - podemos simplesmente adicionar o offset como rests.
+                        pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
+                        # Coletar as previsões para cada nota (ou rest).
+                        groups = [
+                            pitch_outputs_and_rests[i:i + predictions_per_eighth]
+                            for i in range(0, len(pitch_outputs_and_rests), predictions_per_eighth)
+                        ]
+
+                        quantization_error = 0
+
+                        notes_and_rests = []
+                        for group in groups:
+                            error, note_or_rest = quantize_predictions(group, ideal_offset)
+                            quantization_error += error
+                            notes_and_rests.append(note_or_rest)
+
+                        return quantization_error, notes_and_rests
 
                     # Obter a melhor quantização
                     best_error = float("inf")
@@ -976,74 +1116,8 @@ def main():
                     st.write(f"Notas e Rests Detectados: {best_notes_and_rests}")
 
                     # Criar a partitura musical usando music21
-                    if best_notes_and_rests:
-                        sc = music21.stream.Score()
-                        # Adicionar uma parte à partitura
-                        part = music21.stream.Part()
-                        sc.insert(0, part)
+                    create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path)
 
-                        # Adicionar a assinatura de tempo (compasso 4/4)
-                        time_signature = music21.meter.TimeSignature('4/4')
-                        part.insert(0, time_signature)
-
-                        # Inferir BPM usando librosa
-                        tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sample_rate)
-                        # Garantir que tempo é float e tratar possíveis arrays
-                        if isinstance(tempo, np.ndarray):
-                            if tempo.size == 1:
-                                tempo = float(tempo.item())
-                            else:
-                                st.warning(f"'tempo' é um array com múltiplos elementos: {tempo}")
-                                tempo = float(tempo[0])  # Seleciona o primeiro elemento como exemplo
-                        elif isinstance(tempo, (int, float)):
-                            tempo = float(tempo)
-                        else:
-                            st.error(f"Tipo inesperado para 'tempo': {type(tempo)}")
-                            tempo = 0.0  # Valor padrão ou lidar de acordo com a lógica do seu aplicativo
-
-                        st.write(f"**BPM Inferido com Librosa:** {tempo:.2f}")
-
-                        a = music21.tempo.MetronomeMark(number=tempo)
-                        part.insert(1, a)  # Inserir após a assinatura de tempo
-
-                        for snote in best_notes_and_rests:
-                            if snote == 'Rest':
-                                note_obj = music21.note.Rest()
-                                note_obj.duration.type = 'quarter'
-                                part.append(note_obj)
-                            else:
-                                try:
-                                    note_obj = music21.note.Note(snote)
-                                    note_obj.duration.type = 'quarter'
-                                    part.append(note_obj)
-                                except music21.pitch.PitchException:
-                                    st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
-                                    continue
-
-                        # Verificar se a partitura está bem-formada
-                        if sc.isWellFormedNotation():
-                            # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
-                            showScore(sc)
-
-                            # Converter as notas musicais em um arquivo MIDI e oferecê-lo para download
-                            converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
-                            sc.write('midi', fp=converted_audio_file_as_midi)
-
-                            # Oferecer o arquivo MIDI para download
-                            try:
-                                with open(converted_audio_file_as_midi, 'rb') as f:
-                                    midi_data = f.read()
-                                st.download_button(
-                                    label="Download do Arquivo MIDI",
-                                    data=midi_data,
-                                    file_name=os.path.basename(converted_audio_file_as_midi),
-                                    mime="audio/midi"
-                                )
-                                st.success("Arquivo MIDI gerado e disponível para download.")
-                            except Exception as e:
-                                st.error(f"Erro ao gerar o arquivo MIDI: {e}")
-                        else:
-                            st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
             except Exception as e:
                 st.error(f"Erro ao processar o áudio: {e}")
             finally:
