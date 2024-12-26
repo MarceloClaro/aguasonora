@@ -1,5 +1,4 @@
 import os
-import music21
 import zipfile
 import shutil
 import tempfile
@@ -30,10 +29,8 @@ import librosa.display
 import requests  # Para download de arquivos de áudio
 import math
 import statistics
-
-# Instalar dependências necessárias
-# Certifique-se de que estas linhas estão no início do seu script ou na configuração do ambiente
-# pip install pydub numba==0.48 librosa music21 scikit-learn imbalanced-learn
+import music21  # Importação adicionada
+import streamlit.components.v1 as components  # Importação adicionada
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -416,7 +413,9 @@ def main():
     # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
     st.set_page_config(page_title="Classificação de Áudio com YAMNet e SPICE", layout="wide")
     st.title("Classificação de Áudio com YAMNet e Detecção de Pitch com SPICE")
-    st.write("Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo YAMNet para extrair embeddings e o modelo SPICE para detecção de pitch, melhorando assim a classificação.")
+    st.write("""
+    Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings e o modelo **SPICE** para detecção de pitch, melhorando assim a classificação.
+    """)
 
     # Sidebar para parâmetros de treinamento e pré-processamento
     st.sidebar.header("Configurações")
@@ -456,7 +455,9 @@ def main():
 
     # Seção de Download e Preparação de Arquivos de Áudio
     st.header("Baixando e Preparando Arquivos de Áudio")
-    st.write("Você pode baixar um arquivo de áudio de exemplo ou carregar seu próprio arquivo para começar.")
+    st.write("""
+    Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
+    """)
 
     # Links para Download de Arquivos de Áudio de Exemplo
     st.subheader("Download de Arquivos de Áudio de Exemplo")
@@ -517,7 +518,9 @@ def main():
 
     # Upload de dados supervisionados
     st.header("Upload de Dados Supervisionados")
-    st.write("Envie um arquivo ZIP contendo subpastas com arquivos de áudio organizados por classe. Por exemplo:")
+    st.write("""
+    Envie um arquivo ZIP contendo subpastas com arquivos de áudio organizados por classe. Por exemplo:
+    """)
     st.write("""
     ```
     dados/
@@ -721,6 +724,15 @@ def main():
                 ])
                 return error, note
 
+        # Definir constantes
+        A4 = 440
+        C0 = A4 * pow(2, -4.75)
+        note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+        # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
+        predictions_per_eighth = 20  # Ajustar conforme necessário
+        prediction_start_offset = 0  # Ajustar conforme necessário
+
         def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
                                        prediction_start_offset, ideal_offset):
             # Aplicar o offset inicial - podemos simplesmente adicionar o offset como rests.
@@ -911,11 +923,6 @@ def main():
                             ])
                             return error, note
 
-                    # Definir constantes
-                    A4 = 440
-                    C0 = A4 * pow(2, -4.75)
-                    note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-
                     # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
                     predictions_per_eighth = 20  # Ajustar conforme necessário
                     prediction_start_offset = 0  # Ajustar conforme necessário
@@ -981,51 +988,6 @@ def main():
                                 sc.append(music21.note.Note(snote, type=d))
 
                         # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
-                        from IPython.core.display import display, HTML, Javascript
-                        import json
-
-                        def showScore(score):
-                            xml = score.write('musicxml')
-                            showMusicXML(xml)
-
-                        def showMusicXML(xml):
-                            DIV_ID = "OSMD_div"
-                            display(HTML(f'<div id="{DIV_ID}">loading OpenSheetMusicDisplay</div>'))
-                            script = f"""
-                            var div_id = "{DIV_ID}";
-                            function loadOSMD() {{ 
-                                return new Promise(function(resolve, reject){{
-                                    if (window.opensheetmusicdisplay) {{
-                                        return resolve(window.opensheetmusicdisplay)
-                                    }}
-                                    // OSMD script has a 'define' call which conflicts with requirejs
-                                    var _define = window.define; // save the define object 
-                                    window.define = undefined; // agora o script carregado irá ignorar o requirejs
-                                    var s = document.createElement('script');
-                                    s.setAttribute('src', "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@0.7.6/build/opensheetmusicdisplay.min.js");
-                                    s.onload = function() {{
-                                        window.define = _define;
-                                        resolve(opensheetmusicdisplay);
-                                    }};
-                                    document.body.appendChild(s); // o navegador tentará carregar a nova tag de script
-                                }}) 
-                            }}
-                            loadOSMD().then((OSMD)=>{{
-                                window.openSheetMusicDisplay = new OSMD.OpenSheetMusicDisplay(div_id, {{
-                                  drawingParameters: "compacttight"
-                                }});
-                                openSheetMusicDisplay
-                                    .load("{xml}")
-                                    .then(
-                                      function() {{
-                                        openSheetMusicDisplay.render();
-                                      }}
-                                    );
-                            }})
-                            """
-                            display(Javascript(script))
-                            return
-
                         showScore(sc)
 
                         # Converter as notas musicais em um arquivo MIDI e ouvi-lo
@@ -1057,7 +1019,17 @@ def main():
                     st.warning(f"Erro ao remover arquivos temporários: {e}")
 
         st.header("Classificação de Novo Áudio")
-        st.write("Envie um arquivo de áudio para ser classificado pelo modelo treinado.")
+        st.write("""
+        **Envie um arquivo de áudio para ser classificado pelo modelo treinado.**
+        
+        **Explicação para Leigos:**
+        - **O que você faz:** Envie um arquivo de áudio (como um canto, fala ou som ambiente) para que o modelo identifique a qual categoria ele pertence.
+        - **O que acontece:** O aplicativo analisará o áudio, determinará a classe mais provável e mostrará a confiança dessa previsão. Além disso, você poderá visualizar a forma de onda, o espectrograma e as notas musicais detectadas.
+        
+        **Explicação para Técnicos:**
+        - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet. O classificador treinado em PyTorch utiliza esses embeddings para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
+        - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
+        """)
         uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
 
         if uploaded_audio is not None:
