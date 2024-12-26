@@ -463,6 +463,8 @@ def main():
                                             embeddings.append(aug_embedding)
                                             labels.append(label_mapping[cls])
                                         os.remove(temp_audio_path)
+                                except Exception as e:
+                                    st.warning(f"Erro ao aplicar Data Augmentation: {e}")
                             else:
                                 embeddings.append(embedding)
                                 labels.append(label_mapping[cls])
