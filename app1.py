@@ -191,6 +191,7 @@ def balance_classes(X, y, method):
 def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classes, epochs, learning_rate, batch_size, l2_lambda, patience):
     """
     Treina um classificador simples em PyTorch com os embeddings extraídos.
+    Inclui validação cruzada e métricas de avaliação.
     """
     # Converter para tensores
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
@@ -287,12 +288,6 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         # Atualizar a barra de progresso
         progress = (epoch + 1) / epochs
         progress_bar.progress(progress)
-
-        # Verificar tipos antes das f-strings
-        st.write(f"**Tipo de 'epoch_loss': {type(epoch_loss)}")
-        st.write(f"**Tipo de 'epoch_acc': {type(epoch_acc)}")
-        st.write(f"**Tipo de 'val_epoch_loss': {type(val_epoch_loss)}")
-        st.write(f"**Tipo de 'val_epoch_acc': {type(val_epoch_acc)}")
 
         # Exibir métricas do epoch
         st.write(f"### Época {epoch+1}/{epochs}")
@@ -934,10 +929,6 @@ def main():
 
                     # Conversão de Pitches para Notas Musicais
                     st.subheader("Notas Musicais Detectadas")
-                    # Definir constantes para conversão
-                    A4 = 440
-                    C0 = A4 * pow(2, -4.75)
-                    note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
                     def hz2offset(freq):
                         # Medir o erro de quantização para uma única nota.
@@ -956,57 +947,6 @@ def main():
                     # Garantir que ideal_offset é float
                     ideal_offset = float(ideal_offset)
                     st.write(f"Ideal Offset: {ideal_offset:.4f}")
-
-                    # Função para quantizar previsões
-                    def quantize_predictions(group, ideal_offset):
-                        # Group values são ou 0, ou um pitch em Hz.
-                        non_zero_values = [v for v in group if v != 0]
-                        zero_values_count = len(group) - len(non_zero_values)
-
-                        # Criar um rest se 80% for silencioso, caso contrário, criar uma nota.
-                        if zero_values_count > 0.8 * len(group):
-                            # Interpretar como um rest. Contar cada nota descartada como um erro, ponderado um pouco pior que uma nota mal cantada (que 'custaria' 0.5).
-                            return 0.51 * len(non_zero_values), "Rest"
-                        else:
-                            # Interpretar como nota, estimando como média das previsões não-rest.
-                            h = round(
-                                statistics.mean([
-                                    12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
-                                ])
-                            )
-                            octave = h // 12
-                            n = h % 12
-                            note = note_names[n] + str(octave)
-                            # Erro de quantização é a diferença total da nota quantizada.
-                            error = sum([
-                                abs(12 * math.log2(freq / C0) - ideal_offset - h)
-                                for freq in non_zero_values
-                            ])
-                            return error, note
-
-                    # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-                    predictions_per_eighth = 40  # Aumentou de 20 para 40
-                    prediction_start_offset = 0  # Ajustar conforme necessário
-
-                    def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
-                                                   prediction_start_offset, ideal_offset):
-                        # Aplicar o offset inicial - podemos simplesmente adicionar o offset como rests.
-                        pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
-                        # Coletar as previsões para cada nota (ou rest).
-                        groups = [
-                            pitch_outputs_and_rests[i:i + predictions_per_eighth]
-                            for i in range(0, len(pitch_outputs_and_rests), predictions_per_eighth)
-                        ]
-
-                        quantization_error = 0
-
-                        notes_and_rests = []
-                        for group in groups:
-                            error, note_or_rest = quantize_predictions(group, ideal_offset)
-                            quantization_error += error
-                            notes_and_rests.append(note_or_rest)
-
-                        return quantization_error, notes_and_rests
 
                     # Obter a melhor quantização
                     best_error = float("inf")
@@ -1046,11 +986,21 @@ def main():
                         time_signature = music21.meter.TimeSignature('4/4')
                         part.insert(0, time_signature)
 
-                        # Adicionar a assinatura de tempo com BPM inferido
                         # Inferir BPM usando librosa
                         tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sample_rate)
-                        # Garantir que tempo é float
-                        tempo = float(tempo)
+                        # Garantir que tempo é float e tratar possíveis arrays
+                        if isinstance(tempo, np.ndarray):
+                            if tempo.size == 1:
+                                tempo = float(tempo.item())
+                            else:
+                                st.warning(f"'tempo' é um array com múltiplos elementos: {tempo}")
+                                tempo = float(tempo[0])  # Seleciona o primeiro elemento como exemplo
+                        elif isinstance(tempo, (int, float)):
+                            tempo = float(tempo)
+                        else:
+                            st.error(f"Tipo inesperado para 'tempo': {type(tempo)}")
+                            tempo = 0.0  # Valor padrão ou lidar de acordo com a lógica do seu aplicativo
+
                         st.write(f"**BPM Inferido com Librosa:** {tempo:.2f}")
 
                         a = music21.tempo.MetronomeMark(number=tempo)
