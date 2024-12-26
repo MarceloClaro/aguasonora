@@ -21,6 +21,5 @@ flake8
 black
 torchvision
 torchcam
-torch-cam
 opencv-python
 torch
