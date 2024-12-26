@@ -31,7 +31,6 @@ import math
 import statistics
 import music21  # Importação adicionada
 import streamlit.components.v1 as components  # Importação adicionada
-import json  # Importação adicionada
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -261,7 +260,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         epoch_loss = running_loss / len(train_loader.dataset)
         epoch_acc = running_corrects.double() / len(train_loader.dataset)
         train_losses.append(epoch_loss)
-        train_accuracies.append(epoch_acc.item())  # Corrigido para .item()
+        train_accuracies.append(epoch_acc.item())
 
         # Validação
         classifier.eval()
@@ -283,16 +282,22 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         val_epoch_loss = val_running_loss / len(val_loader.dataset)
         val_epoch_acc = val_running_corrects.double() / len(val_loader.dataset)
         val_losses.append(val_epoch_loss)
-        val_accuracies.append(val_epoch_acc.item())  # Corrigido para .item()
+        val_accuracies.append(val_epoch_acc.item())
 
         # Atualizar a barra de progresso
         progress = (epoch + 1) / epochs
         progress_bar.progress(progress)
 
+        # Verificar tipos antes das f-strings
+        st.write(f"**Tipo de 'epoch_loss': {type(epoch_loss)}")
+        st.write(f"**Tipo de 'epoch_acc': {type(epoch_acc)}")
+        st.write(f"**Tipo de 'val_epoch_loss': {type(val_epoch_loss)}")
+        st.write(f"**Tipo de 'val_epoch_acc': {type(val_epoch_acc)}")
+
         # Exibir métricas do epoch
         st.write(f"### Época {epoch+1}/{epochs}")
-        st.write(f"**Treino - Perda:** {epoch_loss:.4f}, **Acurácia:** {epoch_acc.item():.4f}")  # Corrigido
-        st.write(f"**Validação - Perda:** {val_epoch_loss:.4f}, **Acurácia:** {val_epoch_acc.item():.4f}")  # Corrigido
+        st.write(f"**Treino - Perda:** {epoch_loss:.4f}, **Acurácia:** {epoch_acc.item():.4f}")
+        st.write(f"**Validação - Perda:** {val_epoch_loss:.4f}, **Acurácia:** {val_epoch_acc.item():.4f}")
 
         # Early Stopping
         if val_epoch_loss < best_val_loss:
@@ -414,8 +419,18 @@ def showScore(score):
     """
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
-    xml = score.write('musicxml')
-    showMusicXML(xml)
+    # Obter o conteúdo MusicXML como string
+    xml = score.write('musicxml', fp=None)
+    
+    # Verificar se 'xml' é realmente uma string
+    if not isinstance(xml, str):
+        st.error("Falha ao converter a partitura para MusicXML como string.")
+        return
+    
+    # Sanitizar o XML para evitar quebra de JavaScript
+    sanitized_xml = xml.replace('\\', '\\\\').replace('`', '\\`')
+    
+    showMusicXML(sanitized_xml)
 
 def showMusicXML(xml):
     """
@@ -628,6 +643,8 @@ def main():
                                 # Carregar o áudio usando librosa para aplicar augmentations
                                 try:
                                     waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
+                                    # Remover ruído de fundo opcionalmente
+                                    # waveform = remove_noise(waveform, sr)
                                     augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
                                     for aug_waveform in augmented_waveforms:
                                         # Salvar temporariamente o áudio aumentado para processar
@@ -751,23 +768,20 @@ def main():
                 return 0.51 * len(non_zero_values), "Rest"
             else:
                 # Interpretar como nota, estimando como média das previsões não-rest.
-                try:
-                    h = round(
-                        statistics.mean([
-                            12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
-                        ])
-                    )
-                    octave = h // 12
-                    n = h % 12
-                    note = note_names[n] + str(octave)
-                    # Erro de quantização é a diferença total da nota quantizada.
-                    error = sum([
-                        abs(12 * math.log2(freq / C0) - ideal_offset - h)
-                        for freq in non_zero_values
+                h = round(
+                    statistics.mean([
+                        12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
                     ])
-                    return error, note
-                except:
-                    return 0, "Rest"
+                )
+                octave = h // 12
+                n = h % 12
+                note = note_names[n] + str(octave)
+                # Erro de quantização é a diferença total da nota quantizada.
+                error = sum([
+                    abs(12 * math.log2(freq / C0) - ideal_offset - h)
+                    for freq in non_zero_values
+                ])
+                return error, note
 
         # Definir constantes
         A4 = 440
@@ -775,7 +789,7 @@ def main():
         note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
         # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-        predictions_per_eighth = 20  # Ajustar conforme necessário
+        predictions_per_eighth = 40  # Aumentou de 20 para 40
         prediction_start_offset = 0  # Ajustar conforme necessário
 
         def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
@@ -822,26 +836,6 @@ def main():
                     # Convert to float32
                     wav_data = wav_data.astype(np.float32)
                     duration = len(wav_data) / sample_rate
-
-                    # Verificar e formatar 'tempo' corretamente
-                    tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sample_rate)
-                    st.write(f"Tipo de 'tempo': {type(tempo)}")  # Depuração
-                    if isinstance(tempo, (float, int)):
-                        tempo_display = tempo
-                    elif isinstance(tempo, np.ndarray) and tempo.size == 1:
-                        tempo_display = tempo.item()
-                    else:
-                        try:
-                            tempo_display = float(tempo)
-                        except:
-                            st.error("Erro ao converter 'tempo' para float.")
-                            tempo_display = None
-
-                    if tempo_display is not None:
-                        st.write(f"**BPM Inferido com Librosa:** {tempo_display:.2f}")
-                    else:
-                        st.write("**BPM Inferido com Librosa:** Não disponível.")
-
                     st.write(f"**Sample rate:** {sample_rate} Hz")
                     st.write(f"**Total duration:** {duration:.2f}s")
                     st.write(f"**Size of the input:** {len(wav_data)} samples")
@@ -902,22 +896,10 @@ def main():
                     spice_model = hub.load("https://tfhub.dev/google/spice/2")
 
                     # Normalizar as amostras de áudio
-                    if np.max(np.abs(wav_data)) != 0:
-                        audio_samples = wav_data / np.max(np.abs(wav_data))
-                    else:
-                        audio_samples = wav_data
+                    audio_samples = wav_data / np.max(np.abs(wav_data)) if np.max(np.abs(wav_data)) != 0 else wav_data
 
                     # Executar o modelo SPICE
-                    try:
-                        model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples, tf.float32))
-                    except Exception as e:
-                        st.error(f"Erro ao executar o modelo SPICE: {e}")
-                        return
-
-                    # Verificar se 'pitch' e 'uncertainty' estão presentes
-                    if "pitch" not in model_output or "uncertainty" not in model_output:
-                        st.error("Saída do modelo SPICE está incompleta.")
-                        return
+                    model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples, tf.float32))
 
                     pitch_outputs = model_output["pitch"].numpy().flatten()
                     uncertainty_outputs = model_output["uncertainty"].numpy().flatten()
@@ -934,9 +916,9 @@ def main():
                     st.pyplot(fig_pitch)
                     plt.close(fig_pitch)
 
-                    # Remover pitches com baixa confiança
-                    confident_indices = np.where(confidence_outputs >= 0.9)[0]
-                    confident_pitches = pitch_outputs[confidence_outputs >= 0.9]
+                    # Remover pitches com baixa confiança (ajuste o limiar)
+                    confident_indices = np.where(confidence_outputs >= 0.8)[0]  # Reduziu de 0.9 para 0.8
+                    confident_pitches = pitch_outputs[confidence_outputs >= 0.8]
                     confident_pitch_values_hz = [output2hz(p) for p in confident_pitches]
 
                     # Plotar apenas pitches com alta confiança
@@ -961,19 +943,18 @@ def main():
                         # Medir o erro de quantização para uma única nota.
                         if freq == 0:  # Silêncio sempre tem erro zero.
                             return None
-                        try:
-                            # Nota quantizada.
-                            h = round(12 * math.log2(freq / C0))
-                            return 12 * math.log2(freq / C0) - h
-                        except:
-                            return None
+                        # Nota quantizada.
+                        h = round(12 * math.log2(freq / C0))
+                        return 12 * math.log2(freq / C0) - h
 
                     # Calcular o offset ideal
-                    offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0 and hz2offset(p) is not None]
+                    offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0]
                     if offsets:
                         ideal_offset = statistics.mean(offsets)
                     else:
                         ideal_offset = 0.0
+                    # Garantir que ideal_offset é float
+                    ideal_offset = float(ideal_offset)
                     st.write(f"Ideal Offset: {ideal_offset:.4f}")
 
                     # Função para quantizar previsões
@@ -988,26 +969,23 @@ def main():
                             return 0.51 * len(non_zero_values), "Rest"
                         else:
                             # Interpretar como nota, estimando como média das previsões não-rest.
-                            try:
-                                h = round(
-                                    statistics.mean([
-                                        12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
-                                    ])
-                                )
-                                octave = h // 12
-                                n = h % 12
-                                note = note_names[n] + str(octave)
-                                # Erro de quantização é a diferença total da nota quantizada.
-                                error = sum([
-                                    abs(12 * math.log2(freq / C0) - ideal_offset - h)
-                                    for freq in non_zero_values
+                            h = round(
+                                statistics.mean([
+                                    12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
                                 ])
-                                return error, note
-                            except:
-                                return 0, "Rest"
+                            )
+                            octave = h // 12
+                            n = h % 12
+                            note = note_names[n] + str(octave)
+                            # Erro de quantização é a diferença total da nota quantizada.
+                            error = sum([
+                                abs(12 * math.log2(freq / C0) - ideal_offset - h)
+                                for freq in non_zero_values
+                            ])
+                            return error, note
 
                     # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-                    predictions_per_eighth = 20  # Ajustar conforme necessário
+                    predictions_per_eighth = 40  # Aumentou de 20 para 40
                     prediction_start_offset = 0  # Ajustar conforme necessário
 
                     def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
@@ -1052,6 +1030,9 @@ def main():
                     while best_notes_and_rests and best_notes_and_rests[-1] == 'Rest':
                         best_notes_and_rests = best_notes_and_rests[:-1]
 
+                    # Garantir que todas as notas e rests são strings
+                    best_notes_and_rests = [str(note) for note in best_notes_and_rests]
+
                     st.write(f"Notas e Rests Detectados: {best_notes_and_rests}")
 
                     # Criar a partitura musical usando music21
@@ -1061,21 +1042,33 @@ def main():
                         part = music21.stream.Part()
                         sc.insert(0, part)
 
-                        # Ajustar o tempo para corresponder à velocidade real do canto.
-                        bpm = best_predictions_per_eighth * 2  # Assumindo que best_predictions_per_eighth é por oitavo
-                        st.write(f"**BPM Calculado:** {bpm:.2f}")
-                        a = music21.tempo.MetronomeMark(number=bpm)
-                        part.insert(0, a)
+                        # Adicionar a assinatura de tempo (compasso 4/4)
+                        time_signature = music21.meter.TimeSignature('4/4')
+                        part.insert(0, time_signature)
+
+                        # Adicionar a assinatura de tempo com BPM inferido
+                        # Inferir BPM usando librosa
+                        tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sample_rate)
+                        # Garantir que tempo é float
+                        tempo = float(tempo)
+                        st.write(f"**BPM Inferido com Librosa:** {tempo:.2f}")
+
+                        a = music21.tempo.MetronomeMark(number=tempo)
+                        part.insert(1, a)  # Inserir após a assinatura de tempo
 
                         for snote in best_notes_and_rests:
-                            d = 'half'
                             if snote == 'Rest':
-                                part.append(music21.note.Rest(type=d))
+                                note_obj = music21.note.Rest()
+                                note_obj.duration.type = 'quarter'
+                                part.append(note_obj)
                             else:
                                 try:
-                                    part.append(music21.note.Note(snote, type=d))
+                                    note_obj = music21.note.Note(snote)
+                                    note_obj.duration.type = 'quarter'
+                                    part.append(note_obj)
                                 except music21.pitch.PitchException:
                                     st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
+                                    continue
 
                         # Verificar se a partitura está bem-formada
                         if sc.isWellFormedNotation():
