@@ -22,3 +22,5 @@ black
 torchvision
 torchcam
 torch-cam
+opencv-python
+torch
