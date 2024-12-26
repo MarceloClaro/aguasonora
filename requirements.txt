@@ -9,6 +9,9 @@ seaborn
 librosa
 imblearn
 requests
+music21
+pydub
+numba
 
 scikit-learn
 scipy
