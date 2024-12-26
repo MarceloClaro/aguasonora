@@ -28,12 +28,13 @@ import base64
 from torchcam.methods import SmoothGradCAMpp
 from torchcam.utils import overlay_mask
 from torchvision.transforms.functional import to_pil_image
-import cv2
 import io
 import warnings
 from datetime import datetime  # Importação para data e hora
 import tensorflow as tf
 import tensorflow_hub as hub
+from scipy.io import wavfile
+import scipy.signal
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -653,7 +654,9 @@ def visualize_activations(model, image, class_names, model_name, test_transforms
 
         # Mapear o índice da classe para uma cor
         segmentation_colored = label_to_color_image(segmentation_mask).astype(np.uint8)
-        segmentation_colored = cv2.resize(segmentation_colored, (image.size[0], image.size[1]))
+        segmentation_colored_pil = Image.fromarray(segmentation_colored)
+        segmentation_colored_pil = segmentation_colored_pil.resize((image.size[0], image.size[1]), Image.NEAREST)
+        segmentation_colored = np.array(segmentation_colored_pil)
 
         # Exibir as imagens: Imagem Original, Grad-CAM e Segmentação
         fig, ax = plt.subplots(1, 3, figsize=(15, 5))
@@ -1090,7 +1093,7 @@ def main():
     # Layout da página
     if os.path.exists('capa.png'):
         try:
-            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_column_width=True)
+            st.image('capa.png', width=100, caption='Laboratório de Educação e Inteligência Artificial - Geomaker. "A melhor forma de prever o futuro é inventá-lo." - Alan Kay', use_container_width=True)
         except UnidentifiedImageError:
             st.warning("Imagem 'capa.png' não pôde ser carregada ou está corrompida.")
     else:
@@ -1323,7 +1326,7 @@ def main():
                 st.error(f"Erro ao abrir a imagem: {e}")
                 return
 
-            st.image(eval_image, caption='Imagem para avaliação', use_column_width=True)
+            st.image(eval_image, caption='Imagem para avaliação', use_container_width=True)
 
             if 'model' in st.session_state and 'classes' in st.session_state:
                 class_name, confidence = evaluate_image(st.session_state['model'], eval_image, st.session_state['classes'], test_transforms)
@@ -1336,7 +1339,7 @@ def main():
                     segmentation = st.checkbox("Visualizar Segmentação", value=True, key="segmentation_checkbox")
 
                 # Visualizar ativações e segmentação
-                model_name_for_visualization = st.session_state.get('trained_model_name', model_name)
+                model_name_for_visualization = st.session_state.get('trained_model_name', 'ResNet18')
                 visualize_activations(st.session_state['model'], eval_image, st.session_state['classes'], model_name_for_visualization, test_transforms, segmentation_model=segmentation_model, segmentation=segmentation)
             else:
                 st.error("Modelo ou classes não carregados. Por favor, carregue um modelo ou treine um novo modelo.")
