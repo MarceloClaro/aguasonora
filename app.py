@@ -415,11 +415,13 @@ def main():
             st.error(f"Erro ao baixar {filename}: {e}")
 
     # Botões de Download
-    if st.button(f"Baixar {sample_audio_1}"):
-        download_audio(sample_audio_1_url, sample_audio_1)
-    
-    if st.button(f"Baixar {sample_audio_2}"):
-        download_audio(sample_audio_2_url, sample_audio_2)
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button(f"Baixar {sample_audio_1}"):
+            download_audio(sample_audio_1_url, sample_audio_1)
+    with col2:
+        if st.button(f"Baixar {sample_audio_2}"):
+            download_audio(sample_audio_2_url, sample_audio_2)
 
     # Audição de Arquivos de Áudio de Exemplo
     st.subheader("Audição de Arquivos de Áudio de Exemplo")
