@@ -76,17 +76,16 @@ import streamlit.components.v1 as components  # Carregar componentes de terceiro
 # Manipulação de arquivos MIDI e sintetização de áudio
 import pretty_midi  # Processar e manipular arquivos MIDI
 import soundfile as sf  # Leitura e escrita de arquivos de áudio em formatos variados (ex.: WAV, FLAC)
-"""
+
 ### Funções e Aplicações Prováveis
-- **`os`, `shutil`, `tempfile`, `zipfile`:** Auxiliam na manipulação de arquivos e diretórios, especialmente para uploads, extrações e operações temporárias.
-- **`numpy`, `pandas`:** Usados para cálculos numéricos e manipulação de datasets estruturados.
-- **`matplotlib`, `seaborn`:** Criam gráficos para análise visual de resultados (ex.: métricas de avaliação, espectrogramas).
-- **`torch`, `tensorflow`:** Principais frameworks para aprendizado profundo, fornecendo suporte a redes neurais.
-- **`librosa`, `scipy`:** Processamento de sinais e análise de áudio.
-- **`streamlit`:** Construção de uma interface de usuário interativa para executar e visualizar o projeto.
-- **`music21`, `pretty_midi`:** Manipulação e geração de notação musical (partituras) e conversão para arquivos MIDI.
-- **`requests`:** Realiza o download automatizado de recursos (ex.: arquivos de áudio ou modelos pré-treinados).
-"""
+#- **`os`, `shutil`, `tempfile`, `zipfile`:** Auxiliam na manipulação de arquivos e diretórios, especialmente para uploads, extrações e operações temporárias.
+#- **`numpy`, `pandas`:** Usados para cálculos numéricos e manipulação de datasets estruturados.
+#- **`matplotlib`, `seaborn`:** Criam gráficos para análise visual de resultados (ex.: métricas de avaliação, espectrogramas).
+#- **`torch`, `tensorflow`:** Principais frameworks para aprendizado profundo, fornecendo suporte a redes neurais.
+#- **`librosa`, `scipy`:** Processamento de sinais e análise de áudio.
+#- **`streamlit`:** Construção de uma interface de usuário interativa para executar e visualizar o projeto.
+#- **`music21`, `pretty_midi`:** Manipulação e geração de notação musical (partituras) e conversão para arquivos MIDI.
+#- **`requests`:** Realiza o download automatizado de recursos (ex.: arquivos de áudio ou modelos pré-treinados).
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings  # Biblioteca padrão para manipulação de avisos e mensagens no Python
@@ -106,22 +105,22 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Aqui, o estilo escolhido é "whitegrid", que aplica uma grade branca ao fundo dos gráficos,
 # facilitando a visualização e leitura de informações nos gráficos.
 sns.set_style('whitegrid')
-"""
+
 ### Explicação detalhada:
-1. **Supressão de avisos:**
-   - Em projetos grandes, bibliotecas como PyTorch podem emitir muitos avisos que não afetam o funcionamento.
-   - Suprimir avisos irrelevantes ajuda a manter os logs mais limpos e focados em mensagens importantes.
-   - Nesse caso, apenas mensagens relacionadas a `torch.classes` são ignoradas.
+#1. **Supressão de avisos:**
+   #- Em projetos grandes, bibliotecas como PyTorch podem emitir muitos avisos que não afetam o funcionamento.
+   #- Suprimir avisos irrelevantes ajuda a manter os logs mais limpos e focados em mensagens importantes.
+   #- Nesse caso, apenas mensagens relacionadas a `torch.classes` são ignoradas.
 
-2. **Configuração do dispositivo:**
-   - `torch.cuda.is_available()` verifica se há suporte a CUDA no sistema, o que indica a presença de uma GPU compatível.
-   - A GPU acelera o treinamento e a inferência de modelos de deep learning, enquanto a CPU é usada como fallback.
+#2. **Configuração do dispositivo:**
+   #- `torch.cuda.is_available()` verifica se há suporte a CUDA no sistema, o que indica a presença de uma GPU compatível.
+   #- A GPU acelera o treinamento e a inferência de modelos de deep learning, enquanto a CPU é usada como fallback.
 
-3. **Estilização de gráficos:**
-   - A biblioteca Seaborn permite aplicar temas e estilos predefinidos aos gráficos.
-   - O estilo "whitegrid" é ideal para gráficos de dados quantitativos, pois facilita a leitura ao adicionar grades discretas em um fundo claro.
+#3. **Estilização de gráficos:**
+   #- A biblioteca Seaborn permite aplicar temas e estilos predefinidos aos gráficos.
+   #- O estilo "whitegrid" é ideal para gráficos de dados quantitativos, pois facilita a leitura ao adicionar grades discretas em um fundo claro.
 
-"""
+
 # Definir seed para reprodutibilidade
 def set_seed(seed):
     """
@@ -155,31 +154,30 @@ def set_seed(seed):
 
 # Chamada da função para configurar a semente
 set_seed(42)  # Define a semente como 42 para todos os componentes
-"""
+
 ### Explicação detalhada:
 
-1. **Reprodutibilidade em experimentos:**
-   - Quando se trabalha com machine learning, deep learning ou qualquer aplicação que dependa de números aleatórios, é importante que os experimentos sejam reprodutíveis.
-   - Definir uma semente fixa (`seed`) garante que, ao executar o mesmo código várias vezes, ele produzirá os mesmos resultados.
+#1. **Reprodutibilidade em experimentos:**
+   #- Quando se trabalha com machine learning, deep learning ou qualquer aplicação que dependa de números aleatórios, é importante que os experimentos sejam reprodutíveis.
+   #- Definir uma semente fixa (`seed`) garante que, ao executar o mesmo código várias vezes, ele produzirá os mesmos resultados.
 
-2. **Configurações específicas para bibliotecas:**
-   - **`random.seed(seed)`**: Define a semente para o gerador de números aleatórios da biblioteca padrão do Python.
-   - **`np.random.seed(seed)`**: Define a semente para o gerador de números aleatórios da biblioteca NumPy.
-   - **`torch.manual_seed(seed)`**: Define a semente para o gerador de números aleatórios no PyTorch para cálculos na CPU.
-   - **`torch.cuda.manual_seed_all(seed)`**: Define a semente para o gerador de números aleatórios na GPU, se disponível.
+#2. **Configurações específicas para bibliotecas:**
+   #- **`random.seed(seed)`**: Define a semente para o gerador de números aleatórios da biblioteca padrão do Python.
+   #- **`np.random.seed(seed)`**: Define a semente para o gerador de números aleatórios da biblioteca NumPy.
+   #- **`torch.manual_seed(seed)`**: Define a semente para o gerador de números aleatórios no PyTorch para cálculos na CPU.
+   #- **`torch.cuda.manual_seed_all(seed)`**: Define a semente para o gerador de números aleatórios na GPU, se disponível.
 
-3. **Configurações avançadas do PyTorch:**
-   - **`torch.backends.cudnn.deterministic = True`**:
-     - Faz com que o backend CUDA no PyTorch siga caminhos de execução determinísticos.
-     - Pode tornar os cálculos um pouco mais lentos, mas garante que os resultados sejam consistentes.
-   - **`torch.backends.cudnn.benchmark = False`**:
-     - Desativa a busca por configurações de execução mais rápidas no backend CUDA, evitando variações nos tempos de execução e nos resultados.
+#3. **Configurações avançadas do PyTorch:**
+   #- **`torch.backends.cudnn.deterministic = True`**:
+     #- Faz com que o backend CUDA no PyTorch siga caminhos de execução determinísticos.
+     #- Pode tornar os cálculos um pouco mais lentos, mas garante que os resultados sejam consistentes.
+   #- **`torch.backends.cudnn.benchmark = False`**:
+     #- Desativa a busca por configurações de execução mais rápidas no backend CUDA, evitando variações nos tempos de execução e nos resultados.
 
-4. **Chamada da função com a semente 42:**
-   - O valor `42` é uma escolha comum como semente, muitas vezes usada por convenção em exemplos e tutoriais. 
-   - Essa semente será usada para garantir que todas as operações aleatórias em Python, NumPy e PyTorch sejam reprodutíveis.
+#4. **Chamada da função com a semente 42:**
+   #- O valor `42` é uma escolha comum como semente, muitas vezes usada por convenção em exemplos e tutoriais. 
+   #- Essa semente será usada para garantir que todas as operações aleatórias em Python, NumPy e PyTorch sejam reprodutíveis.
 
-"""
 
 @st.cache_resource
 def load_yamnet_model():
