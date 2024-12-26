@@ -836,6 +836,26 @@ def main():
                     # Convert to float32
                     wav_data = wav_data.astype(np.float32)
                     duration = len(wav_data) / sample_rate
+
+                    # Verificar e formatar 'tempo' corretamente
+                    tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sample_rate)
+                    st.write(f"Tipo de 'tempo': {type(tempo)}")  # Depuração
+                    if isinstance(tempo, (float, int)):
+                        tempo_display = tempo
+                    elif isinstance(tempo, np.ndarray) and tempo.size == 1:
+                        tempo_display = tempo.item()
+                    else:
+                        try:
+                            tempo_display = float(tempo)
+                        except:
+                            st.error("Erro ao converter 'tempo' para float.")
+                            tempo_display = None
+
+                    if tempo_display is not None:
+                        st.write(f"**BPM Inferido com Librosa:** {tempo_display:.2f}")
+                    else:
+                        st.write("**BPM Inferido com Librosa:** Não disponível.")
+
                     st.write(f"**Sample rate:** {sample_rate} Hz")
                     st.write(f"**Total duration:** {duration:.2f}s")
                     st.write(f"**Size of the input:** {len(wav_data)} samples")
@@ -896,10 +916,22 @@ def main():
                     spice_model = hub.load("https://tfhub.dev/google/spice/2")
 
                     # Normalizar as amostras de áudio
-                    audio_samples = wav_data / np.max(np.abs(wav_data)) if np.max(np.abs(wav_data)) != 0 else wav_data
+                    if np.max(np.abs(wav_data)) != 0:
+                        audio_samples = wav_data / np.max(np.abs(wav_data))
+                    else:
+                        audio_samples = wav_data
 
                     # Executar o modelo SPICE
-                    model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples, tf.float32))
+                    try:
+                        model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples, tf.float32))
+                    except Exception as e:
+                        st.error(f"Erro ao executar o modelo SPICE: {e}")
+                        return
+
+                    # Verificar se 'pitch' e 'uncertainty' estão presentes
+                    if "pitch" not in model_output or "uncertainty" not in model_output:
+                        st.error("Saída do modelo SPICE está incompleta.")
+                        return
 
                     pitch_outputs = model_output["pitch"].numpy().flatten()
                     uncertainty_outputs = model_output["uncertainty"].numpy().flatten()
@@ -943,12 +975,15 @@ def main():
                         # Medir o erro de quantização para uma única nota.
                         if freq == 0:  # Silêncio sempre tem erro zero.
                             return None
-                        # Nota quantizada.
-                        h = round(12 * math.log2(freq / C0))
-                        return 12 * math.log2(freq / C0) - h
+                        try:
+                            # Nota quantizada.
+                            h = round(12 * math.log2(freq / C0))
+                            return 12 * math.log2(freq / C0) - h
+                        except:
+                            return None
 
                     # Calcular o offset ideal
-                    offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0]
+                    offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0 and hz2offset(p) is not None]
                     if offsets:
                         ideal_offset = statistics.mean(offsets)
                     else:
@@ -967,20 +1002,23 @@ def main():
                             return 0.51 * len(non_zero_values), "Rest"
                         else:
                             # Interpretar como nota, estimando como média das previsões não-rest.
-                            h = round(
-                                statistics.mean([
-                                    12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                            try:
+                                h = round(
+                                    statistics.mean([
+                                        12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
+                                    ])
+                                )
+                                octave = h // 12
+                                n = h % 12
+                                note = note_names[n] + str(octave)
+                                # Erro de quantização é a diferença total da nota quantizada.
+                                error = sum([
+                                    abs(12 * math.log2(freq / C0) - ideal_offset - h)
+                                    for freq in non_zero_values
                                 ])
-                            )
-                            octave = h // 12
-                            n = h % 12
-                            note = note_names[n] + str(octave)
-                            # Erro de quantização é a diferença total da nota quantizada.
-                            error = sum([
-                                abs(12 * math.log2(freq / C0) - ideal_offset - h)
-                                for freq in non_zero_values
-                            ])
-                            return error, note
+                                return error, note
+                            except:
+                                return 0, "Rest"
 
                     # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
                     predictions_per_eighth = 40  # Aumentou de 20 para 40
