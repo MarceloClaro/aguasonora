@@ -413,7 +413,8 @@ def showScore(score):
     """
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
-    xml = score.write('musicxml')
+    # Obter o conteúdo MusicXML como string
+    xml = score.write('musicxml', fp='string')
     showMusicXML(xml)
 
 def showMusicXML(xml):
