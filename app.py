@@ -10,32 +10,27 @@ import seaborn as sns
 from PIL import Image, UnidentifiedImageError
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms, datasets
 from torchvision.models import resnet18, resnet50, densenet121
 from torchvision.models import ResNet18_Weights, ResNet50_Weights, DenseNet121_Weights
-from torchvision.models.segmentation import fcn_resnet50, FCN_ResNet50_Weights
-from sklearn.cluster import AgglomerativeClustering, KMeans
-from sklearn.metrics import (adjusted_rand_score, normalized_mutual_info_score,
-                             confusion_matrix, classification_report,
-                             roc_auc_score, roc_curve)
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
 from sklearn.preprocessing import label_binarize
 from sklearn.decomposition import PCA
 import streamlit as st
 import gc
 import logging
-import base64
+import io
 from torchcam.methods import SmoothGradCAMpp
 from torchcam.utils import overlay_mask
 from torchvision.transforms.functional import to_pil_image
-import io
-import warnings
-from datetime import datetime  # Importação para data e hora
 import tensorflow as tf
 import tensorflow_hub as hub
 from scipy.io import wavfile
 import scipy.signal
 import urllib
+import warnings
 
 # Supressão dos avisos relacionados ao torch.classes
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
@@ -61,7 +56,7 @@ def set_seed(seed):
 
 set_seed(42)  # Definir a seed para reprodutibilidade
 
-# Definir as transformações para aumento de dados (aplicando transformações aleatórias)
+# Transformações para treinamento
 train_transforms = transforms.Compose([
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomRotation(degrees=45),
@@ -84,7 +79,7 @@ test_transforms = transforms.Compose([
 ])
 
 # Dataset personalizado para classificação
-class CustomDataset(torch.utils.data.Dataset):
+class CustomDataset(Dataset):
     def __init__(self, dataset, transform=None):
         self.dataset = dataset
         self.transform = transform
@@ -99,7 +94,7 @@ class CustomDataset(torch.utils.data.Dataset):
         return image, label
 
 # Dataset personalizado para segmentação
-class SegmentationDataset(torch.utils.data.Dataset):
+class SegmentationDataset(Dataset):
     def __init__(self, images_dir, masks_dir, transform=None, target_transform=None):
         self.images_dir = images_dir
         self.masks_dir = masks_dir
@@ -1074,6 +1069,50 @@ def train_segmentation_model(images_dir, masks_dir, num_classes):
 
     return model
 
+def extract_yamnet_embeddings(yamnet_model, audio_path):
+    """
+    Extrai embeddings usando o modelo YAMNet para um arquivo de áudio.
+    """
+    basename_audio = os.path.basename(audio_path)
+    try:
+        sr_orig, wav_data = wavfile.read(audio_path)
+        # Verificar se está estéreo
+        if wav_data.ndim > 1:
+            # Converter para mono
+            wav_data = wav_data.mean(axis=1)
+        # Normalizar para [-1, 1] ou verificar se já está normalizado
+        if wav_data.dtype.kind == 'i':
+            # Dados inteiros
+            max_val = np.iinfo(wav_data.dtype).max
+            waveform = wav_data / max_val
+        elif wav_data.dtype.kind == 'f':
+            # Dados float
+            waveform = wav_data
+            # Verificar se os dados estão fora do intervalo [-1.0, 1.0]
+            if np.max(waveform) > 1.0 or np.min(waveform) < -1.0:
+                waveform = waveform / np.max(np.abs(waveform))
+        else:
+            raise ValueError(f"Tipo de dado do áudio não suportado: {wav_data.dtype}")
+
+        # Garantir que é float32
+        waveform = waveform.astype(np.float32)
+
+        # Ajustar sample rate
+        sr, waveform = ensure_sample_rate(sr_orig, waveform)
+
+        # Executar o modelo YAMNet
+        # yamnet_model retorna: scores, embeddings, spectrogram
+        scores, embeddings, spectrogram = yamnet_model(waveform)
+
+        # scores.shape = [frames, 521]
+        scores_np = scores.numpy()
+        mean_scores = scores_np.mean(axis=0)  # média por frame
+        pred_class = mean_scores.argmax()
+        return pred_class, embeddings.numpy()
+    except Exception as e:
+        st.error(f"Erro ao processar {basename_audio}: {e}")
+        return -1, None
+
 def main():
     # Definir o caminho do ícone
     icon_path = "logo.png"  # Verifique se o arquivo logo.png está no diretório correto
@@ -1395,39 +1434,8 @@ def main():
                     basename_audio = os.path.basename(audio_path)
                     file_names_audio.append(basename_audio)
                     try:
-                        sr_orig, wav_data = wavfile.read(audio_path)
-                        # Verificar se está estéreo
-                        if wav_data.ndim > 1:
-                            # Converter para mono
-                            wav_data = wav_data.mean(axis=1)
-                        # Normalizar para [-1, 1] ou verificar se já está normalizado
-                        if wav_data.dtype.kind == 'i':
-                            # Dados inteiros
-                            max_val = np.iinfo(wav_data.dtype).max
-                            waveform = wav_data / max_val
-                        elif wav_data.dtype.kind == 'f':
-                            # Dados float
-                            waveform = wav_data
-                            # Verificar se os dados estão fora do intervalo [-1.0, 1.0]
-                            if np.max(waveform) > 1.0 or np.min(waveform) < -1.0:
-                                waveform = waveform / np.max(np.abs(waveform))
-                        else:
-                            raise ValueError(f"Tipo de dado do áudio não suportado: {wav_data.dtype}")
-
-                        # Garantir que é float32
-                        waveform = waveform.astype(np.float32)
-
-                        # Ajustar sample rate
-                        sr, waveform = ensure_sample_rate(sr_orig, waveform)
-
-                        # Executar o modelo YAMNet
-                        # yamnet_model retorna: scores, embeddings, spectrogram
-                        scores, embeddings, spectrogram = yamnet_model(waveform)
-
-                        # scores.shape = [frames, 521]
-                        scores_np = scores.numpy()
-                        mean_scores = scores_np.mean(axis=0)  # média por frame
-                        pred_class = mean_scores.argmax()
+                        # Extrair embeddings e prever classe
+                        pred_class, embeddings = extract_yamnet_embeddings(yamnet_model, audio_path)
                         predictions_audio.append(pred_class)
                     except Exception as e:
                         st.error(f"Erro ao processar {basename_audio}: {e}")
@@ -1451,6 +1459,117 @@ def main():
                 # Exibir novamente com nomes das classes
                 st.write("**Resultados da Classificação de Áudio (com Nomes das Classes):**")
                 st.write(result_list_audio)
+
+                # Treinar um classificador adicional com os embeddings e rótulos fornecidos pelo usuário
+                st.write("**Treinamento de um Classificador Personalizado com os Embeddings Obtidos**")
+                # Supondo que os arquivos de áudio estão organizados em subpastas por classe
+                # Por exemplo: /tmpdir_audio/class1/audio1.wav, /tmpdir_audio/class2/audio2.wav, etc.
+                # Extrair as classes a partir das subpastas
+                classes_uploaded = []
+                labels_uploaded = []
+                embeddings_uploaded = []
+                for root, dirs, files in os.walk(tmpdir_audio):
+                    for dir_name in dirs:
+                        class_path = os.path.join(root, dir_name)
+                        for file in os.listdir(class_path):
+                            if file.lower().endswith(('.wav', '.mp3', '.ogg', '.flac')):
+                                file_path = os.path.join(class_path, file)
+                                pred_class, embeddings = extract_yamnet_embeddings(yamnet_model, file_path)
+                                if pred_class != -1:
+                                    classes_uploaded.append(dir_name)
+                                    labels_uploaded.append(classes_uploaded.count(dir_name) - 1)  # Simples mapeamento
+                                    embeddings_uploaded.append(embeddings.flatten())
+                
+                if len(embeddings_uploaded) > 0:
+                    # Criar um dataset com os embeddings e rótulos
+                    embeddings_np = np.array(embeddings_uploaded)
+                    labels_np = np.array(labels_uploaded)
+
+                    # Dividir em treino e teste
+                    X_train, X_test, y_train, y_test = train_test_split(embeddings_np, labels_np, test_size=0.2, random_state=42)
+
+                    # Converter para tensores
+                    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
+                    y_train_tensor = torch.tensor(y_train, dtype=torch.long)
+                    X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
+                    y_test_tensor = torch.tensor(y_test, dtype=torch.long)
+
+                    # Criar DataLoaders
+                    train_dataset_custom = torch.utils.data.TensorDataset(X_train_tensor, y_train_tensor)
+                    test_dataset_custom = torch.utils.data.TensorDataset(X_test_tensor, y_test_tensor)
+                    train_loader_custom = DataLoader(train_dataset_custom, batch_size=16, shuffle=True)
+                    test_loader_custom = DataLoader(test_dataset_custom, batch_size=16, shuffle=False)
+
+                    # Definir um classificador simples
+                    class AudioClassifier(nn.Module):
+                        def __init__(self, input_dim, num_classes):
+                            super(AudioClassifier, self).__init__()
+                            self.fc1 = nn.Linear(input_dim, 256)
+                            self.relu = nn.ReLU()
+                            self.dropout = nn.Dropout(0.5)
+                            self.fc2 = nn.Linear(256, num_classes)
+
+                        def forward(self, x):
+                            x = self.fc1(x)
+                            x = self.relu(x)
+                            x = self.dropout(x)
+                            x = self.fc2(x)
+                            return x
+
+                    input_dim = X_train.shape[1]
+                    num_classes_uploaded = len(set(classes_uploaded))
+                    classifier = AudioClassifier(input_dim, num_classes_uploaded).to(device)
+
+                    # Definir a função de perda e otimizador
+                    criterion_custom = nn.CrossEntropyLoss()
+                    optimizer_custom = optim.Adam(classifier.parameters(), lr=0.001)
+
+                    # Treinamento do classificador
+                    num_epochs_custom = 50
+                    for epoch in range(num_epochs_custom):
+                        classifier.train()
+                        running_loss_custom = 0.0
+                        running_corrects_custom = 0
+
+                        for inputs_custom, labels_custom in train_loader_custom:
+                            inputs_custom = inputs_custom.to(device)
+                            labels_custom = labels_custom.to(device)
+
+                            optimizer_custom.zero_grad()
+                            outputs_custom = classifier(inputs_custom)
+                            _, preds_custom = torch.max(outputs_custom, 1)
+                            loss_custom = criterion_custom(outputs_custom, labels_custom)
+                            loss_custom.backward()
+                            optimizer_custom.step()
+
+                            running_loss_custom += loss_custom.item() * inputs_custom.size(0)
+                            running_corrects_custom += torch.sum(preds_custom == labels_custom.data)
+
+                        epoch_loss_custom = running_loss_custom / len(train_loader_custom.dataset)
+                        epoch_acc_custom = running_corrects_custom.double() / len(train_loader_custom.dataset)
+
+                        st.write(f'Época [{epoch+1}/{num_epochs_custom}], Perda: {epoch_loss_custom:.4f}, Acurácia: {epoch_acc_custom:.4f}')
+
+                    # Avaliação do classificador
+                    classifier.eval()
+                    all_preds_custom = []
+                    all_labels_custom = []
+
+                    with torch.no_grad():
+                        for inputs_custom, labels_custom in test_loader_custom:
+                            inputs_custom = inputs_custom.to(device)
+                            labels_custom = labels_custom.to(device)
+
+                            outputs_custom = classifier(inputs_custom)
+                            _, preds_custom = torch.max(outputs_custom, 1)
+
+                            all_preds_custom.extend(preds_custom.cpu().numpy())
+                            all_labels_custom.extend(labels_custom.cpu().numpy())
+
+                    # Relatório de Classificação
+                    st.write("**Relatório de Classificação do Classificador Personalizado:**")
+                    report_custom = classification_report(all_labels_custom, all_preds_custom, target_names=[str(cls) for cls in set(classes_uploaded)], output_dict=True)
+                    st.write(pd.DataFrame(report_custom).transpose())
 
     st.write("### Documentação dos Procedimentos")
     st.write("Todas as etapas foram cuidadosamente registradas. Utilize esta documentação para reproduzir o experimento e analisar os resultados.")
