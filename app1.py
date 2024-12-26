@@ -31,6 +31,7 @@ import math
 import statistics
 import music21  # Importação adicionada
 import streamlit.components.v1 as components  # Importação adicionada
+import json  # Importação adicionada
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -414,14 +415,28 @@ def showScore(score):
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
     # Obter o conteúdo MusicXML como string
-    xml = score.write('musicxml', fp='string')
-    showMusicXML(xml)
+    xml = score.write('musicxml', fp=None)
+    
+    # Verificar o tipo de 'xml' para depuração
+    st.write(f"Tipo de 'xml': {type(xml)}")  # Deve ser <class 'str'>
+    
+    # Assegurar que 'xml' seja uma string
+    if not isinstance(xml, str):
+        st.error("Erro: O conteúdo MusicXML não foi retornado como uma string.")
+        return
+    
+    # Escapar caracteres especiais se necessário
+    xml_safe = xml.replace('`', '\\`')  # Escapar backticks
+    
+    showMusicXML(xml_safe)
 
 def showMusicXML(xml):
     """
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
     DIV_ID = "OSMD_div"
+    xml_json = json.dumps(xml)  # Escapar caracteres especiais
+    
     html_content = f"""
     <div id="{DIV_ID}">Carregando OpenSheetMusicDisplay...</div>
     <script>
@@ -442,7 +457,7 @@ def showMusicXML(xml):
             var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("{DIV_ID}", {{
                 drawingParameters: "compacttight"
             }});
-            osmd.load(`{xml}`).then(function() {{
+            osmd.load({xml_json}).then(function() {{
                 osmd.render();
             }});
         }}
