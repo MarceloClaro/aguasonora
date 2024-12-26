@@ -18,7 +18,6 @@ requests
 music21
 pydub
 numba
-scikit-learn
 
 scikit-learn
 scipy
