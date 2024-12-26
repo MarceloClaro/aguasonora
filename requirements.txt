@@ -20,3 +20,5 @@ numba
 flake8
 black
 torchvision
+torchcam
+torch-cam
