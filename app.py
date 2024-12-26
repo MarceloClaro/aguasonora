@@ -14,6 +14,8 @@ from torch.utils.data import DataLoader, Dataset, random_split, TensorDataset
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
+from imblearn.over_sampling import SMOTE
+from imblearn.under_sampling import RandomUnderSampler
 import streamlit as st
 import gc
 import logging
@@ -23,6 +25,7 @@ import tensorflow_hub as hub
 from scipy.io import wavfile
 import scipy.signal
 from datetime import datetime
+import librosa
 
 # Supressão dos avisos relacionados ao torch.classes
 import warnings
@@ -65,6 +68,27 @@ def ensure_sample_rate(original_sr, waveform, desired_sr=16000):
         desired_length = int(round(float(len(waveform)) / original_sr * desired_sr))
         waveform = scipy.signal.resample(waveform, desired_length)
     return desired_sr, waveform
+
+def add_noise(waveform, noise_factor=0.005):
+    """
+    Adiciona ruído branco ao áudio.
+    """
+    noise = np.random.randn(len(waveform))
+    augmented_waveform = waveform + noise_factor * noise
+    augmented_waveform = augmented_waveform.astype(np.float32)
+    return augmented_waveform
+
+def time_stretch(waveform, rate=1.1):
+    """
+    Estica o tempo do áudio.
+    """
+    return librosa.effects.time_stretch(waveform, rate)
+
+def pitch_shift(waveform, sr, n_steps=2):
+    """
+    Muda a altura do áudio.
+    """
+    return librosa.effects.pitch_shift(waveform, sr, n_steps)
 
 def extract_yamnet_embeddings(yamnet_model, audio_path):
     """
@@ -124,6 +148,34 @@ def extract_yamnet_embeddings(yamnet_model, audio_path):
     except Exception as e:
         st.error(f"Erro ao processar {basename_audio}: {e}")
         return -1, None
+
+def perform_data_augmentation(waveform, sr, augmentation_methods):
+    """
+    Aplica data augmentation no áudio.
+    """
+    augmented_waveforms = [waveform]
+    for method in augmentation_methods:
+        if method == 'Add Noise':
+            augmented_waveforms.append(add_noise(waveform))
+        elif method == 'Time Stretch':
+            augmented_waveforms.append(time_stretch(waveform))
+        elif method == 'Pitch Shift':
+            augmented_waveforms.append(pitch_shift(waveform, sr))
+    return augmented_waveforms
+
+def balance_classes(X, y, method):
+    """
+    Balanceia as classes usando oversampling ou undersampling.
+    """
+    if method == 'Oversample':
+        smote = SMOTE(random_state=42)
+        X_bal, y_bal = smote.fit_resample(X, y)
+    elif method == 'Undersample':
+        rus = RandomUnderSampler(random_state=42)
+        X_bal, y_bal = rus.fit_resample(X, y)
+    else:
+        X_bal, y_bal = X, y
+    return X_bal, y_bal
 
 def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classes, epochs, learning_rate, batch_size, l2_lambda, patience):
     """
@@ -285,24 +337,47 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     # Relatório de Classificação
     st.write("### Relatório de Classificação")
-    report = classification_report(all_labels, all_preds, target_names=[str(i) for i in range(num_classes)], output_dict=True)
+    report = classification_report(all_labels, all_preds, target_names=[str(cls) for cls in set(y_train)], output_dict=True, zero_division=0)
     st.write(pd.DataFrame(report).transpose())
 
     return classifier
 
 def main():
-    # Configurações da página
+    # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
     st.set_page_config(page_title="Classificação de Áudio com YAMNet", layout="wide")
     st.title("Classificação de Áudio com YAMNet")
     st.write("Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo YAMNet para extrair embeddings.")
 
-    # Sidebar para parâmetros de treinamento
-    st.sidebar.header("Parâmetros de Treinamento")
+    # Sidebar para parâmetros de treinamento e pré-processamento
+    st.sidebar.header("Configurações")
+    
+    # Parâmetros de Treinamento
+    st.sidebar.subheader("Parâmetros de Treinamento")
     epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=50, step=1)
     learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
     batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64], index=1)
     l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
     patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1)
+
+    # Opções de Data Augmentation
+    st.sidebar.subheader("Data Augmentation")
+    augment = st.sidebar.checkbox("Aplicar Data Augmentation")
+    if augment:
+        augmentation_methods = st.sidebar.multiselect(
+            "Métodos de Data Augmentation:",
+            options=["Add Noise", "Time Stretch", "Pitch Shift"],
+            default=["Add Noise", "Time Stretch"]
+        )
+    else:
+        augmentation_methods = []
+
+    # Opções de Balanceamento de Classes
+    st.sidebar.subheader("Balanceamento de Classes")
+    balance_method = st.sidebar.selectbox(
+        "Método de Balanceamento:",
+        options=["None", "Oversample", "Undersample"],
+        index=0
+    )
 
     # Upload de dados supervisionados
     st.header("Upload de Dados Supervisionados")
@@ -358,74 +433,94 @@ def main():
                     for audio_file in audio_files:
                         pred_class, embedding = extract_yamnet_embeddings(yamnet_model, audio_file)
                         if embedding is not None:
-                            embeddings.append(embedding)
-                            labels.append(label_mapping[cls])
+                            if augment:
+                                # Carregar o áudio usando librosa para aplicar augmentations
+                                waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
+                                augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods)
+                                for aug_waveform in augmented_waveforms:
+                                    # Salvar temporariamente o áudio aumentado para processar
+                                    temp_audio_path = os.path.join(tmpdir, "temp_aug.wav")
+                                    wavfile.write(temp_audio_path, sr, (aug_waveform * 32767).astype(np.int16))
+                                    _, aug_embedding = extract_yamnet_embeddings(yamnet_model, temp_audio_path)
+                                    if aug_embedding is not None:
+                                        embeddings.append(aug_embedding)
+                                        labels.append(label_mapping[cls])
+                                    os.remove(temp_audio_path)
+                            else:
+                                embeddings.append(embedding)
+                                labels.append(label_mapping[cls])
                         processed_files += 1
                         progress_bar.progress(processed_files / total_files)
 
                 # Verificações após a extração
                 if len(embeddings) == 0:
                     st.error("Nenhum embedding foi extraído. Verifique se os arquivos de áudio estão no formato correto e se o YAMNet está funcionando corretamente.")
-                    return
+                else:
+                    # Verificar se todos os embeddings têm o mesmo tamanho
+                    embedding_shapes = [emb.shape for emb in embeddings]
+                    unique_shapes = set(embedding_shapes)
+                    if len(unique_shapes) != 1:
+                        st.error(f"Embeddings têm tamanhos inconsistentes: {unique_shapes}")
+                    else:
+                        # Converter para array NumPy
+                        try:
+                            embeddings = np.array(embeddings)
+                            labels = np.array(labels)
+                            st.write(f"Embeddings convertidos para array NumPy: Shape = {embeddings.shape}")
+                        except ValueError as ve:
+                            st.error(f"Erro ao converter embeddings para array NumPy: {ve}")
 
-                # Verificar se todos os embeddings têm o mesmo tamanho
-                embedding_shapes = [emb.shape for emb in embeddings]
-                unique_shapes = set(embedding_shapes)
-                if len(unique_shapes) != 1:
-                    st.error(f"Embeddings têm tamanhos inconsistentes: {unique_shapes}")
-                    return
+                        # Balanceamento de Classes
+                        if balance_method != "None":
+                            st.write(f"Aplicando balanceamento de classes: {balance_method}")
+                            X_bal, y_bal = balance_classes(embeddings, labels, balance_method)
+                            st.write(f"Após balanceamento: {dict(zip(*np.unique(y_bal, return_counts=True)))}")
+                        else:
+                            X_bal, y_bal = embeddings, labels
 
-                # Converter para array NumPy
-                try:
-                    embeddings = np.array(embeddings)
-                    st.write(f"Embeddings convertidos para array NumPy: Shape = {embeddings.shape}")
-                except ValueError as ve:
-                    st.error(f"Erro ao converter embeddings para array NumPy: {ve}")
-                    return
+                        # Dividir os dados em treino e validação
+                        X_train, X_val, y_train, y_val = train_test_split(
+                            X_bal, y_bal, test_size=0.2, random_state=42, stratify=y_bal
+                        )
+                        st.write(f"Dados divididos em treino ({len(X_train)} amostras) e validação ({len(X_val)} amostras).")
 
-                # Dividir os dados em treino e validação
-                X_train, X_val, y_train, y_val = train_test_split(
-                    embeddings, labels, test_size=0.2, random_state=42, stratify=labels
-                )
-                st.write(f"Dados divididos em treino ({len(X_train)} amostras) e validação ({len(X_val)} amostras).")
+                        # Treinar o classificador
+                        st.header("Treinamento do Classificador")
+                        classifier = train_audio_classifier(
+                            X_train, y_train, X_val, y_val, 
+                            input_dim=embeddings.shape[1], 
+                            num_classes=len(classes), 
+                            epochs=epochs, 
+                            learning_rate=learning_rate, 
+                            batch_size=batch_size, 
+                            l2_lambda=l2_lambda, 
+                            patience=patience
+                        )
+                        st.success("Treinamento do classificador concluído.")
 
-                # Treinar o classificador
-                st.header("Treinamento do Classificador")
-                classifier = train_audio_classifier(
-                    X_train, y_train, X_val, y_val, 
-                    input_dim=embeddings.shape[1], 
-                    num_classes=len(classes), 
-                    epochs=epochs, 
-                    learning_rate=learning_rate, 
-                    batch_size=batch_size, 
-                    l2_lambda=l2_lambda, 
-                    patience=patience
-                )
-                st.success("Treinamento do classificador concluído.")
+                        # Salvar o classificador no estado do Streamlit
+                        st.session_state['classifier'] = classifier
+                        st.session_state['classes'] = classes
 
-                # Salvar o classificador no estado do Streamlit
-                st.session_state['classifier'] = classifier
-                st.session_state['classes'] = classes
+                        # Opção para download do modelo treinado
+                        buffer = io.BytesIO()
+                        torch.save(classifier.state_dict(), buffer)
+                        buffer.seek(0)
+                        st.download_button(
+                            label="Download do Modelo Treinado",
+                            data=buffer,
+                            file_name="audio_classifier.pth",
+                            mime="application/octet-stream"
+                        )
 
-                # Opção para download do modelo treinado
-                buffer = io.BytesIO()
-                torch.save(classifier.state_dict(), buffer)
-                buffer.seek(0)
-                st.download_button(
-                    label="Download do Modelo Treinado",
-                    data=buffer,
-                    file_name="audio_classifier.pth",
-                    mime="application/octet-stream"
-                )
-
-                # Opção para download do mapeamento de classes
-                class_mapping = "\n".join([f"{cls}:{idx}" for cls, idx in label_mapping.items()])
-                st.download_button(
-                    label="Download do Mapeamento de Classes",
-                    data=class_mapping,
-                    file_name="classes_mapping.txt",
-                    mime="text/plain"
-                )
+                        # Opção para download do mapeamento de classes
+                        class_mapping = "\n".join([f"{cls}:{idx}" for cls, idx in label_mapping.items()])
+                        st.download_button(
+                            label="Download do Mapeamento de Classes",
+                            data=class_mapping,
+                            file_name="classes_mapping.txt",
+                            mime="text/plain"
+                        )
 
     # Classificação de Novo Áudio
     if 'classifier' in st.session_state and 'classes' in st.session_state:
@@ -485,16 +580,21 @@ def main():
                 if os.path.exists(tmp_audio_path + '_image.png'):
                     os.remove(tmp_audio_path + '_image.png')
 
+    # Documentação e Agradecimentos
     st.write("### Documentação dos Procedimentos")
     st.write("""
     1. **Upload de Dados Supervisionados**: Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
-    
-    2. **Extração de Embeddings**: Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
-    
-    3. **Treinamento do Classificador**: Com os embeddings extraídos, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
-    
-    4. **Classificação de Novo Áudio**: Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado.
-    
+
+    2. **Data Augmentation**: Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento.
+
+    3. **Balanceamento de Classes**: Se selecionado, aplica métodos de balanceamento como oversampling ou undersampling para tratar classes desbalanceadas.
+
+    4. **Extração de Embeddings**: Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
+
+    5. **Treinamento do Classificador**: Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
+
+    6. **Classificação de Novo Áudio**: Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado.
+
     **Exemplo de Estrutura de Diretórios para Upload**:
     ```
     dados/
@@ -510,7 +610,7 @@ def main():
     st.write("### Agradecimentos")
     st.write("""
     Desenvolvido por Marcelo Claro.
-    
+
     - **Contato**: marceloclaro@gmail.com
     - **Whatsapp**: (88)98158-7145
     - **Instagram**: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
