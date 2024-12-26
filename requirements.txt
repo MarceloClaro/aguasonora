@@ -8,6 +8,8 @@ matplotlib
 seaborn
 librosa
 imblearn
+requests
+
 scikit-learn
 scipy
 audiomentations
