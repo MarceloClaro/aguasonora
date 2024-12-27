@@ -57,9 +57,6 @@ def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    # Não é necessário definir seeds para CUDA, já que estamos usando CPU
-    # torch.cuda.manual_seed_all(seed)
-
     # Garantir reprodutibilidade
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -412,6 +409,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         for inputs, labels in val_loader:
             outputs = classifier(inputs)
             _, preds = torch.max(outputs, 1)
+
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
@@ -805,7 +803,7 @@ def classify_new_audio(uploaded_audio):
         mfcc_features = extract_mfcc_features(tmp_audio_path)
         vibration_features = extract_vibration_features(tmp_audio_path)
 
-        if embedding is not None and pred_class != -1:
+        if embedding is not None and mfcc_features is not None and vibration_features is not None:
             # Obter o modelo treinado
             classifier = st.session_state['classifier']
             classes = st.session_state['classes']
@@ -1333,37 +1331,13 @@ def classify_new_audio(uploaded_audio):
                         st.write("**Visualização dos Embeddings com PCA:**")
                         plot_embeddings(combined_features, labels, classes)
 
-                        # Balanceamento de Classes
-                        if balance_method != "Nenhum":
-                            st.write(f"Aplicando balanceamento de classes: {balance_method}")
-                            embeddings_bal, labels_bal = balance_classes(combined_features, labels, balance_method)
-                            # Contar novamente após balanceamento
-                            balanced_counts = {cls: 0 for cls in classes}
-                            for label in labels_bal:
-                                cls = [k for k, v in label_mapping.items() if v == label][0]
-                                balanced_counts[cls] += 1
-                            st.write(f"**Contagem de classes após balanceamento:**")
-                            st.write(balanced_counts)
-                        else:
-                            embeddings_bal, labels_bal = combined_features, labels
-
-                        # Verificar o número mínimo de amostras por classe após balanceamento
-                        class_counts_balanced = {cls: count for cls, count in zip(classes, [sum(labels_bal==idx) for idx, cls in enumerate(classes)])}
-                        min_samples_per_class = min(class_counts_balanced.values())
-                        st.write(f"**Número mínimo de amostras em qualquer classe após balanceamento:** {min_samples_per_class}")
-
-                        # Definir k_folds com base no mínimo de amostras por classe
-                        desired_k_folds = 10
-                        k_folds = min(desired_k_folds, min_samples_per_class)
-
-                        if k_folds < desired_k_folds:
-                            st.warning(f"O número de folds foi reduzido para {k_folds} devido ao número insuficiente de amostras em uma ou mais classes.")
-
+                        # Ajustar n_splits para não exceder o mínimo de amostras por classe
+                        min_class_size = min([count for count in class_counts.values()])
+                        k_folds = min(10, min_class_size)  # Ajustar n_splits dinamicamente
                         if k_folds < 2:
-                            st.error("Não é possível realizar validação cruzada com menos de 2 folds. Por favor, forneça mais dados.")
+                            st.error(f"Número de classes insuficiente para realizar validação cruzada (k_folds={k_folds}).")
                             st.stop()
 
-                        # Dividir os dados em treino e validação com Validação Cruzada
                         st.header("Treinamento com Validação Cruzada")
                         skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
                         fold_results = []
