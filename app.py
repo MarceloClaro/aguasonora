@@ -123,229 +123,399 @@ C0 = A4 * pow(2, -4.75)
 def load_yamnet_model():
     """
     Carrega o modelo YAMNet do TensorFlow Hub.
-    O modelo YAMNet é usado para análise de áudio e classificação, especialmente para sons do mundo real.
-    A função utiliza cache para evitar recarregar o modelo em chamadas subsequentes, otimizando o desempenho.
+    
+    O modelo YAMNet é projetado para tarefas de classificação de áudio, como identificar sons 
+    do ambiente ou categorias de ruídos específicos. Ele é baseado em redes neurais profundas.
+    
+    O uso do decorador `@st.cache_resource` permite que o modelo carregado seja armazenado em cache.
+    Assim, se a função for chamada novamente durante a execução do Streamlit, o modelo já carregado
+    será reutilizado, economizando tempo e recursos computacionais.
     """
-    yam_model = hub.load('https://tfhub.dev/google/yamnet/1')  # URL do modelo no TensorFlow Hub.
-    return yam_model
+    yam_model = hub.load('https://tfhub.dev/google/yamnet/1')  # URL para o modelo YAMNet no TensorFlow Hub.
+    return yam_model  # Retorna o modelo carregado.
 
-# Decorador adicional para cachear dados frequentemente utilizados
+# Decorador para cachear dados frequentemente utilizados
 @st.cache_data
-
 def load_class_map(url):
     """
-    Carrega o mapa de classes do YAMNet a partir de uma URL.
+    Carrega o mapa de classes do modelo YAMNet a partir de um arquivo CSV remoto.
+
+    O YAMNet utiliza 521 categorias de sons, e o mapa de classes mapeia cada índice 
+    de saída do modelo para uma categoria compreensível (como "latido de cachorro" ou "motor").
+
+    Args:
+        url (str): Endereço do arquivo CSV contendo o mapa de classes.
+
+    Returns:
+        pd.DataFrame: Um DataFrame contendo as categorias de áudio e seus respectivos índices.
     """
-    class_map = pd.read_csv(url)
-    return class_map
+    class_map = pd.read_csv(url)  # Lê o arquivo CSV diretamente da URL fornecida.
+    return class_map  # Retorna o DataFrame carregado.
 
 def ensure_sample_rate(original_sr, waveform, desired_sr=16000):
     """
-    Resample se não estiver em 16 kHz.
+    Ajusta a taxa de amostragem de um áudio para o valor desejado (16 kHz por padrão).
+
+    A taxa de amostragem (`sample rate`) define o número de amostras por segundo em um áudio.
+    Muitos modelos de aprendizado de máquina de áudio (como o YAMNet) requerem uma taxa de 
+    amostragem específica para funcionar corretamente.
+
+    Args:
+        original_sr (int): Taxa de amostragem original do áudio.
+        waveform (np.ndarray): Sinal de áudio como uma sequência de valores.
+        desired_sr (int): Taxa de amostragem desejada. Padrão: 16000 Hz.
+
+    Returns:
+        tuple: (int, np.ndarray) - Nova taxa de amostragem e o waveform ajustado.
     """
-    if original_sr != desired_sr:
+    if original_sr != desired_sr:  # Verifica se a taxa de amostragem precisa ser ajustada.
+        # Calcula o novo tamanho do waveform após o ajuste.
         desired_length = int(round(float(len(waveform)) / original_sr * desired_sr))
+        
+        # Ajusta o waveform usando interpolação (resampling).
         waveform = scipy.signal.resample(waveform, desired_length)
-    return desired_sr, waveform
+    
+    return desired_sr, waveform  # Retorna a nova taxa de amostragem e o waveform ajustado.
 
 def add_noise(waveform, noise_factor=0.005):
     """
-    Adiciona ruído branco ao áudio.
+    Adiciona ruído branco ao áudio para data augmentation.
+
+    Ruído branco é uma série de valores aleatórios que simulam sons ambientais ou interferências.
+    Esse processo ajuda o modelo a se tornar mais robusto, ou seja, menos sensível a pequenas 
+    alterações ou ruídos nos dados de entrada.
+
+    Args:
+        waveform (np.ndarray): O áudio original representado como uma sequência de valores numéricos.
+        noise_factor (float): Intensidade do ruído a ser adicionado. Valores menores resultam em 
+                              ruído mais sutil. Padrão: 0.005.
+
+    Returns:
+        np.ndarray: O áudio modificado com o ruído branco adicionado.
     """
-    noise = np.random.randn(len(waveform))
-    augmented_waveform = waveform + noise_factor * noise
-    augmented_waveform = augmented_waveform.astype(np.float32)
-    return augmented_waveform
+    noise = np.random.randn(len(waveform))  # Gera ruído branco com o mesmo comprimento do áudio.
+    augmented_waveform = waveform + noise_factor * noise  # Adiciona o ruído ao áudio original.
+    augmented_waveform = augmented_waveform.astype(np.float32)  # Converte o áudio para float32.
+    return augmented_waveform  # Retorna o áudio com ruído adicionado.
 
 def time_stretch(waveform, rate=1.1):
     """
-    Estica o tempo do áudio.
+    Estica ou comprime o tempo do áudio sem alterar sua altura.
+
+    Esse método altera a velocidade do áudio, tornando-o mais rápido ou mais lento, dependendo 
+    do fator de esticamento (`rate`). É útil para simular variações de execução de áudio.
+
+    Args:
+        waveform (np.ndarray): O áudio original como uma sequência de valores numéricos.
+        rate (float): Fator de esticamento do tempo. Valores > 1 aumentam a velocidade, enquanto
+                      valores < 1 diminuem a velocidade. Padrão: 1.1.
+
+    Returns:
+        np.ndarray: O áudio com o tempo alterado.
     """
-    return librosa.effects.time_stretch(waveform, rate)
+    return librosa.effects.time_stretch(waveform, rate)  # Utiliza a função integrada do Librosa.
 
 def apply_pitch_shift(waveform, sr, n_steps=2):
     """
-    Muda a altura do áudio.
-    """
-    return librosa.effects.pitch_shift(waveform, sr, n_steps)
+    Altera a altura (pitch) do áudio sem modificar sua duração.
 
+    Modificar a altura significa alterar a frequência das ondas sonoras, resultando em tons mais
+    agudos ou mais graves. Esse processo é realizado em semitons, onde cada "step" representa 
+    meio tom na escala musical.
+
+    Args:
+        waveform (np.ndarray): O áudio original como uma sequência de valores numéricos.
+        sr (int): Taxa de amostragem do áudio (sample rate), que é usada para calcular as frequências.
+        n_steps (int): Número de semitons para alterar a altura. Valores positivos tornam o áudio 
+                       mais agudo, enquanto valores negativos tornam-no mais grave. Padrão: 2.
+
+    Returns:
+        np.ndarray: O áudio com a altura alterada.
+    """
+    return librosa.effects.pitch_shift(waveform, sr, n_steps)  # Altera o pitch usando a função do Librosa.
 def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_steps=2):
     """
-    Aplica data augmentation no áudio.
+    Aplica técnicas de data augmentation no áudio.
+
+    O objetivo do data augmentation é aumentar a diversidade dos dados de treinamento
+    gerando variações artificiais no áudio original. Isso ajuda o modelo a generalizar
+    melhor e a ser mais robusto em diferentes cenários de entrada.
+
+    Args:
+        waveform (np.ndarray): O áudio original representado como uma sequência de valores numéricos.
+        sr (int): Taxa de amostragem do áudio (sample rate), usada em operações como alteração de pitch.
+        augmentation_methods (list): Lista de métodos de augmentação a serem aplicados. Pode incluir:
+            - 'Adicionar Ruído': Adiciona ruído branco ao áudio.
+            - 'Esticar Tempo': Modifica a velocidade do áudio sem alterar o pitch.
+            - 'Mudar Pitch': Altera o tom do áudio sem alterar sua duração.
+        rate (float): Fator de esticamento do tempo, utilizado apenas no método 'Esticar Tempo'.
+                      Valores > 1 aumentam a velocidade; valores < 1 diminuem. Padrão: 1.1.
+        n_steps (int): Número de semitons para alterar a altura (pitch), utilizado no método 'Mudar Pitch'.
+                       Padrão: 2.
+
+    Returns:
+        list: Uma lista contendo o áudio original e as variações geradas pelas técnicas de augmentação.
     """
+    # Inicializa a lista de áudios aumentados com o áudio original.
     augmented_waveforms = [waveform]
+
+    # Itera sobre os métodos de augmentação especificados.
     for method in augmentation_methods:
         if method == 'Adicionar Ruído':
+            # Aplica o método de adição de ruído branco.
             augmented_waveforms.append(add_noise(waveform))
         elif method == 'Esticar Tempo':
             try:
+                # Aplica a esticamento de tempo.
                 stretched = time_stretch(waveform, rate=rate)
                 augmented_waveforms.append(stretched)
             except Exception as e:
+                # Em caso de erro, exibe uma mensagem de aviso no Streamlit.
                 st.warning(f"Erro ao aplicar Esticar Tempo: {e}")
         elif method == 'Mudar Pitch':
             try:
+                # Aplica mudança de pitch.
                 shifted = apply_pitch_shift(waveform, sr, n_steps=n_steps)
                 augmented_waveforms.append(shifted)
             except Exception as e:
+                # Em caso de erro, exibe uma mensagem de aviso no Streamlit.
                 st.warning(f"Erro ao aplicar Mudar Pitch: {e}")
+
+    # Retorna a lista de áudios aumentados.
     return augmented_waveforms
+def extract_yamnet_embeddings(yamnet_model, audio_path):
+    """
+    Extrai embeddings usando o modelo YAMNet para um arquivo de áudio.
+    Retorna a classe predita e a média dos embeddings das frames.
+
+    O modelo YAMNet é uma rede neural projetada para analisar áudio e identificar
+    categorias sonoras, como latidos, música ou ruídos de fundo. Ele divide o áudio
+    em "frames" curtos e gera embeddings e pontuações para cada frame.
+
+    Args:
+        yamnet_model: Modelo YAMNet carregado do TensorFlow Hub.
+        audio_path (str): Caminho para o arquivo de áudio a ser analisado.
+
+    Returns:
+        tuple: Classe predita (int) e vetor médio de embeddings (np.ndarray).
+    """
+    # Extrai apenas o nome do arquivo do caminho completo.
+    basename_audio = os.path.basename(audio_path)
+
+    try:
+        # Lê o arquivo de áudio usando `wavfile`.
+        sr_orig, wav_data = wavfile.read(audio_path)
+        st.write(f"Processando {basename_audio}: Taxa de Amostragem = {sr_orig} Hz, Forma = {wav_data.shape}, Tipo de Dados = {wav_data.dtype}")
+
+        # Verifica se o áudio está em estéreo.
+        if wav_data.ndim > 1:
+            # Converte áudio estéreo para mono calculando a média dos canais.
+            wav_data = wav_data.mean(axis=1)
+            st.write(f"Convertido para mono: Forma = {wav_data.shape}")
+        
+        # Normaliza o áudio para o intervalo [-1, 1].
+        if wav_data.dtype.kind == 'i':
+            # Caso o áudio esteja em formato inteiro (por exemplo, `int16`).
+            max_val = np.iinfo(wav_data.dtype).max  # Encontra o valor máximo possível do tipo.
+            waveform = wav_data / max_val  # Divide pelo valor máximo para normalizar.
+            st.write(f"Normalizado de inteiros para float: max_val = {max_val}")
+        elif wav_data.dtype.kind == 'f':
+            # Caso o áudio já esteja em formato de ponto flutuante (por exemplo, `float32`).
+            waveform = wav_data
+            if np.max(waveform) > 1.0 or np.min(waveform) < -1.0:
+                # Reescala se estiver fora do intervalo [-1.0, 1.0].
+                waveform = waveform / np.max(np.abs(waveform))
+                st.write("Normalizado para o intervalo [-1.0, 1.0]")
+        else:
+            # Tipo de dado não suportado.
+            raise ValueError(f"Tipo de dado do áudio não suportado: {wav_data.dtype}")
+    
+        # Garante que o áudio está no formato `float32`.
+        waveform = waveform.astype(np.float32)
+    
+        # Ajusta a taxa de amostragem para 16 kHz, conforme exigido pelo YAMNet.
+        sr, waveform = ensure_sample_rate(sr_orig, waveform)
+        st.write(f"Taxa de Amostragem ajustada: {sr} Hz")
+    
+        # Executa o modelo YAMNet no waveform processado.
+        # A saída do modelo inclui:
+        # - scores: Matriz de pontuações para cada frame e cada classe.
+        # - embeddings: Representação vetorial de cada frame.
+        # - spectrogram: Espectrograma processado pelo modelo.
+        scores, embeddings, spectrogram = yamnet_model(waveform)
+        st.write(f"Embeddings extraídos: Forma = {embeddings.shape}")
+    
+        # Extrai a matriz de pontuações e calcula a média das pontuações por frame.
+        scores_np = scores.numpy()
+        mean_scores = scores_np.mean(axis=0)  # Calcula a média ao longo dos frames.
+        pred_class = mean_scores.argmax()  # Encontra o índice da classe com maior pontuação média.
+        st.write(f"Classe predita pelo YAMNet: {pred_class}")
+    
+        # Calcula a média dos embeddings ao longo dos frames.
+        # Isso cria uma única representação vetorial do áudio completo.
+        mean_embedding = embeddings.numpy().mean(axis=0)  # Forma final: (1024,)
+        st.write(f"Média dos embeddings das frames: Forma = {mean_embedding.shape}")
+    
+        return pred_class, mean_embedding  # Retorna a classe predita e os embeddings médios.
+    except Exception as e:
+        # Captura erros durante o processamento e exibe uma mensagem de erro no Streamlit.
+        st.error(f"Erro ao processar {basename_audio}: {e}")
+        return -1, None  # Retorna valores de fallback em caso de falha.
 
 def extract_yamnet_embeddings(yamnet_model, audio_path):
     """
     Extrai embeddings usando o modelo YAMNet para um arquivo de áudio.
     Retorna a classe predita e a média dos embeddings das frames.
+
+    O modelo YAMNet é uma rede neural projetada para analisar áudio e identificar
+    categorias sonoras, como latidos, música ou ruídos de fundo. Ele divide o áudio
+    em "frames" curtos e gera embeddings e pontuações para cada frame.
+
+    Args:
+        yamnet_model: Modelo YAMNet carregado do TensorFlow Hub.
+        audio_path (str): Caminho para o arquivo de áudio a ser analisado.
+
+    Returns:
+        tuple: Classe predita (int) e vetor médio de embeddings (np.ndarray).
     """
+    # Extrai apenas o nome do arquivo do caminho completo.
     basename_audio = os.path.basename(audio_path)
+
     try:
+        # Lê o arquivo de áudio usando `wavfile`.
         sr_orig, wav_data = wavfile.read(audio_path)
         st.write(f"Processando {basename_audio}: Taxa de Amostragem = {sr_orig} Hz, Forma = {wav_data.shape}, Tipo de Dados = {wav_data.dtype}")
-        
-        # Verificar se está estéreo
+
+        # Verifica se o áudio está em estéreo.
         if wav_data.ndim > 1:
-            # Converter para mono
+            # Converte áudio estéreo para mono calculando a média dos canais.
             wav_data = wav_data.mean(axis=1)
             st.write(f"Convertido para mono: Forma = {wav_data.shape}")
         
-        # Normalizar para [-1, 1] ou verificar se já está normalizado
+        # Normaliza o áudio para o intervalo [-1, 1].
         if wav_data.dtype.kind == 'i':
-            # Dados inteiros
-            max_val = np.iinfo(wav_data.dtype).max
-            waveform = wav_data / max_val
+            # Caso o áudio esteja em formato inteiro (por exemplo, `int16`).
+            max_val = np.iinfo(wav_data.dtype).max  # Encontra o valor máximo possível do tipo.
+            waveform = wav_data / max_val  # Divide pelo valor máximo para normalizar.
             st.write(f"Normalizado de inteiros para float: max_val = {max_val}")
         elif wav_data.dtype.kind == 'f':
-            # Dados float
+            # Caso o áudio já esteja em formato de ponto flutuante (por exemplo, `float32`).
             waveform = wav_data
-            # Verificar se os dados estão fora do intervalo [-1.0, 1.0]
             if np.max(waveform) > 1.0 or np.min(waveform) < -1.0:
+                # Reescala se estiver fora do intervalo [-1.0, 1.0].
                 waveform = waveform / np.max(np.abs(waveform))
                 st.write("Normalizado para o intervalo [-1.0, 1.0]")
         else:
+            # Tipo de dado não suportado.
             raise ValueError(f"Tipo de dado do áudio não suportado: {wav_data.dtype}")
     
-        # Garantir que é float32
+        # Garante que o áudio está no formato `float32`.
         waveform = waveform.astype(np.float32)
     
-        # Ajustar taxa de amostragem
+        # Ajusta a taxa de amostragem para 16 kHz, conforme exigido pelo YAMNet.
         sr, waveform = ensure_sample_rate(sr_orig, waveform)
         st.write(f"Taxa de Amostragem ajustada: {sr} Hz")
     
-        # Executar o modelo YAMNet
-        # yamnet_model retorna: scores, embeddings, spectrogram
+        # Executa o modelo YAMNet no waveform processado.
+        # A saída do modelo inclui:
+        # - scores: Matriz de pontuações para cada frame e cada classe.
+        # - embeddings: Representação vetorial de cada frame.
+        # - spectrogram: Espectrograma processado pelo modelo.
         scores, embeddings, spectrogram = yamnet_model(waveform)
         st.write(f"Embeddings extraídos: Forma = {embeddings.shape}")
     
-        # scores.shape = [frames, 521]
+        # Extrai a matriz de pontuações e calcula a média das pontuações por frame.
         scores_np = scores.numpy()
-        mean_scores = scores_np.mean(axis=0)  # média por frame
-        pred_class = mean_scores.argmax()
+        mean_scores = scores_np.mean(axis=0)  # Calcula a média ao longo dos frames.
+        pred_class = mean_scores.argmax()  # Encontra o índice da classe com maior pontuação média.
         st.write(f"Classe predita pelo YAMNet: {pred_class}")
     
-        # Calcular a média dos embeddings das frames para obter um embedding fixo
-        mean_embedding = embeddings.numpy().mean(axis=0)  # Shape: (1024,)
+        # Calcula a média dos embeddings ao longo dos frames.
+        # Isso cria uma única representação vetorial do áudio completo.
+        mean_embedding = embeddings.numpy().mean(axis=0)  # Forma final: (1024,)
         st.write(f"Média dos embeddings das frames: Forma = {mean_embedding.shape}")
     
-        return pred_class, mean_embedding
+        return pred_class, mean_embedding  # Retorna a classe predita e os embeddings médios.
     except Exception as e:
+        # Captura erros durante o processamento e exibe uma mensagem de erro no Streamlit.
         st.error(f"Erro ao processar {basename_audio}: {e}")
-        return -1, None
-
-def extract_mfcc_features(audio_path, n_mfcc=13):
-    """
-    Extrai MFCCs de um arquivo de áudio.
-    """
-    try:
-        y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
-        mfccs_mean = mfccs.mean(axis=1)
-        st.write(f"MFCCs extraídos: Forma = {mfccs_mean.shape}")
-        return mfccs_mean
-    except Exception as e:
-        st.error(f"Erro ao extrair MFCCs: {e}")
-        return None
-
-def extract_vibration_features(audio_path, n_fft=2048, hop_length=512):
-    """
-    Extrai características vibracionais usando FFT.
-    """
-    try:
-        y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        fft = np.fft.fft(y)
-        fft = np.abs(fft)
-        fft = fft[:len(fft)//2]  # Considerar apenas a metade positiva
-        fft_mean = np.mean(fft)
-        fft_std = np.std(fft)
-        st.write(f"Características de Vibração extraídas: Média = {fft_mean}, Desvio Padrão = {fft_std}")
-        return np.array([fft_mean, fft_std])
-    except Exception as e:
-        st.error(f"Erro ao extrair características de vibração: {e}")
-        return None
-
+        return -1, None  # Retorna valores de fallback em caso de falha.
 def balance_classes(X, y, method):
     """
     Balanceia as classes usando oversampling ou undersampling.
+
+    Classes desbalanceadas ocorrem quando há mais exemplos de algumas categorias do que outras.
+    Isso pode afetar negativamente o desempenho de modelos de aprendizado de máquina, que podem 
+    se tornar enviesados para as classes majoritárias.
+
+    Esta função implementa duas estratégias:
+    1. Oversampling (aumentar o número de amostras das classes minoritárias usando SMOTE).
+    2. Undersampling (reduzir o número de amostras das classes majoritárias usando RandomUnderSampler).
+
+    Args:
+        X (array-like): Matriz de características dos dados.
+        y (array-like): Vetor de rótulos correspondente às classes.
+        method (str): Método de balanceamento a ser aplicado. Pode ser 'Oversample', 'Undersample', ou 'Nenhum'.
+
+    Returns:
+        tuple: Dados balanceados (X_bal) e rótulos correspondentes (y_bal).
     """
-    if method == 'Oversample':
-        smote = SMOTE(random_state=42)
-        X_bal, y_bal = smote.fit_resample(X, y)
-    elif method == 'Undersample':
-        rus = RandomUnderSampler(random_state=42)
+    if method == 'Oversample':  # Se o método escolhido for oversampling
+        smote = SMOTE(random_state=42)  # Synthetic Minority Oversampling Technique
+        X_bal, y_bal = smote.fit_resample(X, y)  # Gera novas amostras para as classes minoritárias
+    elif method == 'Undersample':  # Se o método escolhido for undersampling
+        rus = RandomUnderSampler(random_state=42)  # Reduz o número de amostras das classes majoritárias
         X_bal, y_bal = rus.fit_resample(X, y)
-    else:
+    else:  # Se nenhum método for escolhido, retorna os dados originais
         X_bal, y_bal = X, y
     return X_bal, y_bal
 
-def plot_embeddings(embeddings, labels, classes):
-    """
-    Plota os embeddings utilizando PCA para redução de dimensionalidade.
-    """
-    pca = PCA(n_components=2)
-    embeddings_pca = pca.fit_transform(embeddings)
-    df = pd.DataFrame({
-        'PCA1': embeddings_pca[:,0],
-        'PCA2': embeddings_pca[:,1],
-        'Classe': [classes[label] for label in labels]
-    })
-
-    plt.figure(figsize=(10, 8))
-    sns.scatterplot(data=df, x='PCA1', y='PCA2', hue='Classe', palette='Set2', s=60)
-    plt.title('Visualização dos Embeddings com PCA')
-    plt.xlabel('Componente Principal 1')
-    plt.ylabel('Componente Principal 2')
-    plt.legend(title='Classe', loc='best')
-    st.pyplot(plt.gcf())
-    plt.close()
 
 def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classes, classes, epochs, learning_rate, batch_size, l2_lambda, patience):
     """
     Treina um classificador avançado em PyTorch com os embeddings extraídos.
     Inclui validação cruzada e métricas de avaliação.
+    
+    Args:
+        X_train, y_train: Dados de treino e seus rótulos.
+        X_val, y_val: Dados de validação e seus rótulos.
+        input_dim: Dimensão das entradas (número de características nos embeddings).
+        num_classes: Número de classes no problema.
+        classes: Lista de nomes das classes.
+        epochs: Número de épocas para o treinamento.
+        learning_rate: Taxa de aprendizado do otimizador.
+        batch_size: Tamanho dos lotes para treinamento.
+        l2_lambda: Fator de regularização L2 para evitar overfitting.
+        patience: Número de épocas sem melhora antes de aplicar early stopping.
+
+    Returns:
+        O modelo treinado.
     """
-    # Converter para tensores
+    # **Preparação dos dados**: converte os conjuntos de treino e validação em tensores PyTorch.
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32).to(device)
     y_train_tensor = torch.tensor(y_train, dtype=torch.long).to(device)
     X_val_tensor = torch.tensor(X_val, dtype=torch.float32).to(device)
     y_val_tensor = torch.tensor(y_val, dtype=torch.long).to(device)
 
-    # Criar DataLoaders
+    # Criar DataLoaders para manipular os dados em lotes durante o treinamento.
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
     val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)  # Shuffle para aleatoriedade.
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)  # Sem shuffle para validação.
 
-    # Definir um classificador avançado com camadas adicionais
+    # **Definição do modelo**: estrutura avançada com camadas totalmente conectadas, normalização e dropout.
     class AdvancedAudioClassifier(nn.Module):
         def __init__(self, input_dim, num_classes):
             super(AdvancedAudioClassifier, self).__init__()
-            self.fc1 = nn.Linear(input_dim, 512)
-            self.bn1 = nn.BatchNorm1d(512)
-            self.relu1 = nn.ReLU()
-            self.dropout1 = nn.Dropout(0.3)
-            self.fc2 = nn.Linear(512, 256)
-            self.bn2 = nn.BatchNorm1d(256)
-            self.relu2 = nn.ReLU()
-            self.dropout2 = nn.Dropout(0.3)
-            self.fc3 = nn.Linear(256, num_classes)
+            self.fc1 = nn.Linear(input_dim, 512)  # Primeira camada com 512 unidades.
+            self.bn1 = nn.BatchNorm1d(512)  # Normalização em lotes para estabilizar o treinamento.
+            self.relu1 = nn.ReLU()  # Função de ativação ReLU.
+            self.dropout1 = nn.Dropout(0.3)  # Dropout para evitar overfitting.
+            self.fc2 = nn.Linear(512, 256)  # Segunda camada com 256 unidades.
+            self.bn2 = nn.BatchNorm1d(256)  # Outra normalização em lotes.
+            self.relu2 = nn.ReLU()  # Outra ReLU.
+            self.dropout2 = nn.Dropout(0.3)  # Outro Dropout.
+            self.fc3 = nn.Linear(256, num_classes)  # Camada final que mapeia para o número de classes.
 
         def forward(self, x):
             x = self.fc1(x)
@@ -359,51 +529,54 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
             x = self.fc3(x)
             return x
 
-    classifier = AdvancedAudioClassifier(input_dim, num_classes).to(device)
+    classifier = AdvancedAudioClassifier(input_dim, num_classes).to(device)  # Instanciar o modelo na CPU ou GPU.
 
-    # Definir a função de perda e otimizador com regularização L2
+    # Definir função de perda (CrossEntropy para classificação) e otimizador Adam com regularização L2.
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(classifier.parameters(), lr=learning_rate, weight_decay=l2_lambda)
 
-    # Early Stopping
-    best_val_loss = float('inf')
-    epochs_no_improve = 0
-    best_model_wts = None
+    # **Early stopping**: Parar o treinamento se não houver melhora por um número consecutivo de épocas.
+    best_val_loss = float('inf')  # Melhor perda de validação observada.
+    epochs_no_improve = 0  # Contador de épocas sem melhora.
+    best_model_wts = None  # Armazenar os pesos do melhor modelo.
 
-    # Inicializar listas para métricas
+    # Inicializar listas para registrar métricas durante o treinamento.
     train_losses = []
     val_losses = []
     train_accuracies = []
     val_accuracies = []
 
-    progress_bar = st.progress(0)
+    progress_bar = st.progress(0)  # Barra de progresso para feedback visual.
     for epoch in range(epochs):
-        classifier.train()
+        classifier.train()  # Colocar o modelo em modo de treinamento.
         running_loss = 0.0
         running_corrects = 0
 
+        # **Treinamento em lotes (batches)**.
         for inputs, labels in train_loader:
-            optimizer.zero_grad()
-            outputs = classifier(inputs)
-            _, preds = torch.max(outputs, 1)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad()  # Zerar os gradientes do otimizador.
+            outputs = classifier(inputs)  # Fazer a previsão.
+            _, preds = torch.max(outputs, 1)  # Predição final (classe com maior probabilidade).
+            loss = criterion(outputs, labels)  # Calcular a perda.
+            loss.backward()  # Backpropagation para calcular gradientes.
+            optimizer.step()  # Atualizar os pesos.
 
+            # Atualizar métricas acumuladas.
             running_loss += loss.item() * inputs.size(0)
             running_corrects += torch.sum(preds == labels.data)
 
+        # **Métricas por época no conjunto de treino.**
         epoch_loss = running_loss / len(train_loader.dataset)
         epoch_acc = running_corrects.double() / len(train_loader.dataset)
         train_losses.append(epoch_loss)
         train_accuracies.append(epoch_acc.item())
 
-        # Validação
-        classifier.eval()
+        # **Avaliação no conjunto de validação.**
+        classifier.eval()  # Colocar o modelo em modo de avaliação.
         val_running_loss = 0.0
         val_running_corrects = 0
 
-        with torch.no_grad():
+        with torch.no_grad():  # Desligar o cálculo de gradientes para economia de memória.
             for inputs, labels in val_loader:
                 outputs = classifier(inputs)
                 _, preds = torch.max(outputs, 1)
@@ -417,16 +590,16 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         val_losses.append(val_epoch_loss)
         val_accuracies.append(val_epoch_acc.item())
 
-        # Atualizar a barra de progresso
+        # Atualizar a barra de progresso.
         progress = (epoch + 1) / epochs
         progress_bar.progress(progress)
 
-        # Exibir métricas do epoch
+        # Exibir métricas da época atual.
         st.write(f"### Época {epoch+1}/{epochs}")
         st.write(f"**Treino - Perda:** {epoch_loss:.4f}, **Acurácia:** {epoch_acc.item():.4f}")
         st.write(f"**Validação - Perda:** {val_epoch_loss:.4f}, **Acurácia:** {val_epoch_acc.item():.4f}")
 
-        # Early Stopping
+        # Atualizar o modelo com early stopping.
         if val_epoch_loss < best_val_loss:
             best_val_loss = val_epoch_loss
             epochs_no_improve = 0
@@ -434,188 +607,115 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                st.write("Early stopping!")
+                st.write("Early stopping!")  # Interromper o treinamento se não houver melhora.
                 break
 
-    # Carregar os melhores pesos do modelo se houver
+    # Carregar os melhores pesos do modelo.
     if best_model_wts is not None:
         classifier.load_state_dict(best_model_wts)
 
-    # Plotar métricas
-    fig, ax = plt.subplots(1, 2, figsize=(14, 5))
-
-    # Perda
-    ax[0].plot(range(1, len(train_losses)+1), train_losses, label='Treino')
-    ax[0].plot(range(1, len(val_losses)+1), val_losses, label='Validação')
-    ax[0].set_title('Perda por Época')
-    ax[0].set_xlabel('Épocas')
-    ax[0].set_ylabel('Perda')
-    ax[0].legend()
-
-    # Acurácia
-    ax[1].plot(range(1, len(train_accuracies)+1), train_accuracies, label='Treino')
-    ax[1].plot(range(1, len(val_accuracies)+1), val_accuracies, label='Validação')
-    ax[1].set_title('Acurácia por Época')
-    ax[1].set_xlabel('Épocas')
-    ax[1].set_ylabel('Acurácia')
-    ax[1].legend()
-
-    st.pyplot(fig)
-    plt.close(fig)
-
-    # Avaliação no conjunto de validação
-    classifier.eval()
-    all_preds = []
-    all_labels = []
-
-    with torch.no_grad():
-        for inputs, labels in val_loader:
-            outputs = classifier(inputs)
-            _, preds = torch.max(outputs, 1)
-
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-
-    # Relatório de Classificação
-    st.write("### Relatório de Classificação")
-    target_names = [f"Classe {cls}" for cls in set(classes)]
-    report = classification_report(all_labels, all_preds, target_names=target_names, zero_division=0, output_dict=True)
-    st.write(pd.DataFrame(report).transpose())
-
-    # Matriz de Confusão
-    st.write("### Matriz de Confusão")
-    cm = confusion_matrix(all_labels, all_preds)
-    fig_cm, ax_cm = plt.subplots(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=target_names, yticklabels=target_names, ax=ax_cm)
-    plt.xlabel('Predito')
-    plt.ylabel('Real')
-    plt.title('Matriz de Confusão')
-    st.pyplot(fig_cm)
-    plt.close(fig_cm)
-
-    # Curva ROC e AUC
-    st.write("### Curva ROC")
-    if num_classes > 1:
-        # Para múltiplas classes, utilizamos One-vs-Rest
-        y_test_binarized = label_binarize(all_labels, classes=range(num_classes))
-        y_pred_binarized = label_binarize(all_preds, classes=range(num_classes))
-
-        if y_test_binarized.shape[1] > 1:
-            fpr = dict()
-            tpr = dict()
-            roc_auc_dict = dict()
-            for i in range(num_classes):
-                fpr[i], tpr[i], _ = roc_curve(y_test_binarized[:, i], y_pred_binarized[:, i])
-                roc_auc_dict[i] = auc(fpr[i], tpr[i])
-
-            # Plotar Curva ROC para cada classe
-            fig_roc, ax_roc = plt.subplots(figsize=(10, 8))
-            colors = sns.color_palette("hsv", num_classes)
-            for i, color in zip(range(num_classes), colors):
-                ax_roc.plot(fpr[i], tpr[i], color=color, lw=2,
-                           label=f'Classe {i} (AUC = {roc_auc_dict[i]:0.2f})')
-
-            ax_roc.plot([0, 1], [0, 1], 'k--', lw=2)
-            ax_roc.set_xlim([0.0, 1.0])
-            ax_roc.set_ylim([0.0, 1.05])
-            ax_roc.set_xlabel('Taxa de Falsos Positivos')
-            ax_roc.set_ylabel('Taxa de Verdadeiros Positivos')
-            ax_roc.set_title('Curva ROC (Receiver Operating Characteristic)')
-            ax_roc.legend(loc="lower right")
-            st.pyplot(fig_roc)
-            plt.close(fig_roc)
-        else:
-            st.warning("Curva ROC não disponível para uma única classe após binarização.")
-    else:
-        st.warning("Curva ROC não disponível para uma única classe.")
-
-    # F1-Score
-    st.write("### F1-Score por Classe")
-    f1_scores = f1_score(all_labels, all_preds, average=None)
-    f1_df = pd.DataFrame({'Classe': target_names, 'F1-Score': f1_scores})
-    st.write(f1_df)
-
-    # RMSE para Avaliação de Temperatura (se aplicável)
-    if 'temperatura' in classes:
-        # Supondo que a classe 'temperatura' seja uma regressão
-        # Exemplo: y_true e y_pred sendo valores contínuos
-        try:
-            rmse = mean_squared_error(all_labels, all_preds, squared=False)
-            st.write(f"**RMSE para Temperatura:** {rmse:.2f}")
-        except Exception as e:
-            st.error(f"Erro ao calcular RMSE para Temperatura: {e}")
-
+    # Retorna o classificador treinado.
     return classifier
-
 def midi_to_wav(midi_path, wav_path, soundfont_path):
     """
-    Converte um arquivo MIDI para WAV usando FluidSynth via midi2audio ou síntese simples de ondas senoidais.
+    Converte um arquivo MIDI para WAV usando FluidSynth via midi2audio ou, 
+    caso não disponível, uma síntese básica de ondas senoidais.
+    
+    Args:
+        midi_path (str): Caminho do arquivo MIDI de entrada.
+        wav_path (str): Caminho para salvar o arquivo WAV gerado.
+        soundfont_path (str): Caminho para o arquivo SoundFont usado pelo FluidSynth.
+
+    Returns:
+        bool: True se a conversão foi bem-sucedida, False caso contrário.
     """
+    # Verifica se o FluidSynth está instalado no sistema.
     if is_fluidsynth_installed():
         try:
-            fs = FluidSynth(soundfont_path)
-            fs.midi_to_audio(midi_path, wav_path)
+            fs = FluidSynth(soundfont_path)  # Inicializa o FluidSynth com o SoundFont fornecido.
+            fs.midi_to_audio(midi_path, wav_path)  # Converte o arquivo MIDI em áudio WAV.
             return True
         except Exception as e:
+            # Captura erros e tenta alternativa de síntese básica.
             st.error(f"Erro ao converter MIDI para WAV usando FluidSynth: {e}")
             st.warning("Tentando usar a síntese simples de ondas senoidais como alternativa.")
             return midi_to_wav_simple(midi_path, wav_path)
     else:
+        # Caso o FluidSynth não esteja instalado, usa síntese básica.
         return midi_to_wav_simple(midi_path, wav_path)
 
 def is_fluidsynth_installed():
     """
-    Verifica se o FluidSynth está instalado e acessível no PATH.
+    Verifica se o FluidSynth está instalado no sistema e acessível no PATH.
+    
+    Returns:
+        bool: True se o FluidSynth estiver instalado, False caso contrário.
     """
-    return shutil.which("fluidsynth") is not None
+    return shutil.which("fluidsynth") is not None  # Verifica a existência do comando 'fluidsynth'.
 
 def midi_to_wav_simple(midi_path, wav_path):
     """
-    Converte um arquivo MIDI para WAV usando síntese básica de ondas senoidais.
-    Atenção: Este método gera áudio muito simples e não é comparável à qualidade de FluidSynth.
+    Converte um arquivo MIDI para WAV usando uma abordagem simples de síntese de ondas senoidais.
+    Esta implementação é limitada e gera áudio básico.
+    
+    Args:
+        midi_path (str): Caminho do arquivo MIDI de entrada.
+        wav_path (str): Caminho para salvar o arquivo WAV gerado.
+
+    Returns:
+        bool: True se a conversão foi bem-sucedida, False caso contrário.
     """
     try:
-        # Carregar o arquivo MIDI usando music21
+        # Carrega o arquivo MIDI usando a biblioteca music21.
         sc = music21.converter.parse(midi_path)
 
-        # Configurações de síntese
-        sr = 16000  # Sample rate
-        audio = np.array([])
+        # Configurações para a síntese:
+        sr = 16000  # Taxa de amostragem (frequência de amostragem em Hz).
+        audio = np.array([])  # Inicializa o array de áudio vazio.
 
-        # Iterar sobre as notas
+        # Itera sobre os elementos no arquivo MIDI.
         for element in sc.flat.notes:
-            if isinstance(element, music21.note.Note):
-                freq = element.pitch.frequency
+            if isinstance(element, music21.note.Note):  # Se for uma nota musical:
+                freq = element.pitch.frequency  # Frequência associada à nota.
+                # Duração da nota baseada em seu valor e no andamento.
                 dur = element.duration.quarterLength * (60 / sc.metronomeMarkBoundaries()[0][2].number)
-                t = np.linspace(0, dur, int(sr * dur), False)
-                note_audio = 0.5 * np.sin(2 * np.pi * freq * t)
-                audio = np.concatenate((audio, note_audio))
-            elif isinstance(element, music21.note.Rest):
+                t = np.linspace(0, dur, int(sr * dur), False)  # Gera o tempo discreto.
+                note_audio = 0.5 * np.sin(2 * np.pi * freq * t)  # Gera a onda senoidal.
+                audio = np.concatenate((audio, note_audio))  # Adiciona a onda ao áudio total.
+            elif isinstance(element, music21.note.Rest):  # Se for uma pausa:
                 dur = element.duration.quarterLength * (60 / sc.metronomeMarkBoundaries()[0][2].number)
-                t = np.linspace(0, dur, int(sr * dur), False)
-                rest_audio = np.zeros_like(t)
-                audio = np.concatenate((audio, rest_audio))
+                t = np.linspace(0, dur, int(sr * dur), False)  # Gera a pausa no tempo.
+                rest_audio = np.zeros_like(t)  # Cria uma sequência de zeros para representar silêncio.
+                audio = np.concatenate((audio, rest_audio))  # Adiciona a pausa ao áudio total.
 
-        # Normalizar o áudio
+        # Normaliza o áudio para o intervalo [-1, 1], prevenindo distorção.
         audio = audio / np.max(np.abs(audio)) if np.max(np.abs(audio)) > 0 else audio
 
-        # Salvar como WAV
+        # Salva o áudio gerado no formato WAV.
         sf.write(wav_path, audio, sr)
         return True
     except Exception as e:
+        # Captura erros durante a conversão.
         st.error(f"Erro na conversão de MIDI para WAV usando síntese simples: {e}")
         return False
-
 def showScore(xml_string):
     """
-    Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
+    Renderiza a partitura musical usando OpenSheetMusicDisplay (OSMD) em um componente HTML do Streamlit.
+
+    Args:
+        xml_string (str): String contendo a partitura em formato MusicXML.
+
+    Notas:
+    - O OSMD é uma biblioteca de código aberto para renderizar partituras musicais diretamente em navegadores.
+    - Aqui, utilizamos o Streamlit para integrar o OSMD como um componente HTML.
     """
-    DIV_ID = "OSMD_div"
+    DIV_ID = "OSMD_div"  # ID do elemento HTML onde a partitura será renderizada.
+    # HTML e script para carregar e renderizar a partitura.
     html_content = f"""
     <div id="{DIV_ID}">Carregando OpenSheetMusicDisplay...</div>
     <script>
     (function() {{
-        // Carregar OpenSheetMusicDisplay se ainda não estiver carregado
+        // Verifica se o OSMD já foi carregado no navegador
         if (!window.opensheetmusicdisplay) {{
             var script = document.createElement('script');
             script.src = "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@0.7.6/build/opensheetmusicdisplay.min.js";
@@ -629,29 +729,41 @@ def showScore(xml_string):
 
         function initializeOSMD() {{
             var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("{DIV_ID}", {{
-                drawingParameters: "compacttight"
+                drawingParameters: "compacttight"  // Configurações de desenho para layout compacto.
             }});
             osmd.load(`{xml_string}`).then(function() {{
-                osmd.render();
+                osmd.render();  // Renderiza a partitura no navegador.
             }});
         }}
     }})();
     </script>
     """
-    components.html(html_content, height=600)
+    components.html(html_content, height=600)  # Insere o conteúdo HTML no Streamlit.
 
 def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, soundfont_path):
     """
-    Cria e renderiza a partitura musical usando music21.
+    Cria uma partitura musical a partir de uma lista de notas e pausas, renderiza no navegador e
+    converte para áudio (MIDI e WAV).
+
+    Args:
+        best_notes_and_rests (list): Lista contendo as notas (e.g., "C4") e pausas ("Rest").
+        tempo (int): Tempo da música em batidas por minuto (BPM).
+        showScore (function): Função para renderizar a partitura (showScore).
+        tmp_audio_path (str): Caminho temporário para salvar os arquivos MIDI e WAV.
+        soundfont_path (str): Caminho para o arquivo SoundFont usado na conversão MIDI para WAV.
+
+    Notas:
+    - O `music21` é usado para criar e manipular a partitura.
+    - As entradas inválidas são filtradas para evitar erros durante a criação.
     """
     if not best_notes_and_rests:
         st.error("Nenhuma nota ou pausa foi fornecida para criar a partitura.")
         return
 
-    # Exibir as notas e pausas detectadas para depuração
+    # Exibe as primeiras 20 notas ou pausas detectadas para depuração.
     st.write(f"**Notas e Pausas Detectadas (Primeiros 20):** {best_notes_and_rests[:20]}")
 
-    # Verificar se todas as entradas são strings válidas
+    # Filtra entradas inválidas para garantir que todas as notas e pausas sejam reconhecíveis.
     valid_notes = set(note_names + [f"{n}{o}" for n in note_names for o in range(0, 10)] + ["Rest"])
     invalid_entries = [note for note in best_notes_and_rests if note not in valid_notes]
     if invalid_entries:
@@ -662,80 +774,73 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
         st.error("Todas as entradas fornecidas são inválidas. A partitura não pode ser criada.")
         return
 
-    sc = music21.stream.Score()
-    part = music21.stream.Part()
-    sc.insert(0, part)
+    # Criação da partitura usando o music21.
+    sc = music21.stream.Score()  # Objeto principal da partitura.
+    part = music21.stream.Part()  # Parte da música (instrumento ou voz).
+    sc.insert(0, part)  # Insere a parte na partitura.
 
-    # Adicionar a assinatura de tempo (compasso 4/4)
+    # Configurações padrão da partitura:
+    # Adiciona a assinatura de tempo (4/4).
     time_signature = music21.meter.TimeSignature('4/4')
     part.insert(0, time_signature)
 
-    # Adicionar a marca de tempo (BPM)
+    # Define o andamento (tempo).
     tempo_mark = music21.tempo.MetronomeMark(number=tempo)
-    part.insert(1, tempo_mark)  # Inserir após a assinatura de tempo
+    part.insert(1, tempo_mark)
 
-    # Adicionar Clave (Treble Clef)
+    # Adiciona a clave (clave de sol).
     clef_obj = music21.clef.TrebleClef()
     part.insert(2, clef_obj)
 
-    # Adicionar Assinatura de Chave (C Major)
-    key_signature = music21.key.KeySignature(0)  # 0 indica C Major
+    # Define a tonalidade (Dó maior ou Lá menor).
+    key_signature = music21.key.KeySignature(0)  # 0 indica ausência de sustenidos ou bemóis.
     part.insert(3, key_signature)
 
-    # Adicionar Medidas Explicitamente
+    # Inicia o primeiro compasso.
     measure = music21.stream.Measure(number=1)
     part.append(measure)
 
-    # Definir a duração total do compasso
-    total_duration = 4.0  # Para 4/4
-
-    # Variável para rastrear a duração atual dentro do compasso
-    current_duration = 0.0
-
-    # Definir a duração padrão das notas (quarter)
-    default_duration = 1.0
+    # Configuração de durações:
+    total_duration = 4.0  # Duração total de um compasso (4/4).
+    current_duration = 0.0  # Duração atual preenchida no compasso.
 
     for snote in best_notes_and_rests:
-        if snote == 'Rest':
+        if snote == 'Rest':  # Adiciona pausas.
             note_obj = music21.note.Rest()
-            note_obj.duration.type = 'quarter'
-        else:
+            note_obj.duration.type = 'quarter'  # Duração padrão: 1/4 de compasso.
+        else:  # Adiciona notas musicais.
             try:
                 note_obj = music21.note.Note(snote)
-                if len(best_notes_and_rests) == 1:
-                    note_obj.duration.type = 'whole'
-                else:
-                    note_obj.duration.type = 'quarter'
+                note_obj.duration.type = 'quarter'  # Duração padrão: 1/4 de compasso.
             except music21.pitch.PitchException:
                 st.warning(f"Nota inválida detectada e ignorada: {snote}")
                 continue
 
-        # Adicionar a nota/pausa ao compasso
-        measure.append(note_obj)
+        measure.append(note_obj)  # Adiciona a nota ou pausa ao compasso.
         current_duration += note_obj.duration.quarterLength
 
-        # Se o compasso estiver completo, criar um novo compasso
+        # Cria um novo compasso quando o atual está completo.
         if current_duration >= total_duration:
             current_duration = 0.0
             measure = music21.stream.Measure(number=measure.number + 1)
             part.append(measure)
 
-    # Caso a última medida não esteja completa, adicionar uma pausa para completá-la
+    # Completa o último compasso com pausas, se necessário.
     if current_duration > 0.0 and current_duration < total_duration:
         remaining = total_duration - current_duration
         rest_obj = music21.note.Rest()
         rest_obj.duration.quarterLength = remaining
         measure.append(rest_obj)
 
-    # Verificar se a partitura está bem-formada
+    # Verifica se a partitura está bem-formada.
     if sc.isWellFormedNotation():
         try:
-            # Exportar para MusicXML escrevendo em um arquivo temporário
+            # Exporta a partitura para MusicXML em um arquivo temporário.
             with tempfile.NamedTemporaryFile(delete=False, suffix='.xml') as tmp_musicxml:
                 sc.write('musicxml', fp=tmp_musicxml.name)
                 tmp_musicxml_path = tmp_musicxml.name
 
-            # Ler o conteúdo do arquivo MusicXML como string
+            # Lê o conteúdo do MusicXML e exibe a partitura.
             try:
                 with open(tmp_musicxml_path, 'r', encoding='utf-8') as f:
                     xml_string = f.read()
@@ -743,86 +848,88 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
                 st.error(f"Erro ao ler o arquivo MusicXML: {e}")
                 return
             finally:
-                # Remover o arquivo temporário
-                os.remove(tmp_musicxml_path)
+                os.remove(tmp_musicxml_path)  # Remove o arquivo temporário.
 
-            # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
+            # Renderiza a partitura usando o OpenSheetMusicDisplay.
             showScore(xml_string)
 
-            # Converter as notas musicais em um arquivo MIDI
+            # Gera um arquivo MIDI a partir da partitura.
             converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
             sc.write('midi', fp=converted_audio_file_as_midi)
 
-            # Converter MIDI para WAV usando FluidSynth via midi2audio ou síntese simples
+            # Converte o MIDI gerado para WAV usando o FluidSynth.
             success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav', soundfont_path)
 
             if success:
-                # Oferecer o arquivo WAV para download e reprodução
-                try:
-                    with open(tmp_audio_path[:-4] + '.wav', 'rb') as f:
-                        wav_data = f.read()
-                    st.download_button(
-                        label="Download do Arquivo WAV",
-                        data=wav_data,
-                        file_name=os.path.basename(tmp_audio_path[:-4] + '.wav'),
-                        mime="audio/wav"
-                    )
-                    st.audio(wav_data, format='audio/wav')
-                    st.success("Arquivo WAV gerado, reproduzido e disponível para download.")
-                except Exception as e:
-                    st.error(f"Erro ao gerar ou reproduzir o arquivo WAV: {e}")
+                # Disponibiliza o arquivo WAV para download e reprodução.
+                with open(tmp_audio_path[:-4] + '.wav', 'rb') as f:
+                    wav_data = f.read()
+                st.download_button(
+                    label="Download do Arquivo WAV",
+                    data=wav_data,
+                    file_name=os.path.basename(tmp_audio_path[:-4] + '.wav'),
+                    mime="audio/wav"
+                )
+                st.audio(wav_data, format='audio/wav')
+                st.success("Arquivo WAV gerado, reproduzido e disponível para download.")
             else:
                 st.error("Falha na conversão de MIDI para WAV.")
         except Exception as e:
             st.error(f"Erro ao processar a partitura: {e}")
     else:
         st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
-        # Exibir a partitura mesmo que não esteja bem-formada para depuração
         try:
-            sc_text = sc.show('text')  # Mostra a estrutura textual da partitura
+            sc_text = sc.show('text')  # Exibe a partitura em formato textual para depuração.
             st.write(sc_text)
         except Exception as e:
-            st.error(f"Erro ao exibir o arquivo de texto da partitura para depuração: {e}")
-        # Tentar exibir a partitura de qualquer maneira
-        try:
-            xml_string = sc.write('xml')
-            showScore(xml_string)
-        except Exception as e:
-            st.error(f"Erro ao exibir a partitura: {e}")
-
+            st.error(f"Erro ao exibir a partitura para depuração: {e}")
 def test_soundfont_conversion(soundfont_path):
     """
-    Testa a conversão de um MIDI simples para WAV usando o SoundFont fornecido.
+    Testa a conversão de um arquivo MIDI simples para WAV utilizando o SoundFont fornecido.
+
+    Args:
+        soundfont_path (str): Caminho para o arquivo SoundFont (.sf2) que será usado para a conversão.
+
+    Funcionamento:
+    - Cria um arquivo MIDI temporário contendo uma única nota musical.
+    - Usa o SoundFont para converter o arquivo MIDI em áudio no formato WAV.
+    - Reproduz o áudio resultante no Streamlit e indica se a conversão foi bem-sucedida.
     """
     try:
+        # Criar dois arquivos temporários: um para MIDI e outro para WAV
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mid") as test_midi:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as test_wav:
-                test_midi_path = test_midi.name
-                test_wav_path = test_wav.name
+                test_midi_path = test_midi.name  # Caminho do arquivo MIDI
+                test_wav_path = test_wav.name  # Caminho do arquivo WAV
 
-                # Criar um MIDI simples com uma única nota
-                sc = music21.stream.Stream()
-                n = music21.note.Note("C4")
-                n.duration.type = 'whole'
-                sc.append(n)
-                sc.write('midi', fp=test_midi_path)
+                # Criar uma partitura MIDI simples com uma única nota (Dó central)
+                sc = music21.stream.Stream()  # Inicializa um fluxo de música
+                n = music21.note.Note("C4")  # Nota "C4" (Dó central)
+                n.duration.type = 'whole'  # Define a duração como "whole" (semibreve)
+                sc.append(n)  # Adiciona a nota à partitura
+                sc.write('midi', fp=test_midi_path)  # Salva a partitura como arquivo MIDI
 
-                # Converter para WAV usando FluidSynth via midi2audio ou síntese simples
+                # Converter o MIDI para WAV usando o SoundFont fornecido
                 success = midi_to_wav(test_midi_path, test_wav_path, soundfont_path)
 
+                # Verificar se a conversão foi bem-sucedida e o arquivo WAV foi gerado
                 if success and os.path.exists(test_wav_path):
-                    st.success("Testes de conversão SoundFont: Sucesso!")
+                    st.success("Testes de conversão SoundFont: Sucesso!")  # Mensagem de sucesso no Streamlit
+                    # Abrir o arquivo WAV e carregar os dados
                     with open(test_wav_path, 'rb') as f:
                         wav_data = f.read()
+                    # Reproduzir o áudio gerado no Streamlit
                     st.audio(wav_data, format='audio/wav')
                 else:
-                    st.error("Testes de conversão SoundFont: Falhou.")
+                    st.error("Testes de conversão SoundFont: Falhou.")  # Mensagem de erro se a conversão falhar
 
-                # Remover arquivos temporários
+                # Remover os arquivos temporários após o teste
                 os.remove(test_midi_path)
                 os.remove(test_wav_path)
     except Exception as e:
+        # Exibir mensagem de erro caso ocorra uma exceção
         st.error(f"Erro durante o teste de conversão SoundFont: {e}")
+
 
 def get_class_name(class_index, class_map):
     """
