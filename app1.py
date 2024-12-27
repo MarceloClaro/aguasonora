@@ -33,6 +33,7 @@ import music21  # Importação adicionada
 import streamlit.components.v1 as components  # Importação adicionada
 import pretty_midi
 import soundfile as sf
+from midi2audio import FluidSynth  # Importação adicionada
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -421,15 +422,11 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 def midi_to_wav(midi_path, wav_path, soundfont_path):
     """
     Converte um arquivo MIDI para WAV usando um SoundFont.
+    Utiliza a biblioteca midi2audio com FluidSynth.
     """
     try:
-        if not os.path.exists(soundfont_path):
-            st.error(f"SoundFont não encontrado no caminho: {soundfont_path}")
-            return False
-
-        midi_data = pretty_midi.PrettyMIDI(midi_path)
-        audio_data = midi_data.synthesize(fs=16000, sf2_path=soundfont_path)
-        sf.write(wav_path, audio_data, 16000)
+        fs = FluidSynth(soundfont_path)
+        fs.midi_to_audio(midi_path, wav_path)
         return True
     except Exception as e:
         st.error(f"Erro ao converter MIDI para WAV: {e}")
@@ -585,7 +582,7 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
         converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
         sc.write('midi', fp=converted_audio_file_as_midi)
 
-        # Converter MIDI para WAV
+        # Converter MIDI para WAV usando FluidSynth via midi2audio
         converted_audio_file_as_wav = tmp_audio_path[:-4] + '.wav'
         success = midi_to_wav(converted_audio_file_as_midi, converted_audio_file_as_wav, soundfont_path)
 
@@ -633,7 +630,7 @@ def test_soundfont_conversion(soundfont_path):
         sc.append(n)
         sc.write('midi', fp=test_midi_path)
 
-        # Converter para WAV
+        # Converter para WAV usando FluidSynth via midi2audio
         success = midi_to_wav(test_midi_path, test_wav_path, soundfont_path)
 
         if success and os.path.exists(test_wav_path):
