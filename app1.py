@@ -1,6 +1,5 @@
 import os
 import zipfile
-import shutil
 import tempfile
 import random
 import numpy as np
@@ -418,16 +417,6 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     return classifier
 
-def midi_to_wav(midi_path, wav_path, soundfont_path):
-    """
-    Converte um arquivo MIDI para WAV usando síntese básica de ondas senoidais.
-    """
-    try:
-        return midi_to_wav_simple(midi_path, wav_path)
-    except Exception as e:
-        st.error(f"Erro na conversão de MIDI para WAV usando síntese simples: {e}")
-        return False
-
 def midi_to_wav_simple(midi_path, wav_path):
     """
     Converte um arquivo MIDI para WAV usando síntese básica de ondas senoidais.
@@ -464,6 +453,12 @@ def midi_to_wav_simple(midi_path, wav_path):
     except Exception as e:
         st.error(f"Erro na conversão de MIDI para WAV usando síntese simples: {e}")
         return False
+
+def midi_to_wav(midi_path, wav_path, soundfont_path=None):
+    """
+    Converte um arquivo MIDI para WAV usando síntese simples de ondas senoidais.
+    """
+    return midi_to_wav_simple(midi_path, wav_path)
 
 def showScore(xml_string):
     """
@@ -612,8 +607,8 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
             converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
             sc.write('midi', fp=converted_audio_file_as_midi)
 
-            # Converter MIDI para WAV usando síntese simples de ondas senoidais
-            success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav', soundfont_path)
+            # Converter MIDI para WAV usando síntese simples
+            success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav')
 
             if success:
                 # Oferecer o arquivo WAV para download e reprodução
@@ -666,8 +661,8 @@ def test_soundfont_conversion(soundfont_path):
         sc.append(n)
         sc.write('midi', fp=test_midi_path)
 
-        # Converter para WAV usando síntese simples de ondas senoidais
-        success = midi_to_wav(test_midi_path, test_wav_path, soundfont_path)
+        # Converter para WAV usando síntese simples
+        success = midi_to_wav(test_midi_path, test_wav_path)
 
         if success and os.path.exists(test_wav_path):
             st.success("Testes de conversão SoundFont: Sucesso!")
