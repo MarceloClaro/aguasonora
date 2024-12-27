@@ -439,16 +439,15 @@ def showScore(score):
     """
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
-    # Obter o conteúdo MusicXML como string
+    # Obter o conteúdo MusicXML como string utilizando GeneralObjectExporter
     try:
-        xml = score.write('musicxml', fp=None)
+        from music21.musicxml import m21ToXml
+        exporter = m21ToXml.GeneralObjectExporter(score)
+        xml = exporter.parse()
+        if not isinstance(xml, str):
+            raise ValueError("O exportador não retornou uma string MusicXML válida.")
     except Exception as e:
         st.error(f"Falha ao converter a partitura para MusicXML como string: {e}")
-        return
-
-    # Verificar se 'xml' é realmente uma string
-    if not isinstance(xml, str):
-        st.error("Falha ao converter a partitura para MusicXML como string.")
         return
 
     # Sanitizar o XML para evitar quebra de JavaScript
@@ -532,24 +531,50 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
     key_signature = music21.key.KeySignature(0)  # 0 indica C Major
     part.insert(3, key_signature)
 
-    # Adicionar notas e rests
+    # Adicionar Medidas Explicitamente
+    measure = music21.stream.Measure(number=1)
+    part.append(measure)
+
+    # Definir a duração total do compasso
+    total_duration = 4.0  # Para 4/4
+
+    # Variável para rastrear a duração atual dentro do compasso
+    current_duration = 0.0
+
+    # Definir a duração padrão das notas (quarter)
+    default_duration = 1.0
+
     for snote in best_notes_and_rests:
         if snote == 'Rest':
             note_obj = music21.note.Rest()
             note_obj.duration.type = 'quarter'
-            part.append(note_obj)
         else:
             try:
                 note_obj = music21.note.Note(snote)
-                # Definir a duração da nota com base na quantidade de notas detectadas
                 if len(best_notes_and_rests) == 1:
                     note_obj.duration.type = 'whole'
                 else:
                     note_obj.duration.type = 'quarter'
-                part.append(note_obj)
             except music21.pitch.PitchException:
                 st.warning(f"Nota inválida detectada e ignorada: {snote}")
                 continue
+
+        # Adicionar a nota/rest ao compasso
+        measure.append(note_obj)
+        current_duration += note_obj.duration.quarterLength
+
+        # Se o compasso estiver completo, criar um novo compasso
+        if current_duration >= total_duration:
+            current_duration = 0.0
+            measure = music21.stream.Measure(number=measure.number + 1)
+            part.append(measure)
+
+    # Caso a última medida não esteja completa, adicionar uma pausa para completá-la
+    if current_duration > 0.0 and current_duration < total_duration:
+        remaining = total_duration - current_duration
+        rest_obj = music21.note.Rest()
+        rest_obj.duration.quarterLength = remaining
+        measure.append(rest_obj)
 
     # Verificar se a partitura está bem-formada
     if sc.isWellFormedNotation():
