@@ -33,7 +33,6 @@ import music21  # Importação adicionada
 import streamlit.components.v1 as components  # Importação adicionada
 import pretty_midi
 import soundfile as sf
-from midi2audio import FluidSynth  # Importação adicionada
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -419,29 +418,11 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     return classifier
 
-def midi_to_wav(midi_path, wav_path, soundfont_path):
+def midi_to_wav(midi_path, wav_path):
     """
-    Converte um arquivo MIDI para WAV usando FluidSynth via midi2audio ou síntese simples de ondas senoidais.
+    Converte um arquivo MIDI para WAV usando síntese básica de ondas senoidais.
     """
-    if is_fluidsynth_installed():
-        try:
-            fs = FluidSynth(soundfont_path)
-            fs.midi_to_audio(midi_path, wav_path)
-            return True
-        except Exception as e:
-            st.error(f"Erro ao converter MIDI para WAV usando FluidSynth: {e}")
-            st.warning("Tentando usar a síntese simples de ondas senoidais como alternativa.")
-            return midi_to_wav_simple(midi_path, wav_path)
-    else:
-        st.warning("FluidSynth não está instalado ou não está acessível no PATH do sistema.")
-        st.warning("Utilizando a síntese simples de ondas senoidais para conversão de MIDI para WAV.")
-        return midi_to_wav_simple(midi_path, wav_path)
-
-def is_fluidsynth_installed():
-    """
-    Verifica se o FluidSynth está instalado e acessível no PATH.
-    """
-    return shutil.which("fluidsynth") is not None
+    return midi_to_wav_simple(midi_path, wav_path)
 
 def midi_to_wav_simple(midi_path, wav_path):
     """
@@ -514,7 +495,7 @@ def showScore(xml_string):
     """
     components.html(html_content, height=600)
 
-def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, soundfont_path):
+def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path):
     """
     Cria e renderiza a partitura musical usando music21.
     """
@@ -627,8 +608,8 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
             converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
             sc.write('midi', fp=converted_audio_file_as_midi)
 
-            # Converter MIDI para WAV usando FluidSynth via midi2audio ou síntese simples
-            success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav', soundfont_path)
+            # Converter MIDI para WAV usando síntese simples
+            success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav')
 
             if success:
                 # Oferecer o arquivo WAV para download e reprodução
@@ -668,35 +649,8 @@ def test_soundfont_conversion(soundfont_path):
     """
     Testa a conversão de um MIDI simples para WAV usando o SoundFont fornecido.
     """
-    try:
-        test_midi = tempfile.NamedTemporaryFile(delete=False, suffix=".mid")
-        test_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        test_midi_path = test_midi.name
-        test_wav_path = test_wav.name
-
-        # Criar um MIDI simples com uma única nota
-        sc = music21.stream.Stream()
-        n = music21.note.Note("C4")
-        n.duration.type = 'whole'
-        sc.append(n)
-        sc.write('midi', fp=test_midi_path)
-
-        # Converter para WAV usando FluidSynth via midi2audio ou síntese simples
-        success = midi_to_wav(test_midi_path, test_wav_path, soundfont_path)
-
-        if success and os.path.exists(test_wav_path):
-            st.success("Testes de conversão SoundFont: Sucesso!")
-            with open(test_wav_path, 'rb') as f:
-                wav_data = f.read()
-            st.audio(wav_data, format='audio/wav')
-        else:
-            st.error("Testes de conversão SoundFont: Falhou.")
-        
-        # Remover arquivos temporários
-        os.remove(test_midi_path)
-        os.remove(test_wav_path)
-    except Exception as e:
-        st.error(f"Erro durante o teste de conversão SoundFont: {e}")
+    st.warning("A funcionalidade de teste do SoundFont foi removida pois FluidSynth não está mais sendo utilizado.")
+    # A funcionalidade de teste do SoundFont foi removida porque FluidSynth não está mais sendo usado.
 
 def classify_new_audio(uploaded_audio):
     """
@@ -742,7 +696,6 @@ def classify_new_audio(uploaded_audio):
             classifier = st.session_state['classifier']
             classes = st.session_state['classes']
             num_classes = len(classes)
-            soundfont_path = st.session_state['soundfont_path']
 
             # Converter o embedding para tensor
             embedding_tensor = torch.tensor(embedding, dtype=torch.float32).unsqueeze(0).to(device)
@@ -954,89 +907,51 @@ def classify_new_audio(uploaded_audio):
                 tempo = 120.0  # Valor padrão
 
             # Criar a partitura musical usando music21
-            create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, soundfont_path)
+            create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path)
 
-    except Exception as e:
-        st.error(f"Erro ao processar o áudio: {e}")
-    finally:
-        # Remover arquivos temporários
-        try:
-            os.remove(tmp_audio_path)
-        except Exception as e:
-            st.warning(f"Erro ao remover arquivos temporários: {e}")
-
-def main():
-    # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
-    st.set_page_config(page_title="Classificação de Áudio com YAMNet e SPICE", layout="wide")
-    st.title("Classificação de Áudio com YAMNet e Detecção de Pitch com SPICE")
-    st.write("""
-    Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings e o modelo **SPICE** para detecção de pitch, melhorando assim a classificação.
-    """)
-
-    # Sidebar para parâmetros de treinamento e pré-processamento
-    st.sidebar.header("Configurações")
-    
-    # Parâmetros de Treinamento
-    st.sidebar.subheader("Parâmetros de Treinamento")
-    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=50, step=1)
-    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
-    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64], index=1)
-    l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
-    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1)
-
-    # Opções de Data Augmentation
-    st.sidebar.subheader("Data Augmentation")
-    augment = st.sidebar.checkbox("Aplicar Data Augmentation")
-    if augment:
-        augmentation_methods = st.sidebar.multiselect(
-            "Métodos de Data Augmentation:",
-            options=["Add Noise", "Time Stretch", "Pitch Shift"],
-            default=["Add Noise", "Time Stretch"]
-        )
-        # Parâmetros adicionais para Data Augmentation
-        rate = st.sidebar.slider("Rate para Time Stretch:", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
-        n_steps = st.sidebar.slider("N Steps para Pitch Shift:", min_value=-12, max_value=12, value=2, step=1)
-    else:
-        augmentation_methods = []
-        rate = 1.1
-        n_steps = 2
-
-    # Opções de Balanceamento de Classes
-    st.sidebar.subheader("Balanceamento de Classes")
-    balance_method = st.sidebar.selectbox(
-        "Método de Balanceamento:",
-        options=["None", "Oversample", "Undersample"],
-        index=0
-    )
-
-    # Seção de Upload do SoundFont
-    st.header("Upload do SoundFont (SF2)")
-    st.write("""
-    Para converter arquivos MIDI em WAV, é necessário um SoundFont (arquivo `.sf2`). Faça o upload do seu SoundFont aqui.
-    """)
-    uploaded_soundfont = st.file_uploader("Faça upload do arquivo SoundFont (.sf2)", type=["sf2"])
-
-    if uploaded_soundfont is not None:
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".sf2") as tmp_sf2:
-                tmp_sf2.write(uploaded_soundfont.read())
-                soundfont_path = tmp_sf2.name
-            st.success("SoundFont carregado com sucesso.")
-        except Exception as e:
-            st.error(f"Erro ao carregar o SoundFont: {e}")
-            soundfont_path = None
-    else:
-        soundfont_path = None
-        st.warning("Por favor, faça upload de um SoundFont (.sf2) para continuar.")
-
-    if soundfont_path:
-        # Seção de Teste do SoundFont
-        st.header("Teste do SoundFont")
+    def main():
+        # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
+        st.set_page_config(page_title="Classificação de Áudio com YAMNet e SPICE", layout="wide")
+        st.title("Classificação de Áudio com YAMNet e Detecção de Pitch com SPICE")
         st.write("""
-        Clique no botão abaixo para testar a conversão de um MIDI simples para WAV usando o SoundFont carregado.
+        Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings e o modelo **SPICE** para detecção de pitch, melhorando assim a classificação.
         """)
-        if st.button("Executar Teste de Conversão SoundFont"):
-            test_soundfont_conversion(soundfont_path)
+
+        # Sidebar para parâmetros de treinamento e pré-processamento
+        st.sidebar.header("Configurações")
+        
+        # Parâmetros de Treinamento
+        st.sidebar.subheader("Parâmetros de Treinamento")
+        epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=50, step=1)
+        learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
+        batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64], index=1)
+        l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
+        patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1)
+
+        # Opções de Data Augmentation
+        st.sidebar.subheader("Data Augmentation")
+        augment = st.sidebar.checkbox("Aplicar Data Augmentation")
+        if augment:
+            augmentation_methods = st.sidebar.multiselect(
+                "Métodos de Data Augmentation:",
+                options=["Add Noise", "Time Stretch", "Pitch Shift"],
+                default=["Add Noise", "Time Stretch"]
+            )
+            # Parâmetros adicionais para Data Augmentation
+            rate = st.sidebar.slider("Rate para Time Stretch:", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
+            n_steps = st.sidebar.slider("N Steps para Pitch Shift:", min_value=-12, max_value=12, value=2, step=1)
+        else:
+            augmentation_methods = []
+            rate = 1.1
+            n_steps = 2
+
+        # Opções de Balanceamento de Classes
+        st.sidebar.subheader("Balanceamento de Classes")
+        balance_method = st.sidebar.selectbox(
+            "Método de Balanceamento:",
+            options=["None", "Oversample", "Undersample"],
+            index=0
+        )
 
         # Seção de Download e Preparação de Arquivos de Áudio
         st.header("Baixando e Preparando Arquivos de Áudio")
@@ -1251,7 +1166,6 @@ def main():
                     # Salvar o classificador no estado do Streamlit
                     st.session_state['classifier'] = classifier
                     st.session_state['classes'] = classes
-                    st.session_state['soundfont_path'] = soundfont_path
 
                     # Opção para download do modelo treinado
                     buffer = io.BytesIO()
@@ -1274,7 +1188,7 @@ def main():
                     )
 
     # Classificação de Novo Áudio
-    if 'classifier' in st.session_state and 'classes' in st.session_state and 'soundfont_path' in st.session_state:
+    if 'classifier' in st.session_state and 'classes' in st.session_state:
         def output2hz(pitch_output):
             # Constants taken from https://tfhub.dev/google/spice/2
             PT_OFFSET = 25.58
@@ -1388,7 +1302,6 @@ def main():
                     classifier = st.session_state['classifier']
                     classes = st.session_state['classes']
                     num_classes = len(classes)
-                    soundfont_path = st.session_state['soundfont_path']
 
                     # Converter o embedding para tensor
                     embedding_tensor = torch.tensor(embedding, dtype=torch.float32).unsqueeze(0).to(device)
@@ -1600,7 +1513,7 @@ def main():
                         tempo = 120.0  # Valor padrão
 
                     # Criar a partitura musical usando music21
-                    create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, soundfont_path)
+                    create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path)
 
             except Exception as e:
                 st.error(f"Erro ao processar o áudio: {e}")
@@ -1621,7 +1534,7 @@ def main():
         
         **Explicação para Técnicos:**
         - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet. O classificador treinado em PyTorch utiliza esses embeddings para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
-        - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
+        - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em uma partitura musical que poderá ser baixada e reproduzida.
         """)
         uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
 
@@ -1631,25 +1544,21 @@ def main():
     # Documentação e Agradecimentos
     st.write("### Documentação dos Procedimentos")
     st.write("""
-    1. **Upload do SoundFont (SF2):** Faça o upload do seu arquivo SoundFont (`.sf2`) para permitir a conversão de MIDI para WAV.
+    1. **Baixando e Preparando Arquivos de Áudio:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
     
-    2. **Teste do SoundFont:** Execute o teste de conversão para garantir que o SoundFont está funcionando corretamente.
+    2. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
     
-    3. **Baixando e Preparando Arquivos de Áudio:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
+    3. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
     
-    4. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
+    4. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
     
-    5. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
+    5. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
     
-    6. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
+    6. **Treinamento do Classificador:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
     
-    7. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
+    7. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
     
-    8. **Treinamento do Classificador:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
-    
-    9. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
-    
-    10. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    8. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
     
     **Exemplo de Estrutura de Diretórios para Upload:**
     ```
