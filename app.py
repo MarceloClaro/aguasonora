@@ -76,6 +76,14 @@ def load_yamnet_model():
     yam_model = hub.load('https://tfhub.dev/google/yamnet/1')
     return yam_model
 
+@st.cache_data
+def load_class_map(url):
+    """
+    Carrega o mapa de classes do YAMNet a partir de uma URL.
+    """
+    class_map = pd.read_csv(url)
+    return class_map
+
 def ensure_sample_rate(original_sr, waveform, desired_sr=16000):
     """
     Resample se não estiver em 16 kHz.
@@ -761,6 +769,23 @@ def test_soundfont_conversion(soundfont_path):
     except Exception as e:
         st.error(f"Erro durante o teste de conversão SoundFont: {e}")
 
+def get_class_name(class_index, class_map):
+    """
+    Retorna o nome da classe dado o índice.
+
+    Args:
+        class_index (int): Índice da classe predita.
+        class_map (pd.DataFrame): DataFrame contendo o mapa de classes.
+
+    Returns:
+        str: Nome da classe correspondente.
+    """
+    try:
+        class_name = class_map.iloc[class_index]['display_name']
+        return class_name
+    except IndexError:
+        return "Índice de classe inválido."
+
 def classify_new_audio(uploaded_audio):
     """
     Função para classificar um novo arquivo de áudio.
@@ -802,6 +827,12 @@ def classify_new_audio(uploaded_audio):
 
     # Extrair embeddings
     yamnet_model = load_yamnet_model()
+    class_map = st.session_state.get('class_map', None)
+    if class_map is None:
+        # Carregar o mapa de classes se ainda não estiver carregado
+        class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
+        class_map = load_class_map(class_map_url)
+        st.session_state['class_map'] = class_map
     pred_class, embedding = extract_yamnet_embeddings(yamnet_model, tmp_audio_path)
     mfcc_features = extract_mfcc_features(tmp_audio_path)
     vibration_features = extract_vibration_features(tmp_audio_path)
@@ -839,9 +870,13 @@ def classify_new_audio(uploaded_audio):
             class_name = classes[class_idx]
             confidence_score = confidence.item()
 
+        # Mapear o índice predito pelo YAMNet para o nome da classe
+        class_name_yamnet = get_class_name(pred_class, class_map)
+
         # Exibir resultados
-        st.write(f"**Classe Predita:** {class_name}")
-        st.write(f"**Confiança:** {confidence_score:.4f}")
+        st.write(f"**Classe Predita pelo YAMNet:** {pred_class} - {class_name_yamnet}")
+        st.write(f"**Classe Predita pelo Classificador Personalizado:** {class_name}")
+        st.write(f"**Confiança do Classificador Personalizado:** {confidence_score:.4f}")
 
         # Visualização do Áudio
         st.subheader("Visualização do Áudio")
@@ -1240,6 +1275,11 @@ def main():
                     yamnet_model = load_yamnet_model()
                     st.write("Modelo YAMNet carregado.")
 
+                    # Carregar o mapa de classes do YAMNet
+                    class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
+                    class_map = load_class_map(class_map_url)
+                    st.session_state['class_map'] = class_map  # Armazenar no session_state
+
                     embeddings = []
                     labels = []
                     mfccs = []
@@ -1502,7 +1542,7 @@ def main():
     
     11. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
     
-    12. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    12. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita pelo YAMNet, a classe predita pelo classificador personalizado, a confiança da predição, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
     
     **Exemplo de Estrutura de Diretórios para Upload:**
     ```
