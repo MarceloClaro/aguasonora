@@ -541,7 +541,11 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
         else:
             try:
                 note_obj = music21.note.Note(snote)
-                note_obj.duration.type = 'quarter'
+                # Definir a duração da nota com base na quantidade de notas detectadas
+                if len(best_notes_and_rests) == 1:
+                    note_obj.duration.type = 'whole'
+                else:
+                    note_obj.duration.type = 'quarter'
                 part.append(note_obj)
             except music21.pitch.PitchException:
                 st.warning(f"Nota inválida detectada e ignorada: {snote}")
@@ -581,7 +585,8 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
         st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
         # Exibir a partitura mesmo que não esteja bem-formada para depuração
         try:
-            st.write(sc.show('text'))  # Mostra a estrutura textual da partitura
+            sc_text = sc.show('text')  # Mostra a estrutura textual da partitura
+            st.write(sc_text)
         except Exception as e:
             st.error(f"Erro ao exibir a partitura para depuração: {e}")
         showScore(sc)
