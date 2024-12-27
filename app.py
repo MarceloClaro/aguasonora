@@ -1331,11 +1331,25 @@ def classify_new_audio(uploaded_audio):
                         st.write("**Visualização dos Embeddings com PCA:**")
                         plot_embeddings(combined_features, labels, classes)
 
+                        # Balanceamento de Classes
+                        if balance_method != "Nenhum":
+                            st.write(f"Aplicando balanceamento de classes: {balance_method}")
+                            embeddings_bal, labels_bal = balance_classes(combined_features, labels, balance_method)
+                            # Contar novamente após balanceamento
+                            balanced_counts = {cls: 0 for cls in classes}
+                            for label in labels_bal:
+                                cls = [k for k, v in label_mapping.items() if v == label][0]
+                                balanced_counts[cls] += 1
+                            st.write(f"**Contagem de classes após balanceamento:**")
+                            st.write(balanced_counts)
+                        else:
+                            embeddings_bal, labels_bal = combined_features, labels
+
                         # Ajustar n_splits para não exceder o mínimo de amostras por classe
                         min_class_size = min([count for count in class_counts.values()])
                         k_folds = min(10, min_class_size)  # Ajustar n_splits dinamicamente
                         if k_folds < 2:
-                            st.error(f"Número de classes insuficiente para realizar validação cruzada (k_folds={k_folds}).")
+                            st.error(f"Número de folds insuficiente para realizar validação cruzada (k_folds={k_folds}).")
                             st.stop()
 
                         st.header("Treinamento com Validação Cruzada")
