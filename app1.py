@@ -418,6 +418,10 @@ def midi_to_wav(midi_path, wav_path, soundfont_path):
     Converte um arquivo MIDI para WAV usando um SoundFont.
     """
     try:
+        if not os.path.exists(soundfont_path):
+            st.error(f"SoundFont não encontrado no caminho: {soundfont_path}")
+            return False
+
         midi_data = pretty_midi.PrettyMIDI(midi_path)
         audio_data = midi_data.synthesize(fs=16000, sf2_path=soundfont_path)
         sf.write(wav_path, audio_data, 16000)
@@ -481,65 +485,118 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
     """
     Cria e renderiza a partitura musical usando music21.
     """
-    if best_notes_and_rests:
-        sc = music21.stream.Score()
-        part = music21.stream.Part()
-        sc.insert(0, part)
+    if not best_notes_and_rests:
+        st.error("Nenhuma nota ou rest foi fornecido para criar a partitura.")
+        return
 
-        # Adicionar a assinatura de tempo (compasso 4/4)
-        time_signature = music21.meter.TimeSignature('4/4')
-        part.insert(0, time_signature)
+    # Exibir as notas e rests detectados para depuração
+    st.write(f"**Notas e Rests Detectados (Primeiros 20):** {best_notes_and_rests[:20]}")
 
-        # Adicionar a assinatura de tempo com BPM inferido
-        a = music21.tempo.MetronomeMark(number=tempo)
-        part.insert(1, a)  # Inserir após a assinatura de tempo
+    # Verificar se todas as entradas são strings válidas
+    valid_notes = set(note_names + [f"{n}{o}" for n in note_names for o in range(0, 10)] + ["Rest"])
+    invalid_entries = [note for note in best_notes_and_rests if note not in valid_notes]
+    if invalid_entries:
+        st.warning(f"Entradas inválidas detectadas e serão ignoradas: {invalid_entries}")
+        best_notes_and_rests = [note for note in best_notes_and_rests if note in valid_notes]
 
-        for snote in best_notes_and_rests:
-            if snote == 'Rest':
-                note_obj = music21.note.Rest()
+    if not best_notes_and_rests:
+        st.error("Todas as entradas fornecidas são inválidas. A partitura não pode ser criada.")
+        return
+
+    sc = music21.stream.Score()
+    part = music21.stream.Part()
+    sc.insert(0, part)
+
+    # Adicionar a assinatura de tempo (compasso 4/4)
+    time_signature = music21.meter.TimeSignature('4/4')
+    part.insert(0, time_signature)
+
+    # Adicionar a assinatura de tempo com BPM inferido
+    a = music21.tempo.MetronomeMark(number=tempo)
+    part.insert(1, a)  # Inserir após a assinatura de tempo
+
+    for snote in best_notes_and_rests:
+        if snote == 'Rest':
+            note_obj = music21.note.Rest()
+            note_obj.duration.type = 'quarter'
+            part.append(note_obj)
+        else:
+            try:
+                note_obj = music21.note.Note(snote)
                 note_obj.duration.type = 'quarter'
                 part.append(note_obj)
-            else:
-                try:
-                    note_obj = music21.note.Note(snote)
-                    note_obj.duration.type = 'quarter'
-                    part.append(note_obj)
-                except music21.pitch.PitchException:
-                    st.warning(f"Nota inválida detectada: {snote}. Será ignorada.")
-                    continue
+            except music21.pitch.PitchException:
+                st.warning(f"Nota inválida detectada e ignorada: {snote}")
+                continue
 
-        # Verificar se a partitura está bem-formada
-        if sc.isWellFormedNotation():
-            # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
-            showScore(sc)
+    # Verificar se a partitura está bem-formada
+    if sc.isWellFormedNotation():
+        # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
+        showScore(sc)
 
-            # Converter as notas musicais em um arquivo MIDI
-            converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
-            sc.write('midi', fp=converted_audio_file_as_midi)
+        # Converter as notas musicais em um arquivo MIDI
+        converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
+        sc.write('midi', fp=converted_audio_file_as_midi)
 
-            # Converter MIDI para WAV
-            converted_audio_file_as_wav = tmp_audio_path[:-4] + '.wav'
-            success = midi_to_wav(converted_audio_file_as_midi, converted_audio_file_as_wav, soundfont_path)
+        # Converter MIDI para WAV
+        converted_audio_file_as_wav = tmp_audio_path[:-4] + '.wav'
+        success = midi_to_wav(converted_audio_file_as_midi, converted_audio_file_as_wav, soundfont_path)
 
-            if success:
-                # Oferecer o arquivo WAV para download e reprodução
-                try:
-                    with open(converted_audio_file_as_wav, 'rb') as f:
-                        wav_data = f.read()
-                    st.download_button(
-                        label="Download do Arquivo WAV",
-                        data=wav_data,
-                        file_name=os.path.basename(converted_audio_file_as_wav),
-                        mime="audio/wav"
-                    )
-                    st.audio(wav_data, format='audio/wav')
-                    st.success("Arquivo WAV gerado, reproduzido e disponível para download.")
-                except Exception as e:
-                    st.error(f"Erro ao gerar ou reproduzir o arquivo WAV: {e}")
-            else:
-                st.error("Falha na conversão de MIDI para WAV.")
+        if success:
+            # Oferecer o arquivo WAV para download e reprodução
+            try:
+                with open(converted_audio_file_as_wav, 'rb') as f:
+                    wav_data = f.read()
+                st.download_button(
+                    label="Download do Arquivo WAV",
+                    data=wav_data,
+                    file_name=os.path.basename(converted_audio_file_as_wav),
+                    mime="audio/wav"
+                )
+                st.audio(wav_data, format='audio/wav')
+                st.success("Arquivo WAV gerado, reproduzido e disponível para download.")
+            except Exception as e:
+                st.error(f"Erro ao gerar ou reproduzir o arquivo WAV: {e}")
         else:
-            st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
+            st.error("Falha na conversão de MIDI para WAV.")
+    else:
+        st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
+        # Exibir a partitura mesmo que não esteja bem-formada para depuração
+        showScore(sc)
+
+def test_soundfont_conversion(soundfont_path):
+    """
+    Testa a conversão de um MIDI simples para WAV usando o SoundFont fornecido.
+    """
+    try:
+        test_midi = tempfile.NamedTemporaryFile(delete=False, suffix=".mid")
+        test_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        test_midi_path = test_midi.name
+        test_wav_path = test_wav.name
+
+        # Criar um MIDI simples com uma única nota
+        sc = music21.stream.Stream()
+        n = music21.note.Note("C4")
+        n.duration.type = 'whole'
+        sc.append(n)
+        sc.write('midi', fp=test_midi_path)
+
+        # Converter para WAV
+        success = midi_to_wav(test_midi_path, test_wav_path, soundfont_path)
+
+        if success and os.path.exists(test_wav_path):
+            st.success("Testes de conversão SoundFont: Sucesso!")
+            with open(test_wav_path, 'rb') as f:
+                wav_data = f.read()
+            st.audio(wav_data, format='audio/wav')
+        else:
+            st.error("Testes de conversão SoundFont: Falhou.")
+        
+        # Remover arquivos temporários
+        os.remove(test_midi_path)
+        os.remove(test_wav_path)
+    except Exception as e:
+        st.error(f"Erro durante o teste de conversão SoundFont: {e}")
 
 def main():
     # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
@@ -606,6 +663,14 @@ def main():
         st.warning("Por favor, faça upload de um SoundFont (.sf2) para continuar.")
 
     if soundfont_path:
+        # Seção de Teste do SoundFont
+        st.header("Teste do SoundFont")
+        st.write("""
+        Clique no botão abaixo para testar a conversão de um MIDI simples para WAV usando o SoundFont carregado.
+        """)
+        if st.button("Executar Teste de Conversão SoundFont"):
+            test_soundfont_conversion(soundfont_path)
+
         # Seção de Download e Preparação de Arquivos de Áudio
         st.header("Baixando e Preparando Arquivos de Áudio")
         st.write("""
@@ -870,6 +935,11 @@ def main():
                 )
                 octave = h // 12
                 n = h % 12
+                # Garantir que a nota está dentro do intervalo MIDI válido (0-127)
+                midi_number = h + 60  # Adicionando 60 para centralizar em torno de C4
+                if midi_number < 0 or midi_number > 127:
+                    st.warning(f"Número MIDI {midi_number} fora do intervalo válido (0-127). Será ignorado.")
+                    return float('inf'), "Rest"
                 if n < 0 or n >= len(note_names):
                     st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
                     return float('inf'), "Rest"
@@ -1076,6 +1146,11 @@ def main():
                             )
                             octave = h // 12
                             n = h % 12
+                            # Garantir que a nota está dentro do intervalo MIDI válido (0-127)
+                            midi_number = h + 60  # Adicionando 60 para centralizar em torno de C4
+                            if midi_number < 0 or midi_number > 127:
+                                st.warning(f"Número MIDI {midi_number} fora do intervalo válido (0-127). Será ignorado.")
+                                return float('inf'), "Rest"
                             if n < 0 or n >= len(note_names):
                                 st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
                                 return float('inf'), "Rest"
@@ -1192,23 +1267,25 @@ def main():
     st.write("### Documentação dos Procedimentos")
     st.write("""
     1. **Upload do SoundFont (SF2):** Faça o upload do seu arquivo SoundFont (`.sf2`) para permitir a conversão de MIDI para WAV.
-
-    2. **Baixando e Preparando Arquivos de Áudio:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
-
-    3. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
-
-    4. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
-
-    5. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
-
-    6. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
-
-    7. **Treinamento do Classificador:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
-
-    8. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
-
-    9. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
-
+    
+    2. **Teste do SoundFont:** Execute o teste de conversão para garantir que o SoundFont está funcionando corretamente.
+    
+    3. **Baixando e Preparando Arquivos de Áudio:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
+    
+    4. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
+    
+    5. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
+    
+    6. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
+    
+    7. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
+    
+    8. **Treinamento do Classificador:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
+    
+    9. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
+    
+    10. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    
     **Exemplo de Estrutura de Diretórios para Upload:**
     ```
     dados/
