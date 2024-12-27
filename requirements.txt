@@ -1,6 +1,7 @@
 streamlit
 statsmodels
 tensorflow
+midi2audio
 tensorflow-hub
 numpy
 pandas
