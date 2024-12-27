@@ -45,32 +45,22 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Configurações para gráficos mais bonitos
 sns.set_style('whitegrid')
 
-# Definir seed para reprodutibilidade
-def set_seed(seed):
-    """
-    Define a semente para que os resultados possam ser reproduzidos.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    # Garantir que os resultados sejam os mesmos sempre
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+# Definir constantes globalmente
+note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+A4 = 440
+C0 = A4 * pow(2, -4.75)
 
-# Função para carregar o modelo YAMNet
 @st.cache_resource
 def load_yamnet_model():
     """
-    Carrega o modelo YAMNet do TensorFlow Hub.
+    Carrega o modelo YAMNet do TF Hub.
     """
     yam_model = hub.load('https://tfhub.dev/google/yamnet/1')
     return yam_model
 
 def ensure_sample_rate(original_sr, waveform, desired_sr=16000):
     """
-    Ajusta a taxa de amostragem do áudio para 16kHz.
+    Resample se não estiver em 16 kHz.
     """
     if original_sr != desired_sr:
         desired_length = int(round(float(len(waveform)) / original_sr * desired_sr))
@@ -79,7 +69,7 @@ def ensure_sample_rate(original_sr, waveform, desired_sr=16000):
 
 def add_noise(waveform, noise_factor=0.005):
     """
-    Adiciona um pouco de barulho ao áudio para aumentar a variedade dos dados.
+    Adiciona ruído branco ao áudio.
     """
     noise = np.random.randn(len(waveform))
     augmented_waveform = waveform + noise_factor * noise
@@ -88,20 +78,20 @@ def add_noise(waveform, noise_factor=0.005):
 
 def time_stretch(waveform, rate=1.1):
     """
-    Estica o tempo do áudio sem alterar a altura.
+    Estica o tempo do áudio.
     """
     return librosa.effects.time_stretch(waveform, rate)
 
 # Função de Pitch Shift Renomeada para Evitar Conflitos
 def apply_pitch_shift(waveform, sr, n_steps=2):
     """
-    Muda a altura do áudio para cima ou para baixo.
+    Muda a altura do áudio.
     """
     return librosa.effects.pitch_shift(waveform, sr, n_steps)
 
 def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_steps=2):
     """
-    Aplica diferentes métodos de aumento de dados no áudio.
+    Aplica data augmentation no áudio.
     """
     augmented_waveforms = [waveform]
     for method in augmentation_methods:
@@ -115,7 +105,7 @@ def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_st
                 st.warning(f"Erro ao aplicar Esticar Tempo: {e}")
         elif method == 'Mudar Pitch':
             try:
-                shifted = apply_pitch_shift(waveform, sr, n_steps=n_steps)
+                shifted = apply_pitch_shift(waveform, sr, n_steps=n_steps)  # Ajuste aqui
                 augmented_waveforms.append(shifted)
             except Exception as e:
                 st.warning(f"Erro ao aplicar Mudar Pitch: {e}")
@@ -129,13 +119,13 @@ def extract_yamnet_embeddings(yamnet_model, audio_path):
     basename_audio = os.path.basename(audio_path)
     try:
         sr_orig, wav_data = wavfile.read(audio_path)
-        st.write(f"Processando {basename_audio}: Taxa de Amostragem = {sr_orig}, Formato = {wav_data.shape}, Tipo = {wav_data.dtype}")
+        st.write(f"Processando {basename_audio}: Taxa de Amostragem = {sr_orig}, Forma = {wav_data.shape}, Tipo = {wav_data.dtype}")
         
         # Verificar se está estéreo
         if wav_data.ndim > 1:
             # Converter para mono
             wav_data = wav_data.mean(axis=1)
-            st.write(f"Convertido para mono: Formato = {wav_data.shape}")
+            st.write(f"Convertido para mono: Forma = {wav_data.shape}")
         
         # Normalizar para [-1, 1] ou verificar se já está normalizado
         if wav_data.dtype.kind == 'i':
@@ -163,7 +153,7 @@ def extract_yamnet_embeddings(yamnet_model, audio_path):
         # Executar o modelo YAMNet
         # yamnet_model retorna: scores, embeddings, spectrogram
         scores, embeddings, spectrogram = yamnet_model(waveform)
-        st.write(f"Embeddings extraídos: Formato = {embeddings.shape}")
+        st.write(f"Embeddings extraídos: Forma = {embeddings.shape}")
     
         # scores.shape = [frames, 521]
         scores_np = scores.numpy()
@@ -172,8 +162,8 @@ def extract_yamnet_embeddings(yamnet_model, audio_path):
         st.write(f"Classe predita pelo YAMNet: {pred_class}")
     
         # Calcular a média dos embeddings das frames para obter um embedding fixo
-        mean_embedding = embeddings.numpy().mean(axis=0)  # Formato: (1024,)
-        st.write(f"Média dos embeddings das frames: Formato = {mean_embedding.shape}")
+        mean_embedding = embeddings.numpy().mean(axis=0)  # Forma: (1024,)
+        st.write(f"Média dos embeddings das frames: Forma = {mean_embedding.shape}")
     
         return pred_class, mean_embedding
     except Exception as e:
@@ -194,14 +184,11 @@ def balance_classes(X, y, method):
         X_bal, y_bal = X, y
     return X_bal, y_bal
 
-def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classes, epochs, learning_rate, batch_size, l2_lambda, patience, seed):
+def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classes, epochs, learning_rate, batch_size, l2_lambda, patience):
     """
     Treina um classificador simples em PyTorch com os embeddings extraídos.
     Inclui validação e métricas de avaliação.
     """
-    # Definir a semente para reprodutibilidade
-    set_seed(seed)
-    
     # Converter para tensores
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
     y_train_tensor = torch.tensor(y_train, dtype=torch.long)
@@ -311,7 +298,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                st.write("Parando o treinamento cedo porque a validação não melhorou.")
+                st.write("Interrompendo Treinamento Antecipadamente!")
                 break
 
     # Carregar os melhores pesos do modelo se houver
@@ -402,7 +389,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
             ax_roc.set_ylim([0.0, 1.05])
             ax_roc.set_xlabel('Taxa de Falsos Positivos')
             ax_roc.set_ylabel('Taxa de Verdadeiros Positivos')
-            ax_roc.set_title('Curva ROC (Receiver Operating Characteristic)')
+            ax_roc.set_title('Curva Característica de Operação do Receptor (ROC)')
             ax_roc.legend(loc="lower right")
             st.pyplot(fig_roc)
             plt.close(fig_roc)
@@ -548,7 +535,7 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
     tempo_mark = music21.tempo.MetronomeMark(number=tempo)
     part.insert(1, tempo_mark)  # Inserir após a assinatura de tempo
 
-    # Adicionar Clave (Clave de Sol)
+    # Adicionar Clave (Treble Clef)
     clef_obj = music21.clef.TrebleClef()
     part.insert(2, clef_obj)
 
@@ -829,9 +816,7 @@ def classify_new_audio(uploaded_audio):
             # note_names e C0 já estão definidos globalmente
 
             def hz2offset(freq):
-                """
-                Calcula o erro de quantização para uma única nota.
-                """
+                # Medir o erro de quantização para uma única nota.
                 if freq == 0:  # Silêncio sempre tem erro zero.
                     return None
                 # Nota quantizada.
@@ -846,21 +831,18 @@ def classify_new_audio(uploaded_audio):
                 ideal_offset = 0.0
             # Garantir que ideal_offset é float
             ideal_offset = float(ideal_offset)
-            st.write(f"Offset Ideal: {ideal_offset:.4f}")
+            st.write(f"Desvio Ideal: {ideal_offset:.4f}")
 
             # Função para quantizar previsões
             def quantize_predictions(group, ideal_offset):
-                """
-                Transforma pitches em notas ou descansos.
-                """
-                # Group values são ou 0, ou um pitch em Hz.
+                # Grupo de valores são ou 0, ou um pitch em Hz.
                 non_zero_values = [v for v in group if v != 0]
                 zero_values_count = len(group) - len(non_zero_values)
 
                 # Criar um descanso se 80% for silencioso, caso contrário, criar uma nota.
                 if zero_values_count > 0.8 * len(group):
-                    # Interpretar como um descanso. Cada nota descartada conta um pouco de erro.
-                    return 0.51 * len(non_zero_values), "Rest"
+                    # Interpretar como um descanso. Cada nota descartada conta um pouco mais como erro.
+                    return 0.51 * len(non_zero_values), "Descanso"
                 else:
                     # Interpretar como nota, estimando como média das previsões não-descanso.
                     h = round(
@@ -874,10 +856,10 @@ def classify_new_audio(uploaded_audio):
                     midi_number = h + 60  # Adicionando 60 para centralizar em torno de C4
                     if midi_number < 0 or midi_number > 127:
                         st.warning(f"Número MIDI {midi_number} fora do intervalo válido (0-127). Será ignorado.")
-                        return float('inf'), "Rest"
+                        return float('inf'), "Descanso"
                     if n < 0 or n >= len(note_names):
                         st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
-                        return float('inf'), "Rest"
+                        return float('inf'), "Descanso"
                     note = note_names[n] + str(octave)
                     # Erro de quantização é a diferença total da nota quantizada.
                     error = sum([
@@ -886,16 +868,13 @@ def classify_new_audio(uploaded_audio):
                     ])
                     return error, note
 
-            # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-            predictions_per_eighth = 40  # Número de previsões por oitavo
+            # Agrupar pitches em notas (usar uma janela deslizante)
+            predictions_per_eighth = 40  # Aumentou de 20 para 40
             prediction_start_offset = 0  # Ajustar conforme necessário
 
             def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
                                            prediction_start_offset, ideal_offset):
-                """
-                Calcula o erro de quantização e as notas detectadas.
-                """
-                # Aplicar o offset inicial - adicionar descansos no início
+                # Aplicar o offset inicial - podemos simplesmente adicionar o offset como descansos.
                 pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
                 # Coletar as previsões para cada nota (ou descanso).
                 groups = [
@@ -930,9 +909,9 @@ def classify_new_audio(uploaded_audio):
                         best_predictions_per_eighth = ppn
 
             # Remover descansos iniciais e finais
-            while best_notes_and_rests and best_notes_and_rests[0] == 'Rest':
+            while best_notes_and_rests and best_notes_and_rests[0] == 'Descanso':
                 best_notes_and_rests = best_notes_and_rests[1:]
-            while best_notes_and_rests and best_notes_and_rests[-1] == 'Rest':
+            while best_notes_and_rests and best_notes_and_rests[-1] == 'Descanso':
                 best_notes_and_rests = best_notes_and_rests[:-1]
 
             # Garantir que todas as notas e descansos são strings
@@ -981,7 +960,7 @@ def main():
     Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings e o modelo **SPICE** para detecção de pitch, melhorando assim a classificação.
     """)
 
-    # Sidebar para parâmetros de treinamento e pré-processamento
+    # Barra Lateral para Configurações
     st.sidebar.header("Configurações")
 
     # Parâmetros de Treinamento
@@ -991,24 +970,26 @@ def main():
     batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64], index=1)
     l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
     patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1)
-    
-    # Adicionar Seed e Proporção de Dados
-    st.sidebar.subheader("Configurações Avançadas")
-    seed = st.sidebar.number_input("Semente para Reprodutibilidade:", min_value=0, max_value=10000, value=42, step=1)
-    test_size = st.sidebar.slider("Proporção de Dados para Validação (%):", min_value=10, max_value=50, value=20, step=5)
+
+    # Configuração de Semente
+    st.sidebar.subheader("Configuração de Semente")
+    seed = st.sidebar.number_input("Escolha a Semente (Seed):", min_value=0, max_value=10000, value=42, step=1)
+
+    # Definir seed para reprodutibilidade com base na escolha do usuário
+    set_seed(seed)  # Definir a seed
 
     # Opções de Data Augmentation
-    st.sidebar.subheader("Aumento de Dados (Data Augmentation)")
-    augment = st.sidebar.checkbox("Aplicar Aumento de Dados")
+    st.sidebar.subheader("Data Augmentation")
+    augment = st.sidebar.checkbox("Aplicar Data Augmentation")
     if augment:
         augmentation_methods = st.sidebar.multiselect(
-            "Métodos de Aumento de Dados:",
+            "Métodos de Data Augmentation:",
             options=["Adicionar Ruído", "Esticar Tempo", "Mudar Pitch"],
             default=["Adicionar Ruído", "Esticar Tempo"]
         )
         # Parâmetros adicionais para Data Augmentation
-        rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
-        n_steps = st.sidebar.slider("Número de Passos para Mudar Pitch:", min_value=-12, max_value=12, value=2, step=1)
+        rate = st.sidebar.slider("Rate para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
+        n_steps = st.sidebar.slider("N Steps para Mudar Pitch:", min_value=-12, max_value=12, value=2, step=1)
     else:
         augmentation_methods = []
         rate = 1.1
@@ -1102,7 +1083,7 @@ def main():
                 elif wav_data.dtype.kind == 'f':
                     if np.max(wav_data) > 1.0 or np.min(wav_data) < -1.0:
                         wav_data = wav_data / np.max(np.abs(wav_data))
-                # Converter para float32
+                # Convert to float32
                 wav_data = wav_data.astype(np.float32)
                 duration = len(wav_data) / sample_rate
                 st.write(f"**Taxa de Amostragem:** {sample_rate} Hz")
@@ -1195,7 +1176,7 @@ def main():
                                                 labels.append(label_mapping[cls])
                                             os.remove(temp_audio_path)
                                     except Exception as e:
-                                        st.warning(f"Erro ao aplicar aumento de dados no arquivo {audio_file}: {e}")
+                                        st.warning(f"Erro ao aplicar data augmentation no arquivo {audio_file}: {e}")
                                 else:
                                     embeddings.append(embedding)
                                     labels.append(label_mapping[cls])
@@ -1218,7 +1199,7 @@ def main():
                     try:
                         embeddings = np.array(embeddings)
                         labels = np.array(labels)
-                        st.write(f"Embeddings convertidos para array NumPy: Formato = {embeddings.shape}")
+                        st.write(f"Embeddings convertidos para array NumPy: Forma = {embeddings.shape}")
                     except ValueError as ve:
                         st.error(f"Erro ao converter embeddings para array NumPy: {ve}")
                         st.stop()
@@ -1237,7 +1218,10 @@ def main():
                     else:
                         embeddings_bal, labels_bal = embeddings, labels
 
-                    # Dividir os dados em treino e validação
+                    # Dividir os dados em treino e validação com base na escolha do usuário
+                    st.sidebar.subheader("Divisão de Dados")
+                    train_size = st.sidebar.slider("Porcentagem de Dados para Treinamento:", min_value=50, max_value=90, value=80, step=5)
+                    test_size = 100 - train_size
                     try:
                         X_train, X_val, y_train, y_val = train_test_split(
                             embeddings_bal, labels_bal, test_size=test_size/100, random_state=seed, stratify=labels_bal
@@ -1257,8 +1241,7 @@ def main():
                         learning_rate=learning_rate, 
                         batch_size=batch_size, 
                         l2_lambda=l2_lambda, 
-                        patience=patience,
-                        seed=seed
+                        patience=patience
                     )
                     st.success("Treinamento do classificador concluído.")
 
@@ -1290,9 +1273,7 @@ def main():
     # Classificação de Novo Áudio
     if 'classifier' in st.session_state and 'classes' in st.session_state and 'soundfont_path' in st.session_state:
         def output2hz(pitch_output):
-            """
-            Converte a saída normalizada do SPICE para Hz.
-            """
+            # Constants taken from https://tfhub.dev/google/spice/2
             PT_OFFSET = 25.58
             PT_SLOPE = 63.07
             FMIN = 10.0
@@ -1306,17 +1287,14 @@ def main():
         note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
         def quantize_predictions(group, ideal_offset):
-            """
-            Transforma pitches em notas ou descansos.
-            """
-            # Group values são ou 0, ou um pitch em Hz.
+            # Grupo de valores são ou 0, ou um pitch em Hz.
             non_zero_values = [v for v in group if v != 0]
             zero_values_count = len(group) - len(non_zero_values)
 
             # Criar um descanso se 80% for silencioso, caso contrário, criar uma nota.
             if zero_values_count > 0.8 * len(group):
-                # Interpretar como um descanso. Cada nota descartada conta um pouco de erro.
-                return 0.51 * len(non_zero_values), "Rest"
+                # Interpretar como um descanso. Cada nota descartada conta um pouco mais como erro.
+                return 0.51 * len(non_zero_values), "Descanso"
             else:
                 # Interpretar como nota, estimando como média das previsões não-descanso.
                 h = round(
@@ -1330,10 +1308,10 @@ def main():
                 midi_number = h + 60  # Adicionando 60 para centralizar em torno de C4
                 if midi_number < 0 or midi_number > 127:
                     st.warning(f"Número MIDI {midi_number} fora do intervalo válido (0-127). Será ignorado.")
-                    return float('inf'), "Rest"
+                    return float('inf'), "Descanso"
                 if n < 0 or n >= len(note_names):
                     st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
-                    return float('inf'), "Rest"
+                    return float('inf'), "Descanso"
                 note = note_names[n] + str(octave)
                 # Erro de quantização é a diferença total da nota quantizada.
                 error = sum([
@@ -1342,16 +1320,13 @@ def main():
                 ])
                 return error, note
 
-        # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-        predictions_per_eighth = 40  # Número de previsões por oitavo
+        # Agrupar pitches em notas (usar uma janela deslizante)
+        predictions_per_eighth = 40  # Aumentou de 20 para 40
         prediction_start_offset = 0  # Ajustar conforme necessário
 
         def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
                                        prediction_start_offset, ideal_offset):
-            """
-            Calcula o erro de quantização e as notas detectadas.
-            """
-            # Aplicar o offset inicial - adicionar descansos no início
+            # Aplicar o offset inicial - podemos simplesmente adicionar o offset como descansos.
             pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
             # Coletar as previsões para cada nota (ou descanso).
             groups = [
@@ -1370,9 +1345,6 @@ def main():
             return quantization_error, notes_and_rests
 
         def classify_new_audio(uploaded_audio):
-            """
-            Processa e classifica um novo arquivo de áudio.
-            """
             try:
                 # Salvar o arquivo de áudio em um diretório temporário
                 with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_audio.name)[1]) as tmp_audio:
@@ -1393,7 +1365,7 @@ def main():
                     elif wav_data.dtype.kind == 'f':
                         if np.max(wav_data) > 1.0 or np.min(wav_data) < -1.0:
                             wav_data = wav_data / np.max(np.abs(wav_data))
-                    # Converter para float32
+                    # Convert to float32
                     wav_data = wav_data.astype(np.float32)
                     duration = len(wav_data) / sample_rate
                     st.write(f"**Taxa de Amostragem:** {sample_rate} Hz")
@@ -1500,9 +1472,7 @@ def main():
                     # note_names e C0 já estão definidos globalmente
 
                     def hz2offset(freq):
-                        """
-                        Calcula o erro de quantização para uma única nota.
-                        """
+                        # Medir o erro de quantização para uma única nota.
                         if freq == 0:  # Silêncio sempre tem erro zero.
                             return None
                         # Nota quantizada.
@@ -1517,21 +1487,18 @@ def main():
                         ideal_offset = 0.0
                     # Garantir que ideal_offset é float
                     ideal_offset = float(ideal_offset)
-                    st.write(f"Offset Ideal: {ideal_offset:.4f}")
+                    st.write(f"Desvio Ideal: {ideal_offset:.4f}")
 
                     # Função para quantizar previsões
                     def quantize_predictions(group, ideal_offset):
-                        """
-                        Transforma pitches em notas ou descansos.
-                        """
-                        # Group values são ou 0, ou um pitch em Hz.
+                        # Grupo de valores são ou 0, ou um pitch em Hz.
                         non_zero_values = [v for v in group if v != 0]
                         zero_values_count = len(group) - len(non_zero_values)
 
                         # Criar um descanso se 80% for silencioso, caso contrário, criar uma nota.
                         if zero_values_count > 0.8 * len(group):
-                            # Interpretar como um descanso. Cada nota descartada conta um pouco de erro.
-                            return 0.51 * len(non_zero_values), "Rest"
+                            # Interpretar como um descanso. Cada nota descartada conta um pouco mais como erro.
+                            return 0.51 * len(non_zero_values), "Descanso"
                         else:
                             # Interpretar como nota, estimando como média das previsões não-descanso.
                             h = round(
@@ -1545,10 +1512,10 @@ def main():
                             midi_number = h + 60  # Adicionando 60 para centralizar em torno de C4
                             if midi_number < 0 or midi_number > 127:
                                 st.warning(f"Número MIDI {midi_number} fora do intervalo válido (0-127). Será ignorado.")
-                                return float('inf'), "Rest"
+                                return float('inf'), "Descanso"
                             if n < 0 or n >= len(note_names):
                                 st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
-                                return float('inf'), "Rest"
+                                return float('inf'), "Descanso"
                             note = note_names[n] + str(octave)
                             # Erro de quantização é a diferença total da nota quantizada.
                             error = sum([
@@ -1557,16 +1524,13 @@ def main():
                             ])
                             return error, note
 
-                    # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-                    predictions_per_eighth = 40  # Número de previsões por oitavo
+                    # Agrupar pitches em notas (usar uma janela deslizante)
+                    predictions_per_eighth = 40  # Aumentou de 20 para 40
                     prediction_start_offset = 0  # Ajustar conforme necessário
 
                     def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
                                                    prediction_start_offset, ideal_offset):
-                        """
-                        Calcula o erro de quantização e as notas detectadas.
-                        """
-                        # Aplicar o offset inicial - adicionar descansos no início
+                        # Aplicar o offset inicial - podemos simplesmente adicionar o offset como descansos.
                         pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
                         # Coletar as previsões para cada nota (ou descanso).
                         groups = [
@@ -1601,9 +1565,9 @@ def main():
                                 best_predictions_per_eighth = ppn
 
                     # Remover descansos iniciais e finais
-                    while best_notes_and_rests and best_notes_and_rests[0] == 'Rest':
+                    while best_notes_and_rests and best_notes_and_rests[0] == 'Descanso':
                         best_notes_and_rests = best_notes_and_rests[1:]
-                    while best_notes_and_rests and best_notes_and_rests[-1] == 'Rest':
+                    while best_notes_and_rests and best_notes_and_rests[-1] == 'Descanso':
                         best_notes_and_rests = best_notes_and_rests[:-1]
 
                     # Garantir que todas as notas e descansos são strings
@@ -1672,17 +1636,19 @@ def main():
     
     4. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
     
-    5. **Aumento de Dados (Data Augmentation):** Se selecionado, aplica métodos de aumento de dados como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
+    5. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
     
     6. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
     
-    7. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
+    7. **Divisão de Dados:** Escolha a porcentagem de dados que deseja utilizar para treinamento e teste.
     
-    8. **Treinamento do Classificador:** Com os embeddings extraídos e após as opções de aumento de dados e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
+    8. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
     
-    9. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
+    9. **Treinamento do Classificador:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador personalizado conforme os parâmetros definidos na barra lateral.
     
-    10. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    10. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
+    
+    11. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
     
     **Exemplo de Estrutura de Diretórios para Upload:**
     ```
