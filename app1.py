@@ -421,38 +421,21 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
 def midi_to_wav(midi_path, wav_path, soundfont_path):
     """
-    Converte um arquivo MIDI para WAV usando um SoundFont.
-    Utiliza a biblioteca midi2audio com FluidSynth.
+    Converte um arquivo MIDI para WAV usando FluidSynth via midi2audio.
     """
     try:
         fs = FluidSynth(soundfont_path)
         fs.midi_to_audio(midi_path, wav_path)
         return True
+    except FileNotFoundError:
+        st.error("FluidSynth não está instalado ou não está acessível no PATH do sistema.")
+        st.error("Por favor, instale o FluidSynth e verifique se ele está acessível.")
+        return False
     except Exception as e:
         st.error(f"Erro ao converter MIDI para WAV: {e}")
         return False
 
-def showScore(score):
-    """
-    Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
-    """
-    # Obter o conteúdo MusicXML como string utilizando GeneralObjectExporter
-    try:
-        from music21.musicxml import m21ToXml
-        exporter = m21ToXml.GeneralObjectExporter(score)
-        xml = exporter.parse()
-        if not isinstance(xml, str):
-            raise ValueError("O exportador não retornou uma string MusicXML válida.")
-    except Exception as e:
-        st.error(f"Falha ao converter a partitura para MusicXML como string: {e}")
-        return
-
-    # Sanitizar o XML para evitar quebra de JavaScript
-    sanitized_xml = xml.replace('\\', '\\\\').replace('`', '\\`')
-
-    showMusicXML(sanitized_xml)
-
-def showMusicXML(xml):
+def showScore(xml_string):
     """
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
@@ -477,7 +460,7 @@ def showMusicXML(xml):
             var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("{DIV_ID}", {{
                 drawingParameters: "compacttight"
             }});
-            osmd.load(`{xml}`).then(function() {{
+            osmd.load(`{xml_string}`).then(function() {{
                 osmd.render();
             }});
         }}
@@ -516,7 +499,7 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
     time_signature = music21.meter.TimeSignature('4/4')
     part.insert(0, time_signature)
 
-    # Adicionar a assinatura de tempo com BPM inferido
+    # Adicionar a marca de tempo (BPM)
     tempo_mark = music21.tempo.MetronomeMark(number=tempo)
     part.insert(1, tempo_mark)  # Inserir após a assinatura de tempo
 
@@ -575,8 +558,24 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
 
     # Verificar se a partitura está bem-formada
     if sc.isWellFormedNotation():
+        # Exportar para MusicXML escrevendo em um arquivo temporário
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xml') as tmp_musicxml:
+            sc.write('musicxml', fp=tmp_musicxml.name)
+            tmp_musicxml_path = tmp_musicxml.name
+
+        # Ler o conteúdo do arquivo MusicXML como string
+        try:
+            with open(tmp_musicxml_path, 'r', encoding='utf-8') as f:
+                xml_string = f.read()
+        except Exception as e:
+            st.error(f"Erro ao ler o arquivo MusicXML: {e}")
+            return
+        finally:
+            # Remover o arquivo temporário
+            os.remove(tmp_musicxml_path)
+
         # Exibir a partitura usando OpenSheetMusicDisplay (OSMD)
-        showScore(sc)
+        showScore(xml_string)
 
         # Converter as notas musicais em um arquivo MIDI
         converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
@@ -611,6 +610,7 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
             st.write(sc_text)
         except Exception as e:
             st.error(f"Erro ao exibir a partitura para depuração: {e}")
+        # Tentar exibir a partitura de qualquer maneira
         showScore(sc)
 
 def test_soundfont_conversion(soundfont_path):
