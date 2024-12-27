@@ -1,82 +1,137 @@
-import os
-import zipfile
-import shutil
-import tempfile
-import random
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from PIL import Image
-import torch
-from torch import nn, optim
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, f1_score, mean_squared_error
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
-import streamlit as st
-import gc
-import logging
-import io
-import tensorflow as tf
-import tensorflow_hub as hub
-from scipy.io import wavfile
-import scipy.signal
-import librosa
-import librosa.display
-import requests  # Para download de arquivos de áudio
-import math
-import statistics
-import music21  # Importação adicionada
-import streamlit.components.v1 as components  # Importação adicionada
-import pretty_midi
-import soundfile as sf
-from midi2audio import FluidSynth  # Importação adicionada
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler, label_binarize
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.pipeline import Pipeline
-from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.neural_network import MLPClassifier
+# Importação de módulos necessários para a aplicação:
+# Esses módulos são usados para manipulação de arquivos, cálculos, visualizações, aprendizado de máquina e processamento de áudio.
 
-# Suprimir avisos relacionados ao torch.classes
+import os  # Módulo para interagir com o sistema operacional, como manipulação de arquivos e diretórios.
+import zipfile  # Permite lidar com arquivos ZIP para compactação e descompactação.
+import shutil  # Fornece operações de nível superior com arquivos e coleções de arquivos.
+import tempfile  # Criação de arquivos e diretórios temporários.
+import random  # Ferramentas para gerar números aleatórios, útil para experimentos e particionamento aleatório.
+import numpy as np  # Biblioteca para operações matemáticas e manipulação eficiente de arrays multidimensionais.
+import pandas as pd  # Usado para manipular dados tabulares em DataFrames (dados estruturados em formato de tabela).
+import matplotlib.pyplot as plt  # Biblioteca para criar gráficos 2D e visualizações de dados.
+import seaborn as sns  # Extensão do Matplotlib para criar visualizações estatísticas atraentes e informativas.
+
+from PIL import Image  # Biblioteca para abrir, manipular e salvar imagens em diversos formatos.
+import torch  # Framework para aprendizado de máquina baseado em PyTorch, com suporte a tensores e redes neurais.
+from torch import nn, optim  # Módulos para criar redes neurais (nn) e definir otimizadores (optim).
+from torch.utils.data import DataLoader, TensorDataset  # Utilitários para carregar dados e transformá-los em tensores para treinamento.
+
+from sklearn.model_selection import StratifiedKFold  # Particionamento estratificado para validação cruzada, garantindo que a proporção de classes seja mantida em cada partição.
+from sklearn.metrics import (  # Métricas usadas para avaliar o desempenho do modelo.
+    classification_report,  # Relatório de métricas por classe, como precisão, recall e F1-score.
+    confusion_matrix,  # Matriz de confusão para medir erros entre classes.
+    roc_curve,  # Função para calcular a Curva ROC (Receiver Operating Characteristic).
+    auc,  # Área sob a curva ROC.
+    f1_score,  # Métrica combinada de precisão e recall.
+    mean_squared_error  # Erro quadrático médio, usado em problemas de regressão.
+)
+
+from imblearn.over_sampling import SMOTE  # Técnica de oversampling que gera novas amostras sintéticas para classes minoritárias.
+from imblearn.under_sampling import RandomUnderSampler  # Técnica para reduzir o tamanho da classe majoritária.
+
+import streamlit as st  # Biblioteca para criar interfaces interativas de usuário em Python para análise de dados e aprendizado de máquina.
+
+import gc  # Coletor de lixo, usado para liberar memória não utilizada.
+import logging  # Módulo para registrar mensagens e informações durante a execução do programa.
+import io  # Manipulação de fluxos de entrada/saída, como arquivos em memória.
+
+# TensorFlow e bibliotecas relacionadas para aprendizado profundo e processamento de áudio:
+import tensorflow as tf  # Framework para aprendizado de máquina baseado em tensores.
+import tensorflow_hub as hub  # Repositório de módulos prontos do TensorFlow, como modelos pré-treinados.
+
+from scipy.io import wavfile  # Para ler e escrever arquivos de áudio em formato WAV.
+import scipy.signal  # Ferramentas de processamento de sinais, como filtros e transformadas de Fourier.
+
+import librosa  # Biblioteca para processamento de áudio, especializada em análise de frequências e características musicais.
+import librosa.display  # Ferramentas para exibir dados de áudio, como espectrogramas.
+
+import requests  # Para baixar arquivos e acessar URLs, como downloads de arquivos de áudio.
+
+# Operações matemáticas e estatísticas:
+import math  # Operações matemáticas básicas, como logaritmos e potências.
+import statistics  # Ferramentas estatísticas simples, como médias e desvios padrão.
+
+# Music21: Ferramenta para análise e manipulação de partituras musicais:
+import music21
+
+# Streamlit Components: Adição de componentes personalizados em Streamlit:
+import streamlit.components.v1 as components
+
+# Pretty MIDI: Biblioteca para manipulação de arquivos MIDI:
+import pretty_midi
+
+# SoundFile: Para ler e escrever arquivos de áudio em formatos como FLAC e WAV:
+import soundfile as sf
+
+# FluidSynth: Para converter arquivos MIDI em arquivos de áudio:
+from midi2audio import FluidSynth
+
+# Scikit-learn: Ferramentas para aprendizado de máquina supervisionado e pré-processamento:
+from sklearn.decomposition import PCA  # Redução de dimensionalidade usando análise de componentes principais.
+from sklearn.preprocessing import StandardScaler, label_binarize  # Normalização de dados e binarização de rótulos.
+from sklearn.linear_model import LogisticRegression  # Classificador de regressão logística.
+from sklearn.ensemble import RandomForestClassifier  # Classificador baseado em árvores de decisão.
+from sklearn.pipeline import Pipeline  # Facilita a combinação de etapas de pré-processamento e classificação.
+from sklearn.feature_selection import SelectKBest, f_classif  # Seleção de melhores características com base em testes estatísticos.
+from sklearn.neural_network import MLPClassifier  # Classificador baseado em redes neurais de múltiplas camadas.
+
+# Suprimir avisos relacionados ao `torch.classes`
+# Alguns avisos gerados pelo PyTorch podem ser irrelevantes para o contexto do projeto.
+# Esta configuração ignora avisos específicos do tipo `UserWarning` contendo "torch.classes" na mensagem.
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 
 # Forçar o uso da CPU no TensorFlow e PyTorch
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Força o TensorFlow a usar CPU
-device = torch.device("cpu")  # Força o PyTorch a usar CPU
+# Mesmo que uma GPU esteja disponível, o código é configurado para executar exclusivamente na CPU.
+# Isso é útil para compatibilidade, evitar problemas de alocação de memória em GPUs, ou garantir resultados determinísticos.
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Desativa GPUs para TensorFlow.
+device = torch.device("cpu")  # Configura o PyTorch para usar a CPU explicitamente.
 
-# Configurações para gráficos mais bonitos
+# Configurações para gráficos mais bonitos com o Seaborn
+# O estilo 'whitegrid' adiciona um plano de fundo com uma grade clara, útil para visualizar os dados com maior clareza.
 sns.set_style('whitegrid')
 
 # Definir seed para reprodutibilidade
+# A "seed" é usada para garantir que os resultados sejam consistentes entre execuções.
+# Isso é fundamental em experimentos científicos para validar hipóteses.
+# Esta função configura seeds para as bibliotecas Python, NumPy e PyTorch.
 def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    # Garantir reprodutibilidade
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    random.seed(seed)  # Define a seed para a biblioteca `random`.
+    np.random.seed(seed)  # Define a seed para o NumPy.
+    torch.manual_seed(seed)  # Define a seed para operações do PyTorch.
+    
+    # Garantir que as operações em PyTorch sejam determinísticas.
+    torch.backends.cudnn.deterministic = True  # Força resultados consistentes no uso de operações convolucionais.
+    torch.backends.cudnn.benchmark = False  # Desativa otimizações dinâmicas que poderiam gerar resultados não determinísticos.
 
-set_seed(42)  # Definir a seed inicial
+# Inicialização com seed fixa para reprodutibilidade
+set_seed(42)  # A seed de valor 42 é amplamente usada por convenção.
 
 # Definir constantes globalmente
+# Lista com os nomes das 12 notas musicais usadas na notação padrão ocidental.
 note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+# Frequência padrão do Lá central (A4) em Hz.
 A4 = 440
+
+# Calcular a frequência do Dó mais grave (C0) usando a relação harmônica:
+# Frequência = A4 * 2^(-4.75), onde -4.75 corresponde à diferença em tons entre A4 e C0.
 C0 = A4 * pow(2, -4.75)
 
+# Função decorada para cachear o modelo YAMNet
 @st.cache_resource
 def load_yamnet_model():
     """
-    Carrega o modelo YAMNet do TF Hub.
+    Carrega o modelo YAMNet do TensorFlow Hub.
+    O modelo YAMNet é usado para análise de áudio e classificação, especialmente para sons do mundo real.
+    A função utiliza cache para evitar recarregar o modelo em chamadas subsequentes, otimizando o desempenho.
     """
-    yam_model = hub.load('https://tfhub.dev/google/yamnet/1')
+    yam_model = hub.load('https://tfhub.dev/google/yamnet/1')  # URL do modelo no TensorFlow Hub.
     return yam_model
 
+# Decorador adicional para cachear dados frequentemente utilizados
 @st.cache_data
+
 def load_class_map(url):
     """
     Carrega o mapa de classes do YAMNet a partir de uma URL.
