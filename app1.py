@@ -433,8 +433,7 @@ def midi_to_wav(midi_path, wav_path, soundfont_path):
             st.warning("Tentando usar a síntese simples de ondas senoidais como alternativa.")
             return midi_to_wav_simple(midi_path, wav_path)
     else:
-        st.warning("FluidSynth não está instalado ou não está acessível no PATH do sistema.")
-        st.warning("Utilizando a síntese simples de ondas senoidais para conversão de MIDI para WAV.")
+
         return midi_to_wav_simple(midi_path, wav_path)
 
 def is_fluidsynth_installed():
