@@ -45,7 +45,12 @@ from sklearn.neural_network import MLPClassifier
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.classes.*")
 
+# Forçar o uso da CPU no TensorFlow e PyTorch
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Força o TensorFlow a usar CPU
+device = torch.device("cpu")  # Força o PyTorch a usar CPU
+
 # Definir o dispositivo (CPU ou GPU)
+# (Mantido para flexibilidade futura, se necessário)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Configurações para gráficos mais bonitos
@@ -56,13 +61,14 @@ def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+    # Não é necessário definir seeds para CUDA, já que estamos usando CPU
+    # torch.cuda.manual_seed_all(seed)
+
     # Garantir reprodutibilidade
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-set_seed(42)  # Definir a seed
+set_seed(42)  # Definir a seed inicial
 
 # Definir constantes globalmente
 note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -254,7 +260,7 @@ def plot_embeddings(embeddings, labels, classes):
     st.pyplot(plt.gcf())
     plt.close()
 
-def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classes, epochs, learning_rate, batch_size, l2_lambda, patience):
+def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classes, classes, epochs, learning_rate, batch_size, l2_lambda, patience):
     """
     Treina um classificador avançado em PyTorch com os embeddings extraídos.
     Inclui validação cruzada e métricas de avaliação.
@@ -416,7 +422,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     # Relatório de Classificação
     st.write("### Relatório de Classificação")
-    target_names = [f"Classe {cls}" for cls in set(y_train)]
+    target_names = [f"Classe {cls}" for cls in set(classes)]
     report = classification_report(all_labels, all_preds, target_names=target_names, zero_division=0, output_dict=True)
     st.write(pd.DataFrame(report).transpose())
 
@@ -961,7 +967,7 @@ def classify_new_audio(uploaded_audio):
                     return error, note
 
             # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-            predictions_per_eighth = 40  # Aumentou de 20 para 40
+            predictions_per_eighth = 40  # Aumentado de 20 para 40
             prediction_start_offset = 0  # Ajustar conforme necessário
 
             def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
@@ -1370,9 +1376,13 @@ def main():
 
                         # Treinar o classificador
                         classifier = train_audio_classifier(
-                            X_train_fold, y_train_fold, X_val_fold, y_val_fold, 
+                            X_train_fold, 
+                            y_train_fold, 
+                            X_val_fold, 
+                            y_val_fold, 
                             input_dim=combined_features.shape[1], 
                             num_classes=len(classes), 
+                            classes=classes,  # Passando 'classes' como argumento
                             epochs=epochs, 
                             learning_rate=learning_rate, 
                             batch_size=batch_size, 
