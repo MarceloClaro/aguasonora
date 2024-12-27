@@ -1,5 +1,6 @@
 import os
 import zipfile
+import shutil
 import tempfile
 import random
 import numpy as np
@@ -32,6 +33,7 @@ import music21  # Importação adicionada
 import streamlit.components.v1 as components  # Importação adicionada
 import pretty_midi
 import soundfile as sf
+from midi2audio import FluidSynth  # Importação adicionada
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -417,6 +419,30 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     return classifier
 
+def midi_to_wav(midi_path, wav_path, soundfont_path):
+    """
+    Converte um arquivo MIDI para WAV usando FluidSynth via midi2audio ou síntese simples de ondas senoidais.
+    """
+    if is_fluidsynth_installed():
+        try:
+            fs = FluidSynth(soundfont_path)
+            fs.midi_to_audio(midi_path, wav_path)
+            return True
+        except Exception as e:
+            st.error(f"Erro ao converter MIDI para WAV usando FluidSynth: {e}")
+            st.warning("Tentando usar a síntese simples de ondas senoidais como alternativa.")
+            return midi_to_wav_simple(midi_path, wav_path)
+    else:
+        st.warning("FluidSynth não está instalado ou não está acessível no PATH do sistema.")
+        st.warning("Utilizando a síntese simples de ondas senoidais para conversão de MIDI para WAV.")
+        return midi_to_wav_simple(midi_path, wav_path)
+
+def is_fluidsynth_installed():
+    """
+    Verifica se o FluidSynth está instalado e acessível no PATH.
+    """
+    return shutil.which("fluidsynth") is not None
+
 def midi_to_wav_simple(midi_path, wav_path):
     """
     Converte um arquivo MIDI para WAV usando síntese básica de ondas senoidais.
@@ -453,12 +479,6 @@ def midi_to_wav_simple(midi_path, wav_path):
     except Exception as e:
         st.error(f"Erro na conversão de MIDI para WAV usando síntese simples: {e}")
         return False
-
-def midi_to_wav(midi_path, wav_path, soundfont_path=None):
-    """
-    Converte um arquivo MIDI para WAV usando síntese simples de ondas senoidais.
-    """
-    return midi_to_wav_simple(midi_path, wav_path)
 
 def showScore(xml_string):
     """
@@ -607,8 +627,8 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
             converted_audio_file_as_midi = tmp_audio_path[:-4] + '.mid'
             sc.write('midi', fp=converted_audio_file_as_midi)
 
-            # Converter MIDI para WAV usando síntese simples
-            success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav')
+            # Converter MIDI para WAV usando FluidSynth via midi2audio ou síntese simples
+            success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav', soundfont_path)
 
             if success:
                 # Oferecer o arquivo WAV para download e reprodução
@@ -661,8 +681,8 @@ def test_soundfont_conversion(soundfont_path):
         sc.append(n)
         sc.write('midi', fp=test_midi_path)
 
-        # Converter para WAV usando síntese simples
-        success = midi_to_wav(test_midi_path, test_wav_path)
+        # Converter para WAV usando FluidSynth via midi2audio ou síntese simples
+        success = midi_to_wav(test_midi_path, test_wav_path, soundfont_path)
 
         if success and os.path.exists(test_wav_path):
             st.success("Testes de conversão SoundFont: Sucesso!")
