@@ -769,739 +769,431 @@ def classify_new_audio(uploaded_audio):
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_audio.name)[1]) as tmp_audio:
             tmp_audio.write(uploaded_audio.read())
             tmp_audio_path = tmp_audio.name
+    except Exception as e:
+        st.error(f"Erro ao salvar o arquivo de áudio: {e}")
+        return
 
-        # Audição do Áudio Carregado
-        try:
-            sr_orig, wav_data = wavfile.read(tmp_audio_path)
-            # Verificar se o áudio é mono e 16kHz
-            if wav_data.ndim > 1:
-                wav_data = wav_data.mean(axis=1)
-            if sr_orig != 16000:
-                sr, wav_data = ensure_sample_rate(sr_orig, wav_data)
+    # Audição do Áudio Carregado
+    try:
+        sr_orig, wav_data = wavfile.read(tmp_audio_path)
+        # Verificar se o áudio é mono e 16kHz
+        if wav_data.ndim > 1:
+            wav_data = wav_data.mean(axis=1)
+        if sr_orig != 16000:
+            sr, wav_data = ensure_sample_rate(sr_orig, wav_data)
+        else:
+            sr = sr_orig
+        # Normalizar
+        if wav_data.dtype.kind == 'i':
+            wav_data = wav_data / np.iinfo(wav_data.dtype).max
+        elif wav_data.dtype.kind == 'f':
+            if np.max(wav_data) > 1.0 or np.min(wav_data) < -1.0:
+                wav_data = wav_data / np.max(np.abs(wav_data))
+        # Converter para float32
+        wav_data = wav_data.astype(np.float32)
+        duration = len(wav_data) / sr
+        st.write(f"**Taxa de Amostragem:** {sr} Hz")
+        st.write(f"**Duração Total:** {duration:.2f}s")
+        st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
+        st.audio(wav_data, format='audio/wav', sample_rate=sr)
+    except Exception as e:
+        st.error(f"Erro ao processar o áudio para audição: {e}")
+        wav_data = None
+
+    # Extrair embeddings
+    yamnet_model = load_yamnet_model()
+    pred_class, embedding = extract_yamnet_embeddings(yamnet_model, tmp_audio_path)
+    mfcc_features = extract_mfcc_features(tmp_audio_path)
+    vibration_features = extract_vibration_features(tmp_audio_path)
+
+    if embedding is not None and mfcc_features is not None and vibration_features is not None:
+        # Obter o modelo treinado
+        classifier = st.session_state['classifier']
+        classes = st.session_state['classes']
+        num_classes = len(classes)
+        soundfont_path = st.session_state['soundfont_path']
+
+        # Combinar todos os recursos
+        combined_features = np.concatenate((embedding, mfcc_features, vibration_features))
+        combined_features = combined_features.reshape(1, -1)  # Reshape para [1, n_features]
+
+        # Normalizar os recursos (usando o mesmo scaler do treinamento)
+        scaler = st.session_state.get('scaler', None)
+        if scaler:
+            combined_features = scaler.transform(combined_features)
+        else:
+            scaler = StandardScaler()
+            combined_features = scaler.fit_transform(combined_features)
+            st.session_state['scaler'] = scaler
+
+        # Converter o embedding para tensor
+        embedding_tensor = torch.tensor(combined_features, dtype=torch.float32).to(device)
+
+        # Classificar
+        classifier.eval()
+        with torch.no_grad():
+            output = classifier(embedding_tensor)
+            probabilities = torch.nn.functional.softmax(output, dim=1)
+            confidence, predicted = torch.max(probabilities, 1)
+            class_idx = predicted.item()
+            class_name = classes[class_idx]
+            confidence_score = confidence.item()
+
+        # Exibir resultados
+        st.write(f"**Classe Predita:** {class_name}")
+        st.write(f"**Confiança:** {confidence_score:.4f}")
+
+        # Visualização do Áudio
+        st.subheader("Visualização do Áudio")
+        fig, ax = plt.subplots(2, 1, figsize=(10, 6))
+
+        # Plot da Forma de Onda
+        ax[0].plot(wav_data)
+        ax[0].set_title("Forma de Onda")
+        ax[0].set_xlabel("Amostras")
+        ax[0].set_ylabel("Amplitude")
+
+        # Plot do Espectrograma
+        S = librosa.feature.melspectrogram(y=wav_data, sr=sr, n_mels=128)
+        S_DB = librosa.power_to_db(S, ref=np.max)
+        librosa.display.specshow(S_DB, sr=sr, x_axis='time', y_axis='mel', ax=ax[1])
+        fig.colorbar(ax[1].collections[0], ax=ax[1], format='%+2.0f dB')
+        ax[1].set_title("Espectrograma Mel")
+
+        st.pyplot(fig)
+        plt.close(fig)
+
+        # Detecção de Pitch com SPICE
+        st.subheader("Detecção de Pitch com SPICE")
+        # Carregar o modelo SPICE
+        spice_model = hub.load("https://tfhub.dev/google/spice/2")
+
+        # Normalizar as amostras de áudio
+        audio_samples = wav_data / np.max(np.abs(wav_data)) if np.max(np.abs(wav_data)) != 0 else wav_data
+
+        # Executar o modelo SPICE
+        model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples, tf.float32))
+
+        pitch_outputs = model_output["pitch"].numpy().flatten()
+        uncertainty_outputs = model_output["uncertainty"].numpy().flatten()
+
+        # 'Uncertainty' basicamente significa a inversão da confiança.
+        confidence_outputs = 1.0 - uncertainty_outputs
+
+        # Plotar pitch e confiança
+        fig_pitch, ax_pitch = plt.subplots(figsize=(20, 10))
+        ax_pitch.plot(pitch_outputs, label='Pitch')
+        ax_pitch.plot(confidence_outputs, label='Confiança')
+        ax_pitch.legend(loc="lower right")
+        ax_pitch.set_title("Pitch e Confiança com SPICE")
+        st.pyplot(fig_pitch)
+        plt.close(fig_pitch)
+
+        # Remover pitches com baixa confiança (ajuste o limiar)
+        confident_indices = np.where(confidence_outputs >= 0.8)[0]
+        confident_pitches = pitch_outputs[confidence_outputs >= 0.8]
+        confident_pitch_values_hz = [output2hz(p) for p in confident_pitches]
+
+        # Plotar apenas pitches com alta confiança
+        fig_confident_pitch, ax_confident_pitch = plt.subplots(figsize=(20, 10))
+        ax_confident_pitch.scatter(confident_indices, confident_pitch_values_hz, c="r", label='Pitch Confiante')
+        ax_confident_pitch.set_ylim([0, 2000])  # Ajustar conforme necessário
+        ax_confident_pitch.set_title("Pitches Confidentes Detectados com SPICE")
+        ax_confident_pitch.set_xlabel("Amostras")
+        ax_confident_pitch.set_ylabel("Pitch (Hz)")
+        ax_confident_pitch.legend()
+        st.pyplot(fig_confident_pitch)
+        plt.close(fig_confident_pitch)
+
+        # Conversão de Pitches para Notas Musicais
+        st.subheader("Notas Musicais Detectadas")
+        # note_names e C0 já estão definidos globalmente
+
+        def hz2offset(freq):
+            # Medir o erro de quantização para uma única nota.
+            if freq == 0:  # Silêncio sempre tem erro zero.
+                return None
+            # Nota quantizada.
+            h = round(12 * math.log2(freq / C0))
+            return 12 * math.log2(freq / C0) - h
+
+        # Calcular o offset ideal
+        offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0]
+        if offsets:
+            ideal_offset = statistics.mean(offsets)
+        else:
+            ideal_offset = 0.0
+        # Garantir que ideal_offset é float
+        ideal_offset = float(ideal_offset)
+        st.write(f"Ideal Offset: {ideal_offset:.4f}")
+
+        # Função para quantizar previsões
+        def quantize_predictions(group, ideal_offset):
+            # Group values são ou 0, ou um pitch em Hz.
+            non_zero_values = [v for v in group if v != 0]
+            zero_values_count = len(group) - len(non_zero_values)
+
+            # Criar um rest se 80% for silencioso, caso contrário, criar uma nota.
+            if zero_values_count > 0.8 * len(group):
+                # Interpretar como um rest. Contar cada nota descartada como um erro, ponderado um pouco pior que uma nota mal cantada (que 'custaria' 0.5).
+                return 0.51 * len(non_zero_values), "Rest"
             else:
-                sr = sr_orig
-            # Normalizar
-            if wav_data.dtype.kind == 'i':
-                wav_data = wav_data / np.iinfo(wav_data.dtype).max
-            elif wav_data.dtype.kind == 'f':
-                if np.max(wav_data) > 1.0 or np.min(wav_data) < -1.0:
-                    wav_data = wav_data / np.max(np.abs(wav_data))
-            # Converter para float32
-            wav_data = wav_data.astype(np.float32)
-            duration = len(wav_data) / sr
-            st.write(f"**Taxa de Amostragem:** {sr} Hz")
-            st.write(f"**Duração Total:** {duration:.2f}s")
-            st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-            st.audio(wav_data, format='audio/wav', sample_rate=sr)
-        except Exception as e:
-            st.error(f"Erro ao processar o áudio para audição: {e}")
-            wav_data = None
-
-        # Extrair embeddings
-        yamnet_model = load_yamnet_model()
-        pred_class, embedding = extract_yamnet_embeddings(yamnet_model, tmp_audio_path)
-        mfcc_features = extract_mfcc_features(tmp_audio_path)
-        vibration_features = extract_vibration_features(tmp_audio_path)
-
-        if embedding is not None and mfcc_features is not None and vibration_features is not None:
-            # Obter o modelo treinado
-            classifier = st.session_state['classifier']
-            classes = st.session_state['classes']
-            num_classes = len(classes)
-            soundfont_path = st.session_state['soundfont_path']
-
-            # Combinar todos os recursos
-            combined_features = np.concatenate((embedding, mfcc_features, vibration_features))
-            combined_features = combined_features.reshape(1, -1)  # Reshape para [1, n_features]
-
-            # Normalizar os recursos (usando o mesmo scaler do treinamento)
-            scaler = st.session_state.get('scaler', None)
-            if scaler:
-                combined_features = scaler.transform(combined_features)
-            else:
-                scaler = StandardScaler()
-                combined_features = scaler.fit_transform(combined_features)
-                st.session_state['scaler'] = scaler
-
-            # Converter o embedding para tensor
-            embedding_tensor = torch.tensor(combined_features, dtype=torch.float32).to(device)
-
-            # Classificar
-            classifier.eval()
-            with torch.no_grad():
-                output = classifier(embedding_tensor)
-                probabilities = torch.nn.functional.softmax(output, dim=1)
-                confidence, predicted = torch.max(probabilities, 1)
-                class_idx = predicted.item()
-                class_name = classes[class_idx]
-                confidence_score = confidence.item()
-
-            # Exibir resultados
-            st.write(f"**Classe Predita:** {class_name}")
-            st.write(f"**Confiança:** {confidence_score:.4f}")
-
-            # Visualização do Áudio
-            st.subheader("Visualização do Áudio")
-            fig, ax = plt.subplots(2, 1, figsize=(10, 6))
-
-            # Plot da Forma de Onda
-            ax[0].plot(wav_data)
-            ax[0].set_title("Forma de Onda")
-            ax[0].set_xlabel("Amostras")
-            ax[0].set_ylabel("Amplitude")
-
-            # Plot do Espectrograma
-            S = librosa.feature.melspectrogram(y=wav_data, sr=sr, n_mels=128)
-            S_DB = librosa.power_to_db(S, ref=np.max)
-            librosa.display.specshow(S_DB, sr=sr, x_axis='time', y_axis='mel', ax=ax[1])
-            fig.colorbar(ax[1].collections[0], ax=ax[1], format='%+2.0f dB')
-            ax[1].set_title("Espectrograma Mel")
-
-            st.pyplot(fig)
-            plt.close(fig)
-
-            # Detecção de Pitch com SPICE
-            st.subheader("Detecção de Pitch com SPICE")
-            # Carregar o modelo SPICE
-            spice_model = hub.load("https://tfhub.dev/google/spice/2")
-
-            # Normalizar as amostras de áudio
-            audio_samples = wav_data / np.max(np.abs(wav_data)) if np.max(np.abs(wav_data)) != 0 else wav_data
-
-            # Executar o modelo SPICE
-            model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples, tf.float32))
-
-            pitch_outputs = model_output["pitch"].numpy().flatten()
-            uncertainty_outputs = model_output["uncertainty"].numpy().flatten()
-
-            # 'Uncertainty' basicamente significa a inversão da confiança.
-            confidence_outputs = 1.0 - uncertainty_outputs
-
-            # Plotar pitch e confiança
-            fig_pitch, ax_pitch = plt.subplots(figsize=(20, 10))
-            ax_pitch.plot(pitch_outputs, label='Pitch')
-            ax_pitch.plot(confidence_outputs, label='Confiança')
-            ax_pitch.legend(loc="lower right")
-            ax_pitch.set_title("Pitch e Confiança com SPICE")
-            st.pyplot(fig_pitch)
-            plt.close(fig_pitch)
-
-            # Remover pitches com baixa confiança (ajuste o limiar)
-            confident_indices = np.where(confidence_outputs >= 0.8)[0]
-            confident_pitches = pitch_outputs[confidence_outputs >= 0.8]
-            confident_pitch_values_hz = [output2hz(p) for p in confident_pitches]
-
-            # Plotar apenas pitches com alta confiança
-            fig_confident_pitch, ax_confident_pitch = plt.subplots(figsize=(20, 10))
-            ax_confident_pitch.scatter(confident_indices, confident_pitch_values_hz, c="r", label='Pitch Confiante')
-            ax_confident_pitch.set_ylim([0, 2000])  # Ajustar conforme necessário
-            ax_confident_pitch.set_title("Pitches Confidentes Detectados com SPICE")
-            ax_confident_pitch.set_xlabel("Amostras")
-            ax_confident_pitch.set_ylabel("Pitch (Hz)")
-            ax_confident_pitch.legend()
-            st.pyplot(fig_confident_pitch)
-            plt.close(fig_confident_pitch)
-
-            # Conversão de Pitches para Notas Musicais
-            st.subheader("Notas Musicais Detectadas")
-            # note_names e C0 já estão definidos globalmente
-
-            def hz2offset(freq):
-                # Medir o erro de quantização para uma única nota.
-                if freq == 0:  # Silêncio sempre tem erro zero.
-                    return None
-                # Nota quantizada.
-                h = round(12 * math.log2(freq / C0))
-                return 12 * math.log2(freq / C0) - h
-
-            # Calcular o offset ideal
-            offsets = [hz2offset(p) for p in confident_pitch_values_hz if p != 0]
-            if offsets:
-                ideal_offset = statistics.mean(offsets)
-            else:
-                ideal_offset = 0.0
-            # Garantir que ideal_offset é float
-            ideal_offset = float(ideal_offset)
-            st.write(f"Ideal Offset: {ideal_offset:.4f}")
-
-            # Função para quantizar previsões
-            def quantize_predictions(group, ideal_offset):
-                # Group values são ou 0, ou um pitch em Hz.
-                non_zero_values = [v for v in group if v != 0]
-                zero_values_count = len(group) - len(non_zero_values)
-
-                # Criar um rest se 80% for silencioso, caso contrário, criar uma nota.
-                if zero_values_count > 0.8 * len(group):
-                    # Interpretar como um rest. Contar cada nota descartada como um erro, ponderado um pouco pior que uma nota mal cantada (que 'custaria' 0.5).
-                    return 0.51 * len(non_zero_values), "Rest"
-                else:
-                    # Interpretar como nota, estimando como média das previsões não-rest.
-                    h = round(
-                        statistics.mean([
-                            12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
-                        ])
-                    )
-                    octave = h // 12
-                    n = h % 12
-                    # Garantir que a nota está dentro do intervalo MIDI válido (0-127)
-                    midi_number = h + 60  # Adicionando 60 para centralizar em torno de C4
-                    if midi_number < 0 or midi_number > 127:
-                        st.warning(f"Número MIDI {midi_number} fora do intervalo válido (0-127). Será ignorado.")
-                        return float('inf'), "Rest"
-                    if n < 0 or n >= len(note_names):
-                        st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
-                        return float('inf'), "Rest"
-                    note = note_names[n] + str(octave)
-                    # Erro de quantização é a diferença total da nota quantizada.
-                    error = sum([
-                        abs(12 * math.log2(freq / C0) - ideal_offset - h)
-                        for freq in non_zero_values
+                # Interpretar como nota, estimando como média das previsões não-rest.
+                h = round(
+                    statistics.mean([
+                        12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
                     ])
-                    return error, note
+                )
+                octave = h // 12
+                n = h % 12
+                # Garantir que a nota está dentro do intervalo MIDI válido (0-127)
+                midi_number = h + 60  # Adicionando 60 para centralizar em torno de C4
+                if midi_number < 0 or midi_number > 127:
+                    st.warning(f"Número MIDI {midi_number} fora do intervalo válido (0-127). Será ignorado.")
+                    return float('inf'), "Rest"
+                if n < 0 or n >= len(note_names):
+                    st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
+                    return float('inf'), "Rest"
+                note = note_names[n] + str(octave)
+                # Erro de quantização é a diferença total da nota quantizada.
+                error = sum([
+                    abs(12 * math.log2(freq / C0) - ideal_offset - h)
+                    for freq in non_zero_values
+                ])
+                return error, note
 
-            # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
-            predictions_per_eighth = 40  # Aumentado de 20 para 40
-            prediction_start_offset = 0  # Ajustar conforme necessário
+        # Agrupar pitches em notas (simplificação: usar uma janela deslizante)
+        predictions_per_eighth = 40  # Aumentado de 20 para 40
+        prediction_start_offset = 0  # Ajustar conforme necessário
 
-            def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
-                                           prediction_start_offset, ideal_offset):
-                # Aplicar o offset inicial - podemos simplesmente adicionar o offset como rests.
-                pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
-                # Coletar as previsões para cada nota (ou rest).
-                groups = [
-                    pitch_outputs_and_rests[i:i + predictions_per_eighth]
-                    for i in range(0, len(pitch_outputs_and_rests), predictions_per_eighth)
-                ]
+        def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
+                                       prediction_start_offset, ideal_offset):
+            # Aplicar o offset inicial - podemos simplesmente adicionar o offset como rests.
+            pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
+            # Coletar as previsões para cada nota (ou rest).
+            groups = [
+                pitch_outputs_and_rests[i:i + predictions_per_eighth]
+                for i in range(0, len(pitch_outputs_and_rests), predictions_per_eighth)
+            ]
 
-                quantization_error = 0
+            quantization_error = 0
 
-                notes_and_rests = []
-                for group in groups:
-                    error, note_or_rest = quantize_predictions(group, ideal_offset)
-                    quantization_error += error
-                    notes_and_rests.append(note_or_rest)
+            notes_and_rests = []
+            for group in groups:
+                error, note_or_rest = quantize_predictions(group, ideal_offset)
+                quantization_error += error
+                notes_and_rests.append(note_or_rest)
 
-                return quantization_error, notes_and_rests
+            return quantization_error, notes_and_rests
 
-            # Obter a melhor quantização
-            best_error = float("inf")
-            best_notes_and_rests = None
-            best_predictions_per_eighth = None
+        # Obter a melhor quantização
+        best_error = float("inf")
+        best_notes_and_rests = None
+        best_predictions_per_eighth = None
 
-            for ppn in range(15, 35, 1):
-                for pso in range(ppn):
-                    error, notes_and_rests = get_quantization_and_error(
-                        confident_pitch_values_hz, ppn,
-                        pso, ideal_offset
-                    )
-                    if error < best_error:
-                        best_error = error
-                        best_notes_and_rests = notes_and_rests
-                        best_predictions_per_eighth = ppn
+        for ppn in range(15, 35, 1):
+            for pso in range(ppn):
+                error, notes_and_rests = get_quantization_and_error(
+                    confident_pitch_values_hz, ppn,
+                    pso, ideal_offset
+                )
+                if error < best_error:
+                    best_error = error
+                    best_notes_and_rests = notes_and_rests
+                    best_predictions_per_eighth = ppn
 
-            # Remover rests iniciais e finais
-            while best_notes_and_rests and best_notes_and_rests[0] == 'Rest':
-                best_notes_and_rests = best_notes_and_rests[1:]
-            while best_notes_and_rests and best_notes_and_rests[-1] == 'Rest':
-                best_notes_and_rests = best_notes_and_rests[:-1]
+        # Remover rests iniciais e finais
+        while best_notes_and_rests and best_notes_and_rests[0] == 'Rest':
+            best_notes_and_rests = best_notes_and_rests[1:]
+        while best_notes_and_rests and best_notes_and_rests[-1] == 'Rest':
+            best_notes_and_rests = best_notes_and_rests[:-1]
 
-            # Garantir que todas as notas e rests são strings
-            best_notes_and_rests = [str(note) for note in best_notes_and_rests]
+        # Garantir que todas as notas e rests são strings
+        best_notes_and_rests = [str(note) for note in best_notes_and_rests]
 
-            st.write(f"Notas e Pausas Detectadas: {best_notes_and_rests}")
+        st.write(f"Notas e Pausas Detectadas: {best_notes_and_rests}")
 
-            # Estimar Tempo (BPM) usando Librosa
-            try:
-                tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sr)
-                # Garantir que tempo é float e tratar possíveis arrays
-                if isinstance(tempo, np.ndarray):
-                    if tempo.size == 1:
-                        tempo = float(tempo.item())
-                    else:
-                        st.warning(f"'tempo' é um array com múltiplos elementos: {tempo}")
-                        tempo = float(tempo[0])  # Seleciona o primeiro elemento como exemplo
-                elif isinstance(tempo, (int, float)):
-                    tempo = float(tempo)
+        # Estimar Tempo (BPM) usando Librosa
+        try:
+            tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sr)
+            # Garantir que tempo é float e tratar possíveis arrays
+            if isinstance(tempo, np.ndarray):
+                if tempo.size == 1:
+                    tempo = float(tempo.item())
                 else:
-                    st.error(f"Tipo inesperado para 'tempo': {type(tempo)}")
-                    tempo = 120.0  # Valor padrão ou lidar de acordo com a lógica do seu aplicativo
+                    st.warning(f"'tempo' é um array com múltiplos elementos: {tempo}")
+                    tempo = float(tempo[0])  # Seleciona o primeiro elemento como exemplo
+            elif isinstance(tempo, (int, float)):
+                tempo = float(tempo)
+            else:
+                st.error(f"Tipo inesperado para 'tempo': {type(tempo)}")
+                tempo = 120.0  # Valor padrão ou lidar de acordo com a lógica do seu aplicativo
 
-                st.write(f"**BPM Inferido com Librosa:** {tempo:.2f}")
-            except Exception as e:
-                st.error(f"Erro ao estimar o tempo (BPM) do áudio: {e}")
-                tempo = 120.0  # Valor padrão
+            st.write(f"**BPM Inferido com Librosa:** {tempo:.2f}")
+        except Exception as e:
+            st.error(f"Erro ao estimar o tempo (BPM) do áudio: {e}")
+            tempo = 120.0  # Valor padrão
 
-            # Criar a partitura musical usando music21
-            create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, soundfont_path)
+        # Criar a partitura musical usando music21
+        create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, soundfont_path)
 
-    def output2hz(pitch_output):
-        # Constantes retiradas de https://tfhub.dev/google/spice/2
-        PT_OFFSET = 25.58
-        PT_SLOPE = 63.07
-        FMIN = 10.0
-        BINS_PER_OCTAVE = 12.0
-        cqt_bin = pitch_output * PT_SLOPE + PT_OFFSET
-        return FMIN * 2.0 ** (1.0 * cqt_bin / BINS_PER_OCTAVE)
+def output2hz(pitch_output):
+    # Constantes retiradas de https://tfhub.dev/google/spice/2
+    PT_OFFSET = 25.58
+    PT_SLOPE = 63.07
+    FMIN = 10.0
+    BINS_PER_OCTAVE = 12.0
+    cqt_bin = pitch_output * PT_SLOPE + PT_OFFSET
+    return FMIN * 2.0 ** (1.0 * cqt_bin / BINS_PER_OCTAVE)
 
-    def main():
-        # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
-        st.set_page_config(page_title="Classificação de Áudio Avançada para Qualidade da Água", layout="wide")
-        st.title("Classificação de Áudio Avançada para Avaliação da Qualidade e Temperatura da Água")
-        st.write("""
-        Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings, **MFCCs** para capturar características espectrais, e análise de **vibração** para detectar variações sonoras e vibracionais da água. Além disso, incorpora o modelo **SPICE** para detecção de pitch, melhorando a classificação da qualidade potável, poluída e a temperatura da água.
-        """)
+def main():
+    # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
+    st.set_page_config(page_title="Classificação de Áudio Avançada para Qualidade da Água", layout="wide")
+    st.title("Classificação de Áudio Avançada para Avaliação da Qualidade e Temperatura da Água")
+    st.write("""
+    Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings, **MFCCs** para capturar características espectrais, e análise de **vibração** para detectar variações sonoras e vibracionais da água. Além disso, incorpora o modelo **SPICE** para detecção de pitch, melhorando a classificação da qualidade potável, poluída e a temperatura da água.
+    """)
 
-        # Sidebar para parâmetros de treinamento e pré-processamento
-        st.sidebar.header("Configurações")
+    # Sidebar para parâmetros de treinamento e pré-processamento
+    st.sidebar.header("Configurações")
 
-        # Parâmetros de Treinamento
-        st.sidebar.subheader("Parâmetros de Treinamento")
-        epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=100, step=1)
-        learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
-        batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64, 128], index=2)
-        l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
-        patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=20, value=5, step=1)
+    # Parâmetros de Treinamento
+    st.sidebar.subheader("Parâmetros de Treinamento")
+    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=100, step=1)
+    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64, 128], index=2)
+    l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=20, value=5, step=1)
 
-        # Definir a seed com base na entrada do usuário
-        seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1)
-        set_seed(seed)  # Usar a seed escolhida pelo usuário
+    # Definir a seed com base na entrada do usuário
+    seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1)
+    set_seed(seed)  # Usar a seed escolhida pelo usuário
 
-        # Opções de Data Augmentation
-        st.sidebar.subheader("Data Augmentation")
-        augment = st.sidebar.checkbox("Aplicar Data Augmentation")
-        if augment:
-            augmentation_methods = st.sidebar.multiselect(
-                "Métodos de Data Augmentation:",
-                options=["Adicionar Ruído", "Esticar Tempo", "Mudar Pitch"],
-                default=["Adicionar Ruído", "Esticar Tempo"]
-            )
-            # Parâmetros adicionais para Data Augmentation
-            rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.2, step=0.1)
-            n_steps = st.sidebar.slider("Passos para Mudar Pitch:", min_value=-12, max_value=12, value=3, step=1)
-        else:
-            augmentation_methods = []
-            rate = 1.2
-            n_steps = 3
-
-        # Opções de Balanceamento de Classes
-        st.sidebar.subheader("Balanceamento de Classes")
-        balance_method = st.sidebar.selectbox(
-            "Método de Balanceamento:",
-            options=["Nenhum", "Oversample", "Undersample"],
-            index=0
+    # Opções de Data Augmentation
+    st.sidebar.subheader("Data Augmentation")
+    augment = st.sidebar.checkbox("Aplicar Data Augmentation")
+    if augment:
+        augmentation_methods = st.sidebar.multiselect(
+            "Métodos de Data Augmentation:",
+            options=["Adicionar Ruído", "Esticar Tempo", "Mudar Pitch"],
+            default=["Adicionar Ruído", "Esticar Tempo"]
         )
+        # Parâmetros adicionais para Data Augmentation
+        rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.2, step=0.1)
+        n_steps = st.sidebar.slider("Passos para Mudar Pitch:", min_value=-12, max_value=12, value=3, step=1)
+    else:
+        augmentation_methods = []
+        rate = 1.2
+        n_steps = 3
 
-        # Seção de Upload do SoundFont
-        st.header("Upload do SoundFont (SF2)")
-        st.write("""
-        Para converter arquivos MIDI em WAV, é necessário um SoundFont (arquivo `.sf2`). Faça o upload do seu SoundFont aqui.
-        """)
-        uploaded_soundfont = st.file_uploader("Faça upload do arquivo SoundFont (.sf2)", type=["sf2"])
+    # Opções de Balanceamento de Classes
+    st.sidebar.subheader("Balanceamento de Classes")
+    balance_method = st.sidebar.selectbox(
+        "Método de Balanceamento:",
+        options=["Nenhum", "Oversample", "Undersample"],
+        index=0
+    )
 
-        if uploaded_soundfont is not None:
-            try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".sf2") as tmp_sf2:
-                    tmp_sf2.write(uploaded_soundfont.read())
-                    soundfont_path = tmp_sf2.name
-                st.success("SoundFont carregado com sucesso.")
-            except Exception as e:
-                st.error(f"Erro ao carregar o SoundFont: {e}")
-                soundfont_path = None
-        else:
+    # Seção de Upload do SoundFont
+    st.header("Upload do SoundFont (SF2)")
+    st.write("""
+    Para converter arquivos MIDI em WAV, é necessário um SoundFont (arquivo `.sf2`). Faça o upload do seu SoundFont aqui.
+    """)
+    uploaded_soundfont = st.file_uploader("Faça upload do arquivo SoundFont (.sf2)", type=["sf2"])
+
+    if uploaded_soundfont is not None:
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".sf2") as tmp_sf2:
+                tmp_sf2.write(uploaded_soundfont.read())
+                soundfont_path = tmp_sf2.name
+            st.success("SoundFont carregado com sucesso.")
+        except Exception as e:
+            st.error(f"Erro ao carregar o SoundFont: {e}")
             soundfont_path = None
-            st.warning("Por favor, faça upload de um SoundFont (.sf2) para continuar.")
+    else:
+        soundfont_path = None
+        st.warning("Por favor, faça upload de um SoundFont (.sf2) para continuar.")
 
-        if soundfont_path:
-            # Seção de Teste do SoundFont
-            st.header("Teste do SoundFont")
-            st.write("""
-            Clique no botão abaixo para testar a conversão de um MIDI simples para WAV usando o SoundFont carregado.
-            """)
-            if st.button("Executar Teste de Conversão SoundFont"):
-                test_soundfont_conversion(soundfont_path)
-
-            # Seção de Download e Preparação de Arquivos de Áudio
-            st.header("Baixando e Preparando Arquivos de Áudio")
-            st.write("""
-            Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
-            """)
-
-            # Links para Download de Arquivos de Áudio de Exemplo
-            st.subheader("Download de Arquivos de Áudio de Exemplo")
-            sample_audio_1 = 'speech_whistling2.wav'
-            sample_audio_2 = 'miaow_16k.wav'
-            sample_audio_1_url = "https://storage.googleapis.com/audioset/speech_whistling2.wav"
-            sample_audio_2_url = "https://storage.googleapis.com/audioset/miaow_16k.wav"
-
-            # Função para Baixar Arquivos
-            def download_audio(url, filename):
-                try:
-                    response = requests.get(url)
-                    response.raise_for_status()  # Verifica se a requisição foi bem-sucedida
-                    with open(filename, 'wb') as f:
-                        f.write(response.content)
-                    st.success(f"Arquivo `{filename}` baixado com sucesso.")
-                except Exception as e:
-                    st.error(f"Erro ao baixar {filename}: {e}")
-
-            # Botões de Download
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button(f"Baixar {sample_audio_1}"):
-                    download_audio(sample_audio_1_url, sample_audio_1)
-            with col2:
-                if st.button(f"Baixar {sample_audio_2}"):
-                    download_audio(sample_audio_2_url, sample_audio_2)
-
-            # Audição de Arquivos de Áudio de Exemplo
-            st.subheader("Audição de Arquivos de Áudio de Exemplo")
-            uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["Nenhum", sample_audio_1, sample_audio_2])
-
-            if uploaded_file_example != "Nenhum" and os.path.exists(uploaded_file_example):
-                try:
-                    sr_orig, wav_data = wavfile.read(uploaded_file_example)
-                    # Verificar se o áudio é mono e 16kHz
-                    if wav_data.ndim > 1:
-                        wav_data = wav_data.mean(axis=1)
-                    if sr_orig != 16000:
-                        sr, wav_data = ensure_sample_rate(sr_orig, wav_data)
-                    else:
-                        sr = sr_orig
-                    # Normalizar
-                    if wav_data.dtype.kind == 'i':
-                        wav_data = wav_data / np.iinfo(wav_data.dtype).max
-                    elif wav_data.dtype.kind == 'f':
-                        if np.max(wav_data) > 1.0 or np.min(wav_data) < -1.0:
-                            wav_data = wav_data / np.max(np.abs(wav_data))
-                    # Converter para float32
-                    wav_data = wav_data.astype(np.float32)
-                    duration = len(wav_data) / sr
-                    st.write(f"**Taxa de Amostragem:** {sr} Hz")
-                    st.write(f"**Duração Total:** {duration:.2f}s")
-                    st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-                    st.audio(wav_data, format='audio/wav', sample_rate=sr)
-                except Exception as e:
-                    st.error(f"Erro ao processar o arquivo de áudio: {e}")
-            elif uploaded_file_example != "Nenhum":
-                st.warning("Arquivo de áudio não encontrado. Por favor, baixe o arquivo antes de tentar ouvir.")
-
-            # Upload de dados supervisionados
-            st.header("Upload de Dados Supervisionados")
-            st.write("""
-            Envie um arquivo ZIP contendo subpastas com arquivos de áudio organizados por classe. Por exemplo:
-            """)
-            st.write("""
-            ```
-            dados/
-                agua_quente/
-                    audio1.wav
-                    audio2.wav
-                agua_gelada/
-                    audio3.wav
-                    audio4.wav
-            ```
-            """)
-            uploaded_zip = st.file_uploader("Faça upload do arquivo ZIP com os dados de áudio supervisionados", type=["zip"])
-
-            if uploaded_zip is not None:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    zip_path = os.path.join(tmpdir, "uploaded.zip")
-                    with open(zip_path, "wb") as f:
-                        f.write(uploaded_zip.read())
-                    try:
-                        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                            zip_ref.extractall(tmpdir)
-                        st.success("Arquivo ZIP extraído com sucesso.")
-                    except zipfile.BadZipFile:
-                        st.error("O arquivo enviado não é um ZIP válido.")
-                        st.stop()
-
-                    # Verificar estrutura de diretórios
-                    classes = [d for d in os.listdir(tmpdir) if os.path.isdir(os.path.join(tmpdir, d))]
-                    if len(classes) < 2:
-                        st.error("O arquivo ZIP deve conter pelo menos duas subpastas, cada uma representando uma classe.")
-                        st.stop()
-                    else:
-                        st.success(f"Classes encontradas: {classes}")
-                        # Contar arquivos por classe
-                        class_counts = {}
-                        for cls in classes:
-                            cls_dir = os.path.join(tmpdir, cls)
-                            files = [f for f in os.listdir(cls_dir) if f.lower().endswith(('.wav', '.mp3', '.ogg', '.flac'))]
-                            class_counts[cls] = len(files)
-                        st.write("**Contagem de arquivos por classe:**")
-                        st.write(class_counts)
-
-                        # Preparar dados para treinamento
-                        st.header("Preparando Dados para Treinamento")
-                        yamnet_model = load_yamnet_model()
-                        st.write("Modelo YAMNet carregado.")
-
-                        embeddings = []
-                        labels = []
-                        mfccs = []
-                        vibrations = []
-                        label_mapping = {cls: idx for idx, cls in enumerate(classes)}
-
-                        total_files = sum(class_counts.values())
-                        processed_files = 0
-                        progress_bar = st.progress(0)
-
-                        scaler = StandardScaler()
-                        for cls in classes:
-                            cls_dir = os.path.join(tmpdir, cls)
-                            audio_files = [os.path.join(cls_dir, f) for f in os.listdir(cls_dir) if f.lower().endswith(('.wav', '.mp3', '.ogg', '.flac'))]
-                            for audio_file in audio_files:
-                                pred_class, embedding = extract_yamnet_embeddings(yamnet_model, audio_file)
-                                mfcc_feature = extract_mfcc_features(audio_file)
-                                vibration_feature = extract_vibration_features(audio_file)
-                                if embedding is not None and mfcc_feature is not None and vibration_feature is not None:
-                                    if augment:
-                                        # Carregar o áudio usando librosa para aplicar augmentations
-                                        try:
-                                            waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
-                                            augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
-                                            for aug_waveform in augmented_waveforms:
-                                                # Salvar temporariamente o áudio aumentado para processar
-                                                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-                                                    sf.write(temp_audio.name, aug_waveform, sr)
-                                                    aug_pred_class, aug_embedding = extract_yamnet_embeddings(yamnet_model, temp_audio.name)
-                                                    aug_mfcc = extract_mfcc_features(temp_audio.name)
-                                                    aug_vibration = extract_vibration_features(temp_audio.name)
-                                                    if aug_embedding is not None and aug_mfcc is not None and aug_vibration is not None:
-                                                        embeddings.append(aug_embedding)
-                                                        mfccs.append(aug_mfcc)
-                                                        vibrations.append(aug_vibration)
-                                                        labels.append(label_mapping[cls])
-                                                    os.remove(temp_audio.name)
-                                        except Exception as e:
-                                            st.warning(f"Erro ao aplicar data augmentation no arquivo {audio_file}: {e}")
-                                    else:
-                                        embeddings.append(embedding)
-                                        mfccs.append(mfcc_feature)
-                                        vibrations.append(vibration_feature)
-                                        labels.append(label_mapping[cls])
-                                processed_files += 1
-                                progress_bar.progress(processed_files / total_files)
-
-                        # Verificações após a extração
-                        if len(embeddings) == 0:
-                            st.error("Nenhum embedding foi extraído. Verifique se os arquivos de áudio estão no formato correto e se o YAMNet está funcionando corretamente.")
-                            st.stop()
-
-                        # Verificar se todos os embeddings têm o mesmo tamanho
-                        embedding_shapes = [emb.shape for emb in embeddings]
-                        unique_shapes = set(embedding_shapes)
-                        if len(unique_shapes) != 1:
-                            st.error(f"Embeddings têm tamanhos inconsistentes: {unique_shapes}")
-                            st.stop()
-
-                        # Converter para array NumPy
-                        try:
-                            embeddings = np.array(embeddings)
-                            mfccs = np.array(mfccs)
-                            vibrations = np.array(vibrations)
-                            labels = np.array(labels)
-                            st.write(f"Embeddings convertidos para array NumPy: Forma = {embeddings.shape}")
-                            st.write(f"MFCCs convertidos para array NumPy: Forma = {mfccs.shape}")
-                            st.write(f"Características de Vibração convertidas para array NumPy: Forma = {vibrations.shape}")
-                        except ValueError as ve:
-                            st.error(f"Erro ao converter embeddings para array NumPy: {ve}")
-                            st.stop()
-
-                        # Concatenar todos os recursos
-                        combined_features = np.concatenate((embeddings, mfccs, vibrations), axis=1)
-                        st.write(f"Características combinadas: Forma = {combined_features.shape}")
-
-                        # Normalizar os recursos
-                        combined_features = scaler.fit_transform(combined_features)
-                        st.write("Características normalizadas com StandardScaler.")
-
-                        # Análise de Dados com DataFrames
-                        st.header("Análise de Dados")
-                        st.write("**Estatísticas Descritivas das Características Combinadas:**")
-                        combined_df = pd.DataFrame(combined_features)
-                        st.dataframe(combined_df.describe())
-
-                        st.write("**Distribuição das Classes:**")
-                        class_distribution = pd.Series(labels).value_counts().rename(index={v: k for k, v in label_mapping.items()})
-                        st.bar_chart(class_distribution)
-
-                        # Plotagem dos Embeddings
-                        st.write("**Visualização dos Embeddings com PCA:**")
-                        plot_embeddings(combined_features, labels, classes)
-
-                        # Balanceamento de Classes
-                        if balance_method != "Nenhum":
-                            st.write(f"Aplicando balanceamento de classes: {balance_method}")
-                            embeddings_bal, labels_bal = balance_classes(combined_features, labels, balance_method)
-                            # Contar novamente após balanceamento
-                            balanced_counts = {cls: 0 for cls in classes}
-                            for label in labels_bal:
-                                cls = [k for k, v in label_mapping.items() if v == label][0]
-                                balanced_counts[cls] += 1
-                            st.write(f"**Contagem de classes após balanceamento:**")
-                            st.write(balanced_counts)
-                        else:
-                            embeddings_bal, labels_bal = combined_features, labels
-
-                        # Ajustar n_splits para não exceder o mínimo de amostras por classe
-                        min_class_size = min([count for count in class_counts.values()])
-                        k_folds = min(10, min_class_size)  # Ajustar n_splits dinamicamente
-                        if k_folds < 2:
-                            st.error(f"Número de folds insuficiente para realizar validação cruzada (k_folds={k_folds}).")
-                            st.stop()
-
-                        st.header("Treinamento com Validação Cruzada")
-                        skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
-                        fold_results = []
-
-                        for fold, (train_index, val_index) in enumerate(skf.split(embeddings_bal, labels_bal)):
-                            st.write(f"### Fold {fold+1}/{k_folds}")
-                            X_train_fold, X_val_fold = embeddings_bal[train_index], embeddings_bal[val_index]
-                            y_train_fold, y_val_fold = labels_bal[train_index], labels_bal[val_index]
-
-                            st.write(f"Treino: {len(X_train_fold)} amostras | Validação: {len(X_val_fold)} amostras")
-
-                            # Treinar o classificador
-                            classifier = train_audio_classifier(
-                                X_train_fold, 
-                                y_train_fold, 
-                                X_val_fold, 
-                                y_val_fold, 
-                                input_dim=combined_features.shape[1], 
-                                num_classes=len(classes), 
-                                classes=classes,  # Passando 'classes' como argumento
-                                epochs=epochs, 
-                                learning_rate=learning_rate, 
-                                batch_size=batch_size, 
-                                l2_lambda=l2_lambda, 
-                                patience=patience
-                            )
-
-                            # Avaliar e salvar os resultados
-                            classifier.eval()
-                            with torch.no_grad():
-                                X_val_tensor = torch.tensor(X_val_fold, dtype=torch.float32).to(device)
-                                y_val_tensor = torch.tensor(y_val_fold, dtype=torch.long).to(device)
-                                outputs = classifier(X_val_tensor)
-                                _, preds = torch.max(outputs, 1)
-                                preds = preds.cpu().numpy()
-                                y_true = y_val_fold
-
-                                # Métricas
-                                report = classification_report(y_true, preds, target_names=classes, zero_division=0, output_dict=True)
-                                cm = confusion_matrix(y_true, preds)
-
-                                # Salvar resultados do fold
-                                fold_results.append({
-                                    'fold': fold+1,
-                                    'report': report,
-                                    'confusion_matrix': cm
-                                })
-
-                        # Agregar Resultados dos Folds
-                        st.header("Resultados da Validação Cruzada")
-                        for result in fold_results:
-                            st.write(f"#### Fold {result['fold']}")
-                            st.write("**Relatório de Classificação:**")
-                            st.write(pd.DataFrame(result['report']).transpose())
-
-                            st.write("**Matriz de Confusão:**")
-                            cm_df = pd.DataFrame(result['confusion_matrix'], index=classes, columns=classes)
-                            st.dataframe(cm_df)
-
-                        # Plotagem da Média das Métricas
-                        st.header("Média das Métricas de Avaliação")
-                        avg_report = {}
-                        for key in fold_results[0]['report'].keys():
-                            if key not in ['accuracy', 'macro avg', 'weighted avg']:
-                                avg_report[key] = {
-                                    'precision': np.mean([r['report'][key]['precision'] for r in fold_results]),
-                                    'recall': np.mean([r['report'][key]['recall'] for r in fold_results]),
-                                    'f1-score': np.mean([r['report'][key]['f1-score'] for r in fold_results]),
-                                    'support': np.sum([r['report'][key]['support'] for r in fold_results])
-                                }
-                        avg_report_df = pd.DataFrame(avg_report).transpose()
-                        st.write("**Média de Precision, Recall e F1-Score por Classe:**")
-                        st.dataframe(avg_report_df)
-
-                        # Salvar o classificador no estado do Streamlit
-                        st.session_state['classifier'] = classifier
-                        st.session_state['classes'] = classes
-                        st.session_state['soundfont_path'] = soundfont_path
-                        st.session_state['scaler'] = scaler
-
-                        # Exibir mensagem de conclusão do treinamento
-                        st.success("Treinamento do classificador concluído.")
-
-                        # Opção para download do modelo treinado
-                        buffer = io.BytesIO()
-                        torch.save(classifier.state_dict(), buffer)
-                        buffer.seek(0)
-                        st.download_button(
-                            label="Download do Modelo Treinado",
-                            data=buffer,
-                            file_name="audio_classifier.pth",
-                            mime="application/octet-stream"
-                        )
-
-                        # Opção para download do mapeamento de classes
-                        class_mapping = "\n".join([f"{cls}:{idx}" for cls, idx in label_mapping.items()])
-                        st.download_button(
-                            label="Download do Mapeamento de Classes",
-                            data=class_mapping,
-                            file_name="classes_mapping.txt",
-                            mime="text/plain"
-                        )
-
-        # Classificação de Novo Áudio
-        if 'classifier' in st.session_state and 'classes' in st.session_state and 'soundfont_path' in st.session_state:
-            st.header("Classificação de Novo Áudio")
-            st.write("""
-            **Envie um arquivo de áudio para ser classificado pelo modelo treinado.**
-            
-            **Explicação para Leigos:**
-            - **O que você faz:** Envie um arquivo de áudio (como um canto, fala ou som ambiente) para que o modelo identifique a qual categoria ele pertence.
-            - **O que acontece:** O aplicativo analisará o áudio, determinará a classe mais provável e mostrará a confiança dessa previsão. Além disso, você poderá visualizar a forma de onda, o espectrograma e as notas musicais detectadas.
-            
-            **Explicação para Técnicos:**
-            - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet, MFCCs são calculados para capturar características espectrais, e características vibracionais são extraídas via FFT. O classificador treinado em PyTorch utiliza esses recursos combinados para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
-            - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
-            """)
-            uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
-
-            if uploaded_audio is not None:
-                classify_new_audio(uploaded_audio)
-
-        # Documentação e Agradecimentos
-        st.write("### Documentação dos Procedimentos")
+    if soundfont_path:
+        # Seção de Teste do SoundFont
+        st.header("Teste do SoundFont")
         st.write("""
-        1. **Upload do SoundFont (SF2):** Faça o upload do seu arquivo SoundFont (`.sf2`) para permitir a conversão de MIDI para WAV.
-        
-        2. **Teste do SoundFont:** Execute o teste de conversão para garantir que o SoundFont está funcionando corretamente.
-        
-        3. **Baixando e Preparando Arquivos de Áudio:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
-        
-        4. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
-        
-        5. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
-        
-        6. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
-        
-        7. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados, além de MFCCs e características vibracionais para uma análise mais detalhada.
-        
-        8. **Treinamento com Validação Cruzada:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador utilizando validação cruzada para uma avaliação mais robusta.
-        
-        9. **Análise de Dados:** Visualize estatísticas descritivas, distribuição das classes e plotagens dos embeddings para melhor compreensão dos dados.
-        
-        10. **Resultados da Validação Cruzada:** Avalie o desempenho do modelo através de relatórios de classificação, matrizes de confusão e curvas ROC para cada fold.
-        
-        11. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
-        
-        12. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
-        
-        **Exemplo de Estrutura de Diretórios para Upload:**
+        Clique no botão abaixo para testar a conversão de um MIDI simples para WAV usando o SoundFont carregado.
+        """)
+        if st.button("Executar Teste de Conversão SoundFont"):
+            test_soundfont_conversion(soundfont_path)
+
+        # Seção de Download e Preparação de Arquivos de Áudio
+        st.header("Baixando e Preparando Arquivos de Áudio")
+        st.write("""
+        Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
+        """)
+
+        # Links para Download de Arquivos de Áudio de Exemplo
+        st.subheader("Download de Arquivos de Áudio de Exemplo")
+        sample_audio_1 = 'speech_whistling2.wav'
+        sample_audio_2 = 'miaow_16k.wav'
+        sample_audio_1_url = "https://storage.googleapis.com/audioset/speech_whistling2.wav"
+        sample_audio_2_url = "https://storage.googleapis.com/audioset/miaow_16k.wav"
+
+        # Função para Baixar Arquivos
+        def download_audio(url, filename):
+            try:
+                response = requests.get(url)
+                response.raise_for_status()  # Verifica se a requisição foi bem-sucedida
+                with open(filename, 'wb') as f:
+                    f.write(response.content)
+                st.success(f"Arquivo `{filename}` baixado com sucesso.")
+            except Exception as e:
+                st.error(f"Erro ao baixar {filename}: {e}")
+
+        # Botões de Download
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(f"Baixar {sample_audio_1}"):
+                download_audio(sample_audio_1_url, sample_audio_1)
+        with col2:
+            if st.button(f"Baixar {sample_audio_2}"):
+                download_audio(sample_audio_2_url, sample_audio_2)
+
+        # Audição de Arquivos de Áudio de Exemplo
+        st.subheader("Audição de Arquivos de Áudio de Exemplo")
+        uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["Nenhum", sample_audio_1, sample_audio_2])
+
+        if uploaded_file_example != "Nenhum" and os.path.exists(uploaded_file_example):
+            try:
+                sr_orig, wav_data = wavfile.read(uploaded_file_example)
+                # Verificar se o áudio é mono e 16kHz
+                if wav_data.ndim > 1:
+                    wav_data = wav_data.mean(axis=1)
+                if sr_orig != 16000:
+                    sr, wav_data = ensure_sample_rate(sr_orig, wav_data)
+                else:
+                    sr = sr_orig
+                # Normalizar
+                if wav_data.dtype.kind == 'i':
+                    wav_data = wav_data / np.iinfo(wav_data.dtype).max
+                elif wav_data.dtype.kind == 'f':
+                    if np.max(wav_data) > 1.0 or np.min(wav_data) < -1.0:
+                        wav_data = wav_data / np.max(np.abs(wav_data))
+                # Converter para float32
+                wav_data = wav_data.astype(np.float32)
+                duration = len(wav_data) / sr
+                st.write(f"**Taxa de Amostragem:** {sr} Hz")
+                st.write(f"**Duração Total:** {duration:.2f}s")
+                st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
+                st.audio(wav_data, format='audio/wav', sample_rate=sr)
+            except Exception as e:
+                st.error(f"Erro ao processar o arquivo de áudio: {e}")
+        elif uploaded_file_example != "Nenhum":
+            st.warning("Arquivo de áudio não encontrado. Por favor, baixe o arquivo antes de tentar ouvir.")
+
+        # Upload de dados supervisionados
+        st.header("Upload de Dados Supervisionados")
+        st.write("""
+        Envie um arquivo ZIP contendo subpastas com arquivos de áudio organizados por classe. Por exemplo:
+        """)
+        st.write("""
         ```
         dados/
             agua_quente/
@@ -1512,15 +1204,326 @@ def classify_new_audio(uploaded_audio):
                 audio4.wav
         ```
         """)
+        uploaded_zip = st.file_uploader("Faça upload do arquivo ZIP com os dados de áudio supervisionados", type=["zip"])
 
-        st.write("### Agradecimentos")
+        if uploaded_zip is not None:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zip_path = os.path.join(tmpdir, "uploaded.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(uploaded_zip.read())
+                try:
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                        zip_ref.extractall(tmpdir)
+                    st.success("Arquivo ZIP extraído com sucesso.")
+                except zipfile.BadZipFile:
+                    st.error("O arquivo enviado não é um ZIP válido.")
+                    st.stop()
+
+                # Verificar estrutura de diretórios
+                classes = [d for d in os.listdir(tmpdir) if os.path.isdir(os.path.join(tmpdir, d))]
+                if len(classes) < 2:
+                    st.error("O arquivo ZIP deve conter pelo menos duas subpastas, cada uma representando uma classe.")
+                    st.stop()
+                else:
+                    st.success(f"Classes encontradas: {classes}")
+                    # Contar arquivos por classe
+                    class_counts = {}
+                    for cls in classes:
+                        cls_dir = os.path.join(tmpdir, cls)
+                        files = [f for f in os.listdir(cls_dir) if f.lower().endswith(('.wav', '.mp3', '.ogg', '.flac'))]
+                        class_counts[cls] = len(files)
+                    st.write("**Contagem de arquivos por classe:**")
+                    st.write(class_counts)
+
+                    # Preparar dados para treinamento
+                    st.header("Preparando Dados para Treinamento")
+                    yamnet_model = load_yamnet_model()
+                    st.write("Modelo YAMNet carregado.")
+
+                    embeddings = []
+                    labels = []
+                    mfccs = []
+                    vibrations = []
+                    label_mapping = {cls: idx for idx, cls in enumerate(classes)}
+
+                    total_files = sum(class_counts.values())
+                    processed_files = 0
+                    progress_bar = st.progress(0)
+
+                    scaler = StandardScaler()
+                    for cls in classes:
+                        cls_dir = os.path.join(tmpdir, cls)
+                        audio_files = [os.path.join(cls_dir, f) for f in os.listdir(cls_dir) if f.lower().endswith(('.wav', '.mp3', '.ogg', '.flac'))]
+                        for audio_file in audio_files:
+                            pred_class, embedding = extract_yamnet_embeddings(yamnet_model, audio_file)
+                            mfcc_feature = extract_mfcc_features(audio_file)
+                            vibration_feature = extract_vibration_features(audio_file)
+                            if embedding is not None and mfcc_feature is not None and vibration_feature is not None:
+                                if augment:
+                                    # Carregar o áudio usando librosa para aplicar augmentations
+                                    try:
+                                        waveform, sr = librosa.load(audio_file, sr=16000, mono=True)
+                                        augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
+                                        for aug_waveform in augmented_waveforms:
+                                            # Salvar temporariamente o áudio aumentado para processar
+                                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+                                                sf.write(temp_audio.name, aug_waveform, sr)
+                                                aug_pred_class, aug_embedding = extract_yamnet_embeddings(yamnet_model, temp_audio.name)
+                                                aug_mfcc = extract_mfcc_features(temp_audio.name)
+                                                aug_vibration = extract_vibration_features(temp_audio.name)
+                                                if aug_embedding is not None and aug_mfcc is not None and aug_vibration is not None:
+                                                    embeddings.append(aug_embedding)
+                                                    mfccs.append(aug_mfcc)
+                                                    vibrations.append(aug_vibration)
+                                                    labels.append(label_mapping[cls])
+                                                os.remove(temp_audio.name)
+                                    except Exception as e:
+                                        st.warning(f"Erro ao aplicar data augmentation no arquivo {audio_file}: {e}")
+                                else:
+                                    embeddings.append(embedding)
+                                    mfccs.append(mfcc_feature)
+                                    vibrations.append(vibration_feature)
+                                    labels.append(label_mapping[cls])
+                            processed_files += 1
+                            progress_bar.progress(processed_files / total_files)
+
+                    # Verificações após a extração
+                    if len(embeddings) == 0:
+                        st.error("Nenhum embedding foi extraído. Verifique se os arquivos de áudio estão no formato correto e se o YAMNet está funcionando corretamente.")
+                        st.stop()
+
+                    # Verificar se todos os embeddings têm o mesmo tamanho
+                    embedding_shapes = [emb.shape for emb in embeddings]
+                    unique_shapes = set(embedding_shapes)
+                    if len(unique_shapes) != 1:
+                        st.error(f"Embeddings têm tamanhos inconsistentes: {unique_shapes}")
+                        st.stop()
+
+                    # Converter para array NumPy
+                    try:
+                        embeddings = np.array(embeddings)
+                        mfccs = np.array(mfccs)
+                        vibrations = np.array(vibrations)
+                        labels = np.array(labels)
+                        st.write(f"Embeddings convertidos para array NumPy: Forma = {embeddings.shape}")
+                        st.write(f"MFCCs convertidos para array NumPy: Forma = {mfccs.shape}")
+                        st.write(f"Características de Vibração convertidas para array NumPy: Forma = {vibrations.shape}")
+                    except ValueError as ve:
+                        st.error(f"Erro ao converter embeddings para array NumPy: {ve}")
+                        st.stop()
+
+                    # Concatenar todos os recursos
+                    combined_features = np.concatenate((embeddings, mfccs, vibrations), axis=1)
+                    st.write(f"Características combinadas: Forma = {combined_features.shape}")
+
+                    # Normalizar os recursos
+                    combined_features = scaler.fit_transform(combined_features)
+                    st.write("Características normalizadas com StandardScaler.")
+
+                    # Análise de Dados com DataFrames
+                    st.header("Análise de Dados")
+                    st.write("**Estatísticas Descritivas das Características Combinadas:**")
+                    combined_df = pd.DataFrame(combined_features)
+                    st.dataframe(combined_df.describe())
+
+                    st.write("**Distribuição das Classes:**")
+                    class_distribution = pd.Series(labels).value_counts().rename(index={v: k for k, v in label_mapping.items()})
+                    st.bar_chart(class_distribution)
+
+                    # Plotagem dos Embeddings
+                    st.write("**Visualização dos Embeddings com PCA:**")
+                    plot_embeddings(combined_features, labels, classes)
+
+                    # Balanceamento de Classes
+                    if balance_method != "Nenhum":
+                        st.write(f"Aplicando balanceamento de classes: {balance_method}")
+                        embeddings_bal, labels_bal = balance_classes(combined_features, labels, balance_method)
+                        # Contar novamente após balanceamento
+                        balanced_counts = {cls: 0 for cls in classes}
+                        for label in labels_bal:
+                            cls = [k for k, v in label_mapping.items() if v == label][0]
+                            balanced_counts[cls] += 1
+                        st.write(f"**Contagem de classes após balanceamento:**")
+                        st.write(balanced_counts)
+                    else:
+                        embeddings_bal, labels_bal = combined_features, labels
+
+                    # Ajustar n_splits para não exceder o mínimo de amostras por classe
+                    min_class_size = min([count for count in class_counts.values()])
+                    k_folds = min(10, min_class_size)  # Ajustar n_splits dinamicamente
+                    if k_folds < 2:
+                        st.error(f"Número de folds insuficiente para realizar validação cruzada (k_folds={k_folds}).")
+                        st.stop()
+
+                    st.header("Treinamento com Validação Cruzada")
+                    skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=42)
+                    fold_results = []
+
+                    for fold, (train_index, val_index) in enumerate(skf.split(embeddings_bal, labels_bal)):
+                        st.write(f"### Fold {fold+1}/{k_folds}")
+                        X_train_fold, X_val_fold = embeddings_bal[train_index], embeddings_bal[val_index]
+                        y_train_fold, y_val_fold = labels_bal[train_index], labels_bal[val_index]
+
+                        st.write(f"Treino: {len(X_train_fold)} amostras | Validação: {len(X_val_fold)} amostras")
+
+                        # Treinar o classificador
+                        classifier = train_audio_classifier(
+                            X_train_fold, 
+                            y_train_fold, 
+                            X_val_fold, 
+                            y_val_fold, 
+                            input_dim=combined_features.shape[1], 
+                            num_classes=len(classes), 
+                            classes=classes,  # Passando 'classes' como argumento
+                            epochs=epochs, 
+                            learning_rate=learning_rate, 
+                            batch_size=batch_size, 
+                            l2_lambda=l2_lambda, 
+                            patience=patience
+                        )
+
+                        # Avaliar e salvar os resultados
+                        classifier.eval()
+                        with torch.no_grad():
+                            X_val_tensor = torch.tensor(X_val_fold, dtype=torch.float32).to(device)
+                            y_val_tensor = torch.tensor(y_val_fold, dtype=torch.long).to(device)
+                            outputs = classifier(X_val_tensor)
+                            _, preds = torch.max(outputs, 1)
+                            preds = preds.cpu().numpy()
+                            y_true = y_val_fold
+
+                            # Métricas
+                            report = classification_report(y_true, preds, target_names=classes, zero_division=0, output_dict=True)
+                            cm = confusion_matrix(y_true, preds)
+
+                            # Salvar resultados do fold
+                            fold_results.append({
+                                'fold': fold+1,
+                                'report': report,
+                                'confusion_matrix': cm
+                            })
+
+                    # Agregar Resultados dos Folds
+                    st.header("Resultados da Validação Cruzada")
+                    for result in fold_results:
+                        st.write(f"#### Fold {result['fold']}")
+                        st.write("**Relatório de Classificação:**")
+                        st.write(pd.DataFrame(result['report']).transpose())
+
+                        st.write("**Matriz de Confusão:**")
+                        cm_df = pd.DataFrame(result['confusion_matrix'], index=classes, columns=classes)
+                        st.dataframe(cm_df)
+
+                    # Plotagem da Média das Métricas
+                    st.header("Média das Métricas de Avaliação")
+                    avg_report = {}
+                    for key in fold_results[0]['report'].keys():
+                        if key not in ['accuracy', 'macro avg', 'weighted avg']:
+                            avg_report[key] = {
+                                'precision': np.mean([r['report'][key]['precision'] for r in fold_results]),
+                                'recall': np.mean([r['report'][key]['recall'] for r in fold_results]),
+                                'f1-score': np.mean([r['report'][key]['f1-score'] for r in fold_results]),
+                                'support': np.sum([r['report'][key]['support'] for r in fold_results])
+                            }
+                    avg_report_df = pd.DataFrame(avg_report).transpose()
+                    st.write("**Média de Precision, Recall e F1-Score por Classe:**")
+                    st.dataframe(avg_report_df)
+
+                    # Salvar o classificador no estado do Streamlit
+                    st.session_state['classifier'] = classifier
+                    st.session_state['classes'] = classes
+                    st.session_state['soundfont_path'] = soundfont_path
+                    st.session_state['scaler'] = scaler
+
+                    # Exibir mensagem de conclusão do treinamento
+                    st.success("Treinamento do classificador concluído.")
+
+                    # Opção para download do modelo treinado
+                    buffer = io.BytesIO()
+                    torch.save(classifier.state_dict(), buffer)
+                    buffer.seek(0)
+                    st.download_button(
+                        label="Download do Modelo Treinado",
+                        data=buffer,
+                        file_name="audio_classifier.pth",
+                        mime="application/octet-stream"
+                    )
+
+                    # Opção para download do mapeamento de classes
+                    class_mapping = "\n".join([f"{cls}:{idx}" for cls, idx in label_mapping.items()])
+                    st.download_button(
+                        label="Download do Mapeamento de Classes",
+                        data=class_mapping,
+                        file_name="classes_mapping.txt",
+                        mime="text/plain"
+                    )
+
+    # Classificação de Novo Áudio
+    if 'classifier' in st.session_state and 'classes' in st.session_state and 'soundfont_path' in st.session_state:
+        st.header("Classificação de Novo Áudio")
         st.write("""
-        Desenvolvido por Marcelo Claro.
+        **Envie um arquivo de áudio para ser classificado pelo modelo treinado.**
         
-        - **Contato**: marceloclaro@gmail.com
-        - **Whatsapp**: (88)98158-7145
-        - **Instagram**: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
+        **Explicação para Leigos:**
+        - **O que você faz:** Envie um arquivo de áudio (como um canto, fala ou som ambiente) para que o modelo identifique a qual categoria ele pertence.
+        - **O que acontece:** O aplicativo analisará o áudio, determinará a classe mais provável e mostrará a confiança dessa previsão. Além disso, você poderá visualizar a forma de onda, o espectrograma e as notas musicais detectadas.
+        
+        **Explicação para Técnicos:**
+        - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet, MFCCs são calculados para capturar características espectrais, e características vibracionais são extraídas via FFT. O classificador treinado em PyTorch utiliza esses recursos combinados para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
+        - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
         """)
+        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
 
-    if __name__ == "__main__":
-        main()
+        if uploaded_audio is not None:
+            classify_new_audio(uploaded_audio)
+
+    # Documentação e Agradecimentos
+    st.write("### Documentação dos Procedimentos")
+    st.write("""
+    1. **Upload do SoundFont (SF2):** Faça o upload do seu arquivo SoundFont (`.sf2`) para permitir a conversão de MIDI para WAV.
+    
+    2. **Teste do SoundFont:** Execute o teste de conversão para garantir que o SoundFont está funcionando corretamente.
+    
+    3. **Baixando e Preparando Arquivos de Áudio:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
+    
+    4. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
+    
+    5. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
+    
+    6. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
+    
+    7. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados, além de MFCCs e características vibracionais para uma análise mais detalhada.
+    
+    8. **Treinamento com Validação Cruzada:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador utilizando validação cruzada para uma avaliação mais robusta.
+    
+    9. **Análise de Dados:** Visualize estatísticas descritivas, distribuição das classes e plotagens dos embeddings para melhor compreensão dos dados.
+    
+    10. **Resultados da Validação Cruzada:** Avalie o desempenho do modelo através de relatórios de classificação, matrizes de confusão e curvas ROC para cada fold.
+    
+    11. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
+    
+    12. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    
+    **Exemplo de Estrutura de Diretórios para Upload:**
+    ```
+    dados/
+        agua_quente/
+            audio1.wav
+            audio2.wav
+        agua_gelada/
+            audio3.wav
+            audio4.wav
+    ```
+    """)
+
+    st.write("### Agradecimentos")
+    st.write("""
+    Desenvolvido por Marcelo Claro.
+    
+    - **Contato**: marceloclaro@gmail.com
+    - **Whatsapp**: (88)98158-7145
+    - **Instagram**: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
+    """)
+
+if __name__ == "__main__":
+    main()
