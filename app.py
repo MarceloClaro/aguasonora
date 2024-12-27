@@ -10,9 +10,9 @@ import seaborn as sns
 from PIL import Image
 import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, f1_score
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, f1_score, mean_absolute_error
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
 import streamlit as st
@@ -33,6 +33,7 @@ import streamlit.components.v1 as components  # Importação adicionada
 import pretty_midi
 import soundfile as sf
 from midi2audio import FluidSynth  # Importação adicionada
+import shap  # Para interpretação do modelo
 
 # Suprimir avisos relacionados ao torch.classes
 import warnings
@@ -218,9 +219,23 @@ def plot_embeddings(embeddings, labels, classes):
     st.pyplot(plt.gcf())
     plt.close()
 
+class WaterAudioDataset(Dataset):
+    """
+    Dataset personalizado para dados de áudio da água.
+    """
+    def __init__(self, embeddings, labels):
+        self.embeddings = embeddings
+        self.labels = labels
+    
+    def __len__(self):
+        return len(self.labels)
+    
+    def __getitem__(self, idx):
+        return self.embeddings[idx], self.labels[idx]
+
 def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classes, epochs, learning_rate, batch_size, l2_lambda, patience):
     """
-    Treina um classificador simples em PyTorch com os embeddings extraídos.
+    Treina um classificador avançado em PyTorch com os embeddings extraídos.
     Inclui validação cruzada e métricas de avaliação.
     """
     # Converter para tensores
@@ -235,23 +250,33 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    # Definir um classificador simples
-    class AudioClassifier(nn.Module):
+    # Definir um classificador avançado
+    class AdvancedAudioClassifier(nn.Module):
         def __init__(self, input_dim, num_classes):
-            super(AudioClassifier, self).__init__()
-            self.fc1 = nn.Linear(input_dim, 256)
-            self.relu = nn.ReLU()
-            self.dropout = nn.Dropout(0.5)
-            self.fc2 = nn.Linear(256, num_classes)
-
+            super(AdvancedAudioClassifier, self).__init__()
+            self.fc1 = nn.Linear(input_dim, 512)
+            self.bn1 = nn.BatchNorm1d(512)
+            self.relu1 = nn.ReLU()
+            self.dropout1 = nn.Dropout(0.5)
+            self.fc2 = nn.Linear(512, 256)
+            self.bn2 = nn.BatchNorm1d(256)
+            self.relu2 = nn.ReLU()
+            self.dropout2 = nn.Dropout(0.5)
+            self.fc3 = nn.Linear(256, num_classes)
+        
         def forward(self, x):
             x = self.fc1(x)
-            x = self.relu(x)
-            x = self.dropout(x)
+            x = self.bn1(x)
+            x = self.relu1(x)
+            x = self.dropout1(x)
             x = self.fc2(x)
+            x = self.bn2(x)
+            x = self.relu2(x)
+            x = self.dropout2(x)
+            x = self.fc3(x)
             return x
 
-    classifier = AudioClassifier(input_dim, num_classes).to(device)
+    classifier = AdvancedAudioClassifier(input_dim, num_classes).to(device)
 
     # Definir a função de perda e otimizador com regularização L2
     criterion = nn.CrossEntropyLoss()
@@ -370,7 +395,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     # Relatório de Classificação
     st.write("### Relatório de Classificação")
-    target_names = [f"Classe {cls}" for cls in set(y_train)]
+    target_names = [f"{cls}" for cls in set(y_train)]
     report = classification_report(all_labels, all_preds, target_names=target_names, zero_division=0, output_dict=True)
     st.write(pd.DataFrame(report).transpose())
 
@@ -428,6 +453,17 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
     f1_scores = f1_score(all_labels, all_preds, average=None)
     f1_df = pd.DataFrame({'Classe': target_names, 'F1-Score': f1_scores})
     st.write(f1_df)
+
+    # Interpretação do Modelo com SHAP
+    st.write("### Interpretação do Modelo com SHAP")
+    try:
+        explainer = shap.DeepExplainer(classifier, torch.tensor(X_train[:100], dtype=torch.float32).to(device))
+        shap_values = explainer.shap_values(torch.tensor(X_val[:100], dtype=torch.float32).to(device))
+        shap.summary_plot(shap_values, X_val[:100], feature_names=[f"Feature {i}" for i in range(X_val.shape[1])], show=False)
+        st.pyplot(bbox_inches='tight')
+        plt.close()
+    except Exception as e:
+        st.error(f"Erro ao gerar explicações SHAP: {e}")
 
     return classifier
 
@@ -986,22 +1022,22 @@ def output2hz(pitch_output):
 
 def main():
     # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
-    st.set_page_config(page_title="Classificação de Áudio com YAMNet e SPICE", layout="wide")
-    st.title("Classificação de Áudio com YAMNet e Detecção de Pitch com SPICE")
+    st.set_page_config(page_title="Análise Sonora da Qualidade da Água", layout="wide")
+    st.title("Análise Sonora da Qualidade e Temperatura da Água")
     st.write("""
-    Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings e o modelo **SPICE** para detecção de pitch, melhorando assim a classificação.
+    Este aplicativo permite treinar um classificador de áudio supervisionado para detectar variações sonoras e vibracionais da água, avaliando sua qualidade (potável ou poluída) e sua temperatura. Utilizamos modelos avançados como **YAMNet** para extração de embeddings e técnicas inovadoras para análise de pitch com **SPICE**.
     """)
 
     # Sidebar para parâmetros de treinamento e pré-processamento
     st.sidebar.header("Configurações")
-    
+
     # Parâmetros de Treinamento
     st.sidebar.subheader("Parâmetros de Treinamento")
-    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=50, step=1)
+    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=100, step=1)
     learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
-    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64], index=1)
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64], index=2)
     l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
-    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1)
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=20, value=5, step=1)
 
     # Definir a seed com base na entrada do usuário
     seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1)
@@ -1017,12 +1053,12 @@ def main():
             default=["Adicionar Ruído", "Esticar Tempo"]
         )
         # Parâmetros adicionais para Data Augmentation
-        rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
-        n_steps = st.sidebar.slider("Passos para Mudar Pitch:", min_value=-12, max_value=12, value=2, step=1)
+        rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.2, step=0.1)
+        n_steps = st.sidebar.slider("Passos para Mudar Pitch:", min_value=-12, max_value=12, value=3, step=1)
     else:
         augmentation_methods = []
-        rate = 1.1
-        n_steps = 2
+        rate = 1.2
+        n_steps = 3
 
     # Opções de Balanceamento de Classes
     st.sidebar.subheader("Balanceamento de Classes")
@@ -1069,10 +1105,10 @@ def main():
 
         # Links para Download de Arquivos de Áudio de Exemplo
         st.subheader("Download de Arquivos de Áudio de Exemplo")
-        sample_audio_1 = 'speech_whistling2.wav'
-        sample_audio_2 = 'miaow_16k.wav'
-        sample_audio_1_url = "https://storage.googleapis.com/audioset/speech_whistling2.wav"
-        sample_audio_2_url = "https://storage.googleapis.com/audioset/miaow_16k.wav"
+        sample_audio_1 = 'agua_potavel.wav'
+        sample_audio_2 = 'agua_poluida.wav'
+        sample_audio_1_url = "https://example.com/agua_potavel.wav"  # Substitua pelos URLs reais
+        sample_audio_2_url = "https://example.com/agua_poluida.wav"   # Substitua pelos URLs reais
 
         # Função para Baixar Arquivos
         def download_audio(url, filename):
@@ -1134,10 +1170,10 @@ def main():
         st.write("""
         ```
         dados/
-            agua_quente/
+            potavel/
                 audio1.wav
                 audio2.wav
-            agua_gelada/
+            poluida/
                 audio3.wav
                 audio4.wav
         ```
@@ -1301,12 +1337,14 @@ def main():
                             # Métricas
                             report = classification_report(y_true, preds, target_names=classes, zero_division=0, output_dict=True)
                             cm = confusion_matrix(y_true, preds)
+                            mae = mean_absolute_error(y_true, preds)  # Exemplo de métrica adicional
 
                             # Salvar resultados do fold
                             fold_results.append({
                                 'fold': fold+1,
                                 'report': report,
-                                'confusion_matrix': cm
+                                'confusion_matrix': cm,
+                                'mae': mae
                             })
 
                     # Agregar Resultados dos Folds
@@ -1319,6 +1357,8 @@ def main():
                         st.write("**Matriz de Confusão:**")
                         cm_df = pd.DataFrame(result['confusion_matrix'], index=classes, columns=classes)
                         st.dataframe(cm_df)
+
+                        st.write(f"**MAE:** {result['mae']:.4f}")
 
                     # Plotagem da Média das Métricas
                     st.header("Média das Métricas de Avaliação")
@@ -1334,6 +1374,10 @@ def main():
                     avg_report_df = pd.DataFrame(avg_report).transpose()
                     st.write("**Média de Precision, Recall e F1-Score por Classe:**")
                     st.dataframe(avg_report_df)
+
+                    # Média de MAE
+                    avg_mae = np.mean([r['mae'] for r in fold_results])
+                    st.write(f"**Média de MAE:** {avg_mae:.4f}")
 
                     # Salvar o classificador no estado do Streamlit
                     st.session_state['classifier'] = classifier
@@ -1370,9 +1414,9 @@ def main():
         **Envie um arquivo de áudio para ser classificado pelo modelo treinado.**
         
         **Explicação para Leigos:**
-        - **O que você faz:** Envie um arquivo de áudio (como um canto, fala ou som ambiente) para que o modelo identifique a qual categoria ele pertence.
-        - **O que acontece:** O aplicativo analisará o áudio, determinará a classe mais provável e mostrará a confiança dessa previsão. Além disso, você poderá visualizar a forma de onda, o espectrograma e as notas musicais detectadas.
-        
+        - **O que você faz:** Envie um arquivo de áudio (como o som da água potável ou poluída) para que o modelo identifique a qual categoria ele pertence e estime sua temperatura.
+        - **O que acontece:** O aplicativo analisará o áudio, determinará a classe mais provável (potável ou poluída) e estimará a temperatura da água. Além disso, você poderá visualizar a forma de onda, o espectrograma e as notas musicais detectadas.
+
         **Explicação para Técnicos:**
         - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet. O classificador treinado em PyTorch utiliza esses embeddings para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
         - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
@@ -1403,7 +1447,7 @@ def main():
     
     9. **Análise de Dados:** Visualize estatísticas descritivas, distribuição das classes e plotagens dos embeddings para melhor compreensão dos dados.
     
-    10. **Resultados da Validação Cruzada:** Avalie o desempenho do modelo através de relatórios de classificação, matrizes de confusão e curvas ROC para cada fold.
+    10. **Resultados da Validação Cruzada:** Avalie o desempenho do modelo através de relatórios de classificação, matrizes de confusão e curvas ROC para cada fold. Além disso, incluímos a interpretação do modelo com SHAP para entender a importância das features.
     
     11. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
     
@@ -1412,10 +1456,10 @@ def main():
     **Exemplo de Estrutura de Diretórios para Upload:**
     ```
     dados/
-        agua_quente/
+        potavel/
             audio1.wav
             audio2.wav
-        agua_gelada/
+        poluida/
             audio3.wav
             audio4.wav
     ```
