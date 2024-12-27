@@ -440,16 +440,20 @@ def showScore(score):
     Renderiza a partitura musical usando OpenSheetMusicDisplay via componente HTML do Streamlit.
     """
     # Obter o conteúdo MusicXML como string
-    xml = score.write('musicxml', fp=None)
-    
+    try:
+        xml = score.write('musicxml', fp=None)
+    except Exception as e:
+        st.error(f"Falha ao converter a partitura para MusicXML como string: {e}")
+        return
+
     # Verificar se 'xml' é realmente uma string
     if not isinstance(xml, str):
         st.error("Falha ao converter a partitura para MusicXML como string.")
         return
-    
+
     # Sanitizar o XML para evitar quebra de JavaScript
     sanitized_xml = xml.replace('\\', '\\\\').replace('`', '\\`')
-    
+
     showMusicXML(sanitized_xml)
 
 def showMusicXML(xml):
@@ -517,9 +521,18 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
     part.insert(0, time_signature)
 
     # Adicionar a assinatura de tempo com BPM inferido
-    a = music21.tempo.MetronomeMark(number=tempo)
-    part.insert(1, a)  # Inserir após a assinatura de tempo
+    tempo_mark = music21.tempo.MetronomeMark(number=tempo)
+    part.insert(1, tempo_mark)  # Inserir após a assinatura de tempo
 
+    # Adicionar Clave (Treble Clef)
+    clef_obj = music21.clef.TrebleClef()
+    part.insert(2, clef_obj)
+
+    # Adicionar Assinatura de Chave (C Major)
+    key_signature = music21.key.KeySignature(0)  # 0 indica C Major
+    part.insert(3, key_signature)
+
+    # Adicionar notas e rests
     for snote in best_notes_and_rests:
         if snote == 'Rest':
             note_obj = music21.note.Rest()
@@ -567,6 +580,10 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
     else:
         st.error("A partitura criada não está bem-formada. Verifique os dados de entrada.")
         # Exibir a partitura mesmo que não esteja bem-formada para depuração
+        try:
+            st.write(sc.show('text'))  # Mostra a estrutura textual da partitura
+        except Exception as e:
+            st.error(f"Erro ao exibir a partitura para depuração: {e}")
         showScore(sc)
 
 def test_soundfont_conversion(soundfont_path):
