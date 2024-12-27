@@ -1,4 +1,4 @@
-import os 
+import os
 import zipfile
 import shutil
 import tempfile
@@ -45,6 +45,19 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Configurações para gráficos mais bonitos
 sns.set_style('whitegrid')
 
+# Definir seed para reprodutibilidade
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # Garantir reprodutibilidade
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+set_seed(42)  # Definir a seed
+
 # Definir constantes globalmente
 note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 A4 = 440
@@ -82,7 +95,6 @@ def time_stretch(waveform, rate=1.1):
     """
     return librosa.effects.time_stretch(waveform, rate)
 
-# Função de Pitch Shift Renomeada para Evitar Conflitos
 def apply_pitch_shift(waveform, sr, n_steps=2):
     """
     Muda a altura do áudio.
@@ -105,7 +117,7 @@ def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_st
                 st.warning(f"Erro ao aplicar Time Stretch: {e}")
         elif method == 'Pitch Shift':
             try:
-                shifted = apply_pitch_shift(waveform, sr, n_steps=n_steps)  # Ajuste aqui
+                shifted = apply_pitch_shift(waveform, sr, n_steps=n_steps)
                 augmented_waveforms.append(shifted)
             except Exception as e:
                 st.warning(f"Erro ao aplicar Pitch Shift: {e}")
@@ -190,10 +202,10 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
     Inclui validação cruzada e métricas de avaliação.
     """
     # Converter para tensores
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.long)
-    X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-    y_val_tensor = torch.tensor(y_val, dtype=torch.long)
+    X_train_tensor = torch.tensor(X_train, dtype=torch.float32).to(device)
+    y_train_tensor = torch.tensor(y_train, dtype=torch.long).to(device)
+    X_val_tensor = torch.tensor(X_val, dtype=torch.float32).to(device)
+    y_val_tensor = torch.tensor(y_val, dtype=torch.long).to(device)
 
     # Criar DataLoaders
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
@@ -241,8 +253,8 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         running_corrects = 0
 
         for inputs, labels in train_loader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
+            # inputs = inputs.to(device)
+            # labels = labels.to(device)
 
             optimizer.zero_grad()
             outputs = classifier(inputs)
@@ -266,9 +278,6 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
         with torch.no_grad():
             for inputs, labels in val_loader:
-                inputs = inputs.to(device)
-                labels = labels.to(device)
-
                 outputs = classifier(inputs)
                 _, preds = torch.max(outputs, 1)
                 loss = criterion(outputs, labels)
@@ -285,10 +294,10 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         progress = (epoch + 1) / epochs
         progress_bar.progress(progress)
 
-        # Exibir métricas do epoch com explicações simples
+        # Exibir métricas do epoch
         st.write(f"### Época {epoch+1}/{epochs}")
-        st.write(f"**Treino - Perda (quanto erro temos no treino):** {epoch_loss:.4f}, **Acurácia (quantas vezes acertamos no treino):** {epoch_acc.item():.4f}")
-        st.write(f"**Validação - Perda (quanto erro temos na validação):** {val_epoch_loss:.4f}, **Acurácia (quantas vezes acertamos na validação):** {val_epoch_acc.item():.4f}")
+        st.write(f"**Treino - Perda:** {epoch_loss:.4f}, **Acurácia:** {epoch_acc.item():.4f}")
+        st.write(f"**Validação - Perda:** {val_epoch_loss:.4f}, **Acurácia:** {val_epoch_acc.item():.4f}")
 
         # Early Stopping
         if val_epoch_loss < best_val_loss:
@@ -298,14 +307,14 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                st.write("Parando o treino cedo porque não melhoramos a validação.")
+                st.write("Early stopping!")
                 break
 
     # Carregar os melhores pesos do modelo se houver
     if best_model_wts is not None:
         classifier.load_state_dict(best_model_wts)
 
-    # Plotar métricas com títulos e legendas em Português
+    # Plotar métricas
     fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
     # Perda
@@ -315,8 +324,6 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
     ax[0].set_xlabel('Épocas')
     ax[0].set_ylabel('Perda')
     ax[0].legend()
-    ax[0].text(0.5, -0.15, 'Perda indica o quanto o modelo errou durante o treino e validação.', 
-              transform=ax[0].transAxes, ha='center')
 
     # Acurácia
     ax[1].plot(range(1, len(train_accuracies)+1), train_accuracies, label='Treino')
@@ -325,8 +332,6 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
     ax[1].set_xlabel('Épocas')
     ax[1].set_ylabel('Acurácia')
     ax[1].legend()
-    ax[1].text(0.5, -0.15, 'Acurácia indica quantas vezes o modelo acertou durante o treino e validação.', 
-              transform=ax[1].transAxes, ha='center')
 
     st.pyplot(fig)
     plt.close(fig)
@@ -338,42 +343,30 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     with torch.no_grad():
         for inputs, labels in val_loader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-
             outputs = classifier(inputs)
             _, preds = torch.max(outputs, 1)
 
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
-    # Relatório de Classificação com explicações simples
+    # Relatório de Classificação
     st.write("### Relatório de Classificação")
     target_names = [f"Classe {cls}" for cls in set(y_train)]
     report = classification_report(all_labels, all_preds, target_names=target_names, zero_division=0, output_dict=True)
-    report_df = pd.DataFrame(report).transpose()
-    report_df.rename(columns={
-        'precision': 'Precisão',
-        'recall': 'Revocação',
-        'f1-score': 'F1-Score',
-        'support': 'Suporte'
-    }, inplace=True)
-    st.write(report_df)
+    st.write(pd.DataFrame(report).transpose())
 
-    # Matriz de Confusão com explicações simples
+    # Matriz de Confusão
     st.write("### Matriz de Confusão")
     cm = confusion_matrix(all_labels, all_preds)
     fig_cm, ax_cm = plt.subplots(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=target_names, yticklabels=target_names, ax=ax_cm)
-    plt.xlabel('Classe Predita')
-    plt.ylabel('Classe Verdadeira')
-    plt.title('Matriz de Confusão')
-    ax_cm.text(0.5, -0.1, 'A matriz mostra quantas vezes cada classe foi prevista corretamente ou incorretamente.', 
-              transform=ax_cm.transAxes, ha='center')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
     st.pyplot(fig_cm)
     plt.close(fig_cm)
 
-    # Curva ROC e AUC com explicações simples
+    # Curva ROC e AUC
     st.write("### Curva ROC")
     if num_classes > 1:
         # Para múltiplas classes, utilizamos One-vs-Rest
@@ -400,12 +393,10 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
             ax_roc.plot([0, 1], [0, 1], 'k--', lw=2)
             ax_roc.set_xlim([0.0, 1.0])
             ax_roc.set_ylim([0.0, 1.05])
-            ax_roc.set_xlabel('Taxa de Falsos Positivos')
-            ax_roc.set_ylabel('Taxa de Verdadeiros Positivos')
-            ax_roc.set_title('Curva ROC')
+            ax_roc.set_xlabel('False Positive Rate')
+            ax_roc.set_ylabel('True Positive Rate')
+            ax_roc.set_title('Receiver Operating Characteristic (ROC) Curve')
             ax_roc.legend(loc="lower right")
-            ax_roc.text(0.5, -0.15, 'A Curva ROC mostra o desempenho do modelo em diferentes limiares.', 
-                       transform=ax_roc.transAxes, ha='center')
             st.pyplot(fig_roc)
             plt.close(fig_roc)
         else:
@@ -413,14 +404,35 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
     else:
         st.warning("Curva ROC não disponível para uma única classe.")
 
-    # F1-Score com explicações simples
+    # F1-Score
     st.write("### F1-Score por Classe")
     f1_scores = f1_score(all_labels, all_preds, average=None)
     f1_df = pd.DataFrame({'Classe': target_names, 'F1-Score': f1_scores})
     st.write(f1_df)
-    st.write("O F1-Score é uma métrica que combina precisão e revocação para avaliar o desempenho do modelo.")
 
     return classifier
+
+def midi_to_wav(midi_path, wav_path, soundfont_path):
+    """
+    Converte um arquivo MIDI para WAV usando FluidSynth via midi2audio ou síntese simples de ondas senoidais.
+    """
+    if is_fluidsynth_installed():
+        try:
+            fs = FluidSynth(soundfont_path)
+            fs.midi_to_audio(midi_path, wav_path)
+            return True
+        except Exception as e:
+            st.error(f"Erro ao converter MIDI para WAV usando FluidSynth: {e}")
+            st.warning("Tentando usar a síntese simples de ondas senoidais como alternativa.")
+            return midi_to_wav_simple(midi_path, wav_path)
+    else:
+        return midi_to_wav_simple(midi_path, wav_path)
+
+def is_fluidsynth_installed():
+    """
+    Verifica se o FluidSynth está instalado e acessível no PATH.
+    """
+    return shutil.which("fluidsynth") is not None
 
 def midi_to_wav_simple(midi_path, wav_path):
     """
@@ -458,30 +470,6 @@ def midi_to_wav_simple(midi_path, wav_path):
     except Exception as e:
         st.error(f"Erro na conversão de MIDI para WAV usando síntese simples: {e}")
         return False
-
-def midi_to_wav(midi_path, wav_path, soundfont_path):
-    """
-    Converte um arquivo MIDI para WAV usando FluidSynth via midi2audio ou síntese simples de ondas senoidais.
-    """
-    if is_fluidsynth_installed():
-        try:
-            fs = FluidSynth(soundfont_path)
-            fs.midi_to_audio(midi_path, wav_path)
-            return True
-        except Exception as e:
-            st.error(f"Erro ao converter MIDI para WAV usando FluidSynth: {e}")
-            st.warning("Tentando usar a síntese simples de ondas senoidais como alternativa.")
-            return midi_to_wav_simple(midi_path, wav_path)
-    else:
-        st.warning("FluidSynth não está instalado ou não está acessível no PATH do sistema.")
-        st.warning("Utilizando a síntese simples de ondas senoidais para conversão de MIDI para WAV.")
-        return midi_to_wav_simple(midi_path, wav_path)
-
-def is_fluidsynth_installed():
-    """
-    Verifica se o FluidSynth está instalado e acessível no PATH.
-    """
-    return shutil.which("fluidsynth") is not None
 
 def showScore(xml_string):
     """
@@ -522,11 +510,11 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
     Cria e renderiza a partitura musical usando music21.
     """
     if not best_notes_and_rests:
-        st.error("Nenhuma nota ou descanso foi fornecido para criar a partitura.")
+        st.error("Nenhuma nota ou rest foi fornecido para criar a partitura.")
         return
 
-    # Exibir as notas e descansos detectados para depuração
-    st.write(f"**Notas e Descansos Detectados (Primeiros 20):** {best_notes_and_rests[:20]}")
+    # Exibir as notas e rests detectados para depuração
+    st.write(f"**Notas e Rests Detectados (Primeiros 20):** {best_notes_and_rests[:20]}")
 
     # Verificar se todas as entradas são strings válidas
     valid_notes = set(note_names + [f"{n}{o}" for n in note_names for o in range(0, 10)] + ["Rest"])
@@ -659,7 +647,7 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
             sc_text = sc.show('text')  # Mostra a estrutura textual da partitura
             st.write(sc_text)
         except Exception as e:
-            st.error(f"Erro ao exibir a partitura para depuração: {e}")
+            st.error(f"Erro ao exibir o arquivo de texto da partitura para depuração: {e}")
         # Tentar exibir a partitura de qualquer maneira
         try:
             xml_string = sc.write('xml')
@@ -672,32 +660,32 @@ def test_soundfont_conversion(soundfont_path):
     Testa a conversão de um MIDI simples para WAV usando o SoundFont fornecido.
     """
     try:
-        test_midi = tempfile.NamedTemporaryFile(delete=False, suffix=".mid")
-        test_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        test_midi_path = test_midi.name
-        test_wav_path = test_wav.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mid") as test_midi:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as test_wav:
+                test_midi_path = test_midi.name
+                test_wav_path = test_wav.name
 
-        # Criar um MIDI simples com uma única nota
-        sc = music21.stream.Stream()
-        n = music21.note.Note("C4")
-        n.duration.type = 'whole'
-        sc.append(n)
-        sc.write('midi', fp=test_midi_path)
+                # Criar um MIDI simples com uma única nota
+                sc = music21.stream.Stream()
+                n = music21.note.Note("C4")
+                n.duration.type = 'whole'
+                sc.append(n)
+                sc.write('midi', fp=test_midi_path)
 
-        # Converter para WAV usando FluidSynth via midi2audio ou síntese simples
-        success = midi_to_wav(test_midi_path, test_wav_path, soundfont_path)
+                # Converter para WAV usando FluidSynth via midi2audio ou síntese simples
+                success = midi_to_wav(test_midi_path, test_wav_path, soundfont_path)
 
-        if success and os.path.exists(test_wav_path):
-            st.success("Testes de conversão SoundFont: Sucesso!")
-            with open(test_wav_path, 'rb') as f:
-                wav_data = f.read()
-            st.audio(wav_data, format='audio/wav')
-        else:
-            st.error("Testes de conversão SoundFont: Falhou.")
-        
-        # Remover arquivos temporários
-        os.remove(test_midi_path)
-        os.remove(test_wav_path)
+                if success and os.path.exists(test_wav_path):
+                    st.success("Testes de conversão SoundFont: Sucesso!")
+                    with open(test_wav_path, 'rb') as f:
+                        wav_data = f.read()
+                    st.audio(wav_data, format='audio/wav')
+                else:
+                    st.error("Testes de conversão SoundFont: Falhou.")
+
+                # Remover arquivos temporários
+                os.remove(test_midi_path)
+                os.remove(test_wav_path)
     except Exception as e:
         st.error(f"Erro durante o teste de conversão SoundFont: {e}")
 
@@ -706,19 +694,20 @@ def classify_new_audio(uploaded_audio):
     Função para classificar um novo arquivo de áudio.
     """
     try:
-        # Salvar o arquivo de áudio em um diretório temporário
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_audio.name)[1]) as tmp_audio:
             tmp_audio.write(uploaded_audio.read())
             tmp_audio_path = tmp_audio.name
 
         # Audição do Áudio Carregado
         try:
-            sample_rate, wav_data = wavfile.read(tmp_audio_path, 'rb')
+            sr_orig, wav_data = wavfile.read(tmp_audio_path)
             # Verificar se o áudio é mono e 16kHz
             if wav_data.ndim > 1:
                 wav_data = wav_data.mean(axis=1)
-            if sample_rate != 16000:
-                sample_rate, wav_data = ensure_sample_rate(sample_rate, wav_data)
+            if sr_orig != 16000:
+                sr, wav_data = ensure_sample_rate(sr_orig, wav_data)
+            else:
+                sr = sr_orig
             # Normalizar
             if wav_data.dtype.kind == 'i':
                 wav_data = wav_data / np.iinfo(wav_data.dtype).max
@@ -727,11 +716,11 @@ def classify_new_audio(uploaded_audio):
                     wav_data = wav_data / np.max(np.abs(wav_data))
             # Convert to float32
             wav_data = wav_data.astype(np.float32)
-            duration = len(wav_data) / sample_rate
-            st.write(f"**Taxa de Amostragem:** {sample_rate} Hz")
-            st.write(f"**Duração Total:** {duration:.2f}s")
-            st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-            st.audio(wav_data, format='audio/wav', sample_rate=sample_rate)
+            duration = len(wav_data) / sr
+            st.write(f"**Sample rate:** {sr} Hz")
+            st.write(f"**Total duration:** {duration:.2f}s")
+            st.write(f"**Size of the input:** {len(wav_data)} samples")
+            st.audio(wav_data, format='audio/wav', sample_rate=sr)
         except Exception as e:
             st.error(f"Erro ao processar o áudio para audição: {e}")
             wav_data = None
@@ -775,20 +764,14 @@ def classify_new_audio(uploaded_audio):
             ax[0].set_ylabel("Amplitude")
 
             # Plot do Espectrograma
-            S = librosa.feature.melspectrogram(y=wav_data, sr=sample_rate, n_mels=128)
+            S = librosa.feature.melspectrogram(y=wav_data, sr=sr, n_mels=128)
             S_DB = librosa.power_to_db(S, ref=np.max)
-            librosa.display.specshow(S_DB, sr=sample_rate, x_axis='time', y_axis='mel', ax=ax[1])
+            librosa.display.specshow(S_DB, sr=sr, x_axis='time', y_axis='mel', ax=ax[1])
             fig.colorbar(ax[1].collections[0], ax=ax[1], format='%+2.0f dB')
             ax[1].set_title("Espectrograma Mel")
 
             st.pyplot(fig)
             plt.close(fig)
-
-            # Explicação do Pitch
-            st.write("""
-            **O que é Pitch?**
-            Pitch é o tom de uma nota, como alto ou baixo. No áudio, é a frequência que determina o quão agudo ou grave é o som.
-            """)
 
             # Detecção de Pitch com SPICE
             st.subheader("Detecção de Pitch com SPICE")
@@ -813,15 +796,11 @@ def classify_new_audio(uploaded_audio):
             ax_pitch.plot(confidence_outputs, label='Confiança')
             ax_pitch.legend(loc="lower right")
             ax_pitch.set_title("Pitch e Confiança com SPICE")
-            ax_pitch.set_xlabel("Tempo")
-            ax_pitch.set_ylabel("Valor")
-            ax_pitch.text(0.5, -0.1, 'Pitch mostra o tom do som ao longo do tempo e Confiança indica a certeza da detecção.', 
-                         transform=ax_pitch.transAxes, ha='center')
             st.pyplot(fig_pitch)
             plt.close(fig_pitch)
 
             # Remover pitches com baixa confiança (ajuste o limiar)
-            confident_indices = np.where(confidence_outputs >= 0.8)[0]  # Reduziu de 0.9 para 0.8
+            confident_indices = np.where(confidence_outputs >= 0.8)[0]
             confident_pitches = pitch_outputs[confidence_outputs >= 0.8]
             confident_pitch_values_hz = [output2hz(p) for p in confident_pitches]
 
@@ -833,14 +812,11 @@ def classify_new_audio(uploaded_audio):
             ax_confident_pitch.set_xlabel("Amostras")
             ax_confident_pitch.set_ylabel("Pitch (Hz)")
             ax_confident_pitch.legend()
-            ax_confident_pitch.text(0.5, -0.1, 'Os pontos vermelhos mostram os pitches que o modelo confia mais.', 
-                                     transform=ax_confident_pitch.transAxes, ha='center')
             st.pyplot(fig_confident_pitch)
             plt.close(fig_confident_pitch)
 
             # Conversão de Pitches para Notas Musicais
             st.subheader("Notas Musicais Detectadas")
-            # Definir constantes para conversão
             # note_names e C0 já estão definidos globalmente
 
             def hz2offset(freq):
@@ -859,7 +835,7 @@ def classify_new_audio(uploaded_audio):
                 ideal_offset = 0.0
             # Garantir que ideal_offset é float
             ideal_offset = float(ideal_offset)
-            st.write(f"**Deslocamento Ideal:** {ideal_offset:.4f}")
+            st.write(f"Ideal Offset: {ideal_offset:.4f}")
 
             # Função para quantizar previsões
             def quantize_predictions(group, ideal_offset):
@@ -867,12 +843,12 @@ def classify_new_audio(uploaded_audio):
                 non_zero_values = [v for v in group if v != 0]
                 zero_values_count = len(group) - len(non_zero_values)
 
-                # Criar um descanso se 80% for silencioso, caso contrário, criar uma nota.
+                # Criar um rest se 80% for silencioso, caso contrário, criar uma nota.
                 if zero_values_count > 0.8 * len(group):
-                    # Interpretar como um descanso. Contar cada nota descartada como um erro, ponderado um pouco pior que uma nota mal cantada (que 'custaria' 0.5).
-                    return 0.51 * len(non_zero_values), "Descanso"
+                    # Interpretar como um rest. Contar cada nota descartada como um erro, ponderado um pouco pior que uma nota mal cantada (que 'custaria' 0.5).
+                    return 0.51 * len(non_zero_values), "Rest"
                 else:
-                    # Interpretar como nota, estimando como média das previsões não-descanso.
+                    # Interpretar como nota, estimando como média das previsões não-rest.
                     h = round(
                         statistics.mean([
                             12 * math.log2(freq / C0) - ideal_offset for freq in non_zero_values
@@ -884,10 +860,10 @@ def classify_new_audio(uploaded_audio):
                     midi_number = h + 60  # Adicionando 60 para centralizar em torno de C4
                     if midi_number < 0 or midi_number > 127:
                         st.warning(f"Número MIDI {midi_number} fora do intervalo válido (0-127). Será ignorado.")
-                        return float('inf'), "Descanso"
+                        return float('inf'), "Rest"
                     if n < 0 or n >= len(note_names):
                         st.warning(f"Índice de nota inválido: {n}. Nota será ignorada.")
-                        return float('inf'), "Descanso"
+                        return float('inf'), "Rest"
                     note = note_names[n] + str(octave)
                     # Erro de quantização é a diferença total da nota quantizada.
                     error = sum([
@@ -902,9 +878,9 @@ def classify_new_audio(uploaded_audio):
 
             def get_quantization_and_error(pitch_outputs_and_rests, predictions_per_eighth,
                                            prediction_start_offset, ideal_offset):
-                # Aplicar o offset inicial - podemos simplesmente adicionar o offset como descansos.
+                # Aplicar o offset inicial - podemos simplesmente adicionar o offset como rests.
                 pitch_outputs_and_rests = [0] * prediction_start_offset + list(pitch_outputs_and_rests)
-                # Coletar as previsões para cada nota (ou descanso).
+                # Coletar as previsões para cada nota (ou rest).
                 groups = [
                     pitch_outputs_and_rests[i:i + predictions_per_eighth]
                     for i in range(0, len(pitch_outputs_and_rests), predictions_per_eighth)
@@ -936,20 +912,20 @@ def classify_new_audio(uploaded_audio):
                         best_notes_and_rests = notes_and_rests
                         best_predictions_per_eighth = ppn
 
-            # Remover descansos iniciais e finais
-            while best_notes_and_rests and best_notes_and_rests[0] == 'Descanso':
+            # Remover rests iniciais e finais
+            while best_notes_and_rests and best_notes_and_rests[0] == 'Rest':
                 best_notes_and_rests = best_notes_and_rests[1:]
-            while best_notes_and_rests and best_notes_and_rests[-1] == 'Descanso':
+            while best_notes_and_rests and best_notes_and_rests[-1] == 'Rest':
                 best_notes_and_rests = best_notes_and_rests[:-1]
 
-            # Garantir que todas as notas e descansos são strings
+            # Garantir que todas as notas e rests são strings
             best_notes_and_rests = [str(note) for note in best_notes_and_rests]
 
-            st.write(f"**Notas e Descansos Detectados:** {best_notes_and_rests}")
+            st.write(f"Notas e Rests Detectados: {best_notes_and_rests}")
 
             # Estimar Tempo (BPM) usando Librosa
             try:
-                tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sample_rate)
+                tempo, beat_frames = librosa.beat.beat_track(y=wav_data, sr=sr)
                 # Garantir que tempo é float e tratar possíveis arrays
                 if isinstance(tempo, np.ndarray):
                     if tempo.size == 1:
@@ -980,6 +956,15 @@ def classify_new_audio(uploaded_audio):
         except Exception as e:
             st.warning(f"Erro ao remover arquivos temporários: {e}")
 
+def output2hz(pitch_output):
+    # Constants taken from https://tfhub.dev/google/spice/2
+    PT_OFFSET = 25.58
+    PT_SLOPE = 63.07
+    FMIN = 10.0
+    BINS_PER_OCTAVE = 12.0
+    cqt_bin = pitch_output * PT_SLOPE + PT_OFFSET
+    return FMIN * 2.0 ** (1.0 * cqt_bin / BINS_PER_OCTAVE)
+
 def main():
     # Configurações da página - Deve ser chamado antes de qualquer outro comando do Streamlit
     st.set_page_config(page_title="Classificação de Áudio com YAMNet e SPICE", layout="wide")
@@ -993,29 +978,29 @@ def main():
     
     # Parâmetros de Treinamento
     st.sidebar.subheader("Parâmetros de Treinamento")
-    seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1)
-    train_split = st.sidebar.slider("Proporção de Dados para Treino (%)", min_value=60, max_value=90, value=80, step=5)
-    epochs = st.sidebar.number_input("Número de Épocas (quantas vezes o modelo vai aprender):", min_value=1, max_value=500, value=50, step=1)
-    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem (quanto rápido o modelo aprende):", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
-    batch_size = st.sidebar.selectbox("Tamanho de Lote (quantos exemplos o modelo vê de cada vez):", options=[8, 16, 32, 64], index=1)
-    l2_lambda = st.sidebar.number_input("Regularização L2 (para evitar que o modelo fique muito complexo):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
-    patience = st.sidebar.number_input("Paciência para Early Stopping (quantas épocas sem melhorar para parar):", min_value=1, max_value=10, value=3, step=1)
+    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=50, step=1)
+    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64], index=1)
+    l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=10, value=3, step=1)
 
     # Definir a seed com base na entrada do usuário
+    # Caso queira que o usuário possa definir a seed via sidebar
+    seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1)
     set_seed(seed)  # Usar a seed escolhida pelo usuário
 
     # Opções de Data Augmentation
     st.sidebar.subheader("Data Augmentation")
-    augment = st.sidebar.checkbox("Aplicar Data Augmentation (Aumentar os dados para treinar melhor)")
+    augment = st.sidebar.checkbox("Aplicar Data Augmentation")
     if augment:
         augmentation_methods = st.sidebar.multiselect(
             "Métodos de Data Augmentation:",
-            options=["Add Noise (Adicionar Ruído)", "Time Stretch (Esticar Tempo)", "Pitch Shift (Mudar Pitch)"],
-            default=["Add Noise (Adicionar Ruído)", "Time Stretch (Esticar Tempo)"]
+            options=["Add Noise", "Time Stretch", "Pitch Shift"],
+            default=["Add Noise", "Time Stretch"]
         )
         # Parâmetros adicionais para Data Augmentation
-        rate = st.sidebar.slider("Rate para Time Stretch (Quanto esticar o tempo):", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
-        n_steps = st.sidebar.slider("N Steps para Pitch Shift (Quantos passos mudar o pitch):", min_value=-12, max_value=12, value=2, step=1)
+        rate = st.sidebar.slider("Rate para Time Stretch:", min_value=0.5, max_value=2.0, value=1.1, step=0.1)
+        n_steps = st.sidebar.slider("N Steps para Pitch Shift:", min_value=-12, max_value=12, value=2, step=1)
     else:
         augmentation_methods = []
         rate = 1.1
@@ -1025,7 +1010,7 @@ def main():
     st.sidebar.subheader("Balanceamento de Classes")
     balance_method = st.sidebar.selectbox(
         "Método de Balanceamento:",
-        options=["Nenhum", "Oversample (Aumentar Classes Minoritárias)", "Undersample (Reduzir Classes Majoritárias)"],
+        options=["None", "Oversample", "Undersample"],
         index=0
     )
 
@@ -1093,16 +1078,18 @@ def main():
 
         # Audição de Arquivos de Áudio de Exemplo
         st.subheader("Audição de Arquivos de Áudio de Exemplo")
-        uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["Nenhum", sample_audio_1, sample_audio_2])
+        uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["None", sample_audio_1, sample_audio_2])
 
-        if uploaded_file_example != "Nenhum" and os.path.exists(uploaded_file_example):
+        if uploaded_file_example != "None" and os.path.exists(uploaded_file_example):
             try:
-                sample_rate, wav_data = wavfile.read(uploaded_file_example, 'rb')
+                sr_orig, wav_data = wavfile.read(uploaded_file_example)
                 # Verificar se o áudio é mono e 16kHz
                 if wav_data.ndim > 1:
                     wav_data = wav_data.mean(axis=1)
-                if sample_rate != 16000:
-                    sample_rate, wav_data = ensure_sample_rate(sample_rate, wav_data)
+                if sr_orig != 16000:
+                    sr, wav_data = ensure_sample_rate(sr_orig, wav_data)
+                else:
+                    sr = sr_orig
                 # Normalizar
                 if wav_data.dtype.kind == 'i':
                     wav_data = wav_data / np.iinfo(wav_data.dtype).max
@@ -1111,14 +1098,14 @@ def main():
                         wav_data = wav_data / np.max(np.abs(wav_data))
                 # Convert to float32
                 wav_data = wav_data.astype(np.float32)
-                duration = len(wav_data) / sample_rate
-                st.write(f"**Taxa de Amostragem:** {sample_rate} Hz")
-                st.write(f"**Duração Total:** {duration:.2f}s")
-                st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-                st.audio(wav_data, format='audio/wav', sample_rate=sample_rate)
+                duration = len(wav_data) / sr
+                st.write(f"**Sample rate:** {sr} Hz")
+                st.write(f"**Total duration:** {duration:.2f}s")
+                st.write(f"**Size of the input:** {len(wav_data)} samples")
+                st.audio(wav_data, format='audio/wav', sample_rate=sr)
             except Exception as e:
                 st.error(f"Erro ao processar o arquivo de áudio: {e}")
-        elif uploaded_file_example != "Nenhum":
+        elif uploaded_file_example != "None":
             st.warning("Arquivo de áudio não encontrado. Por favor, baixe o arquivo antes de tentar ouvir.")
 
         # Upload de dados supervisionados
@@ -1194,13 +1181,13 @@ def main():
                                         augmented_waveforms = perform_data_augmentation(waveform, sr, augmentation_methods, rate=rate, n_steps=n_steps)
                                         for aug_waveform in augmented_waveforms:
                                             # Salvar temporariamente o áudio aumentado para processar
-                                            temp_audio_path = os.path.join(tmpdir, "temp_aug.wav")
-                                            sf.write(temp_audio_path, aug_waveform, sr)
-                                            _, aug_embedding = extract_yamnet_embeddings(yamnet_model, temp_audio_path)
-                                            if aug_embedding is not None:
-                                                embeddings.append(aug_embedding)
-                                                labels.append(label_mapping[cls])
-                                            os.remove(temp_audio_path)
+                                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+                                                sf.write(temp_audio.name, aug_waveform, sr)
+                                                _, aug_embedding = extract_yamnet_embeddings(yamnet_model, temp_audio.name)
+                                                if aug_embedding is not None:
+                                                    embeddings.append(aug_embedding)
+                                                    labels.append(label_mapping[cls])
+                                                os.remove(temp_audio.name)
                                     except Exception as e:
                                         st.warning(f"Erro ao aplicar data augmentation no arquivo {audio_file}: {e}")
                                 else:
@@ -1231,7 +1218,7 @@ def main():
                         st.stop()
 
                     # Balanceamento de Classes
-                    if balance_method != "Nenhum":
+                    if balance_method != "None":
                         st.write(f"Aplicando balanceamento de classes: {balance_method}")
                         embeddings_bal, labels_bal = balance_classes(embeddings, labels, balance_method)
                         # Contar novamente após balanceamento
@@ -1246,9 +1233,8 @@ def main():
 
                     # Dividir os dados em treino e validação
                     try:
-                        test_size = 1 - (train_split / 100)
                         X_train, X_val, y_train, y_val = train_test_split(
-                            embeddings_bal, labels_bal, test_size=test_size, random_state=42, stratify=labels_bal
+                            embeddings_bal, labels_bal, test_size=0.2, random_state=42, stratify=labels_bal
                         )
                         st.write(f"Dados divididos em treino ({len(X_train)} amostras) e validação ({len(X_val)} amostras).")
                     except ValueError as ve:
@@ -1257,16 +1243,17 @@ def main():
 
                     # Treinar o classificador
                     st.header("Treinamento do Classificador")
-                    classifier = train_audio_classifier(
-                        X_train, y_train, X_val, y_val, 
-                        input_dim=embeddings.shape[1], 
-                        num_classes=len(classes), 
-                        epochs=epochs, 
-                        learning_rate=learning_rate, 
-                        batch_size=batch_size, 
-                        l2_lambda=l2_lambda, 
-                        patience=patience
-                    )
+                    with st.spinner('Treinando o classificador...'):
+                        classifier = train_audio_classifier(
+                            X_train, y_train, X_val, y_val, 
+                            input_dim=embeddings.shape[1], 
+                            num_classes=len(classes), 
+                            epochs=epochs, 
+                            learning_rate=learning_rate, 
+                            batch_size=batch_size, 
+                            l2_lambda=l2_lambda, 
+                            patience=patience
+                        )
                     st.success("Treinamento do classificador concluído.")
 
                     # Salvar o classificador no estado do Streamlit
@@ -1296,20 +1283,6 @@ def main():
 
     # Classificação de Novo Áudio
     if 'classifier' in st.session_state and 'classes' in st.session_state and 'soundfont_path' in st.session_state:
-        def output2hz(pitch_output):
-            # Constants taken from https://tfhub.dev/google/spice/2
-            PT_OFFSET = 25.58
-            PT_SLOPE = 63.07
-            FMIN = 10.0
-            BINS_PER_OCTAVE = 12.0
-            cqt_bin = pitch_output * PT_SLOPE + PT_OFFSET
-            return FMIN * 2.0 ** (1.0 * cqt_bin / BINS_PER_OCTAVE)
-
-        # Definir constantes
-        A4 = 440
-        C0 = A4 * pow(2, -4.75)
-        note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-
         st.header("Classificação de Novo Áudio")
         st.write("""
         **Envie um arquivo de áudio para ser classificado pelo modelo treinado.**
