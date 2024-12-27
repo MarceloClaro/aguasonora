@@ -1336,29 +1336,72 @@ def main():
                     st.write("**Média de Precision, Recall e F1-Score por Classe:**")
                     st.dataframe(avg_report_df)
 
-    # Plotagem dos Embeddings
-    def plot_embeddings(embeddings, labels, classes):
-        """
-        Plota os embeddings utilizando PCA para redução de dimensionalidade.
-        """
-        from sklearn.decomposition import PCA
+    # Classificação de Novo Áudio
+    if 'classifier' in st.session_state and 'classes' in st.session_state and 'soundfont_path' in st.session_state:
+        st.header("Classificação de Novo Áudio")
+        st.write("""
+        **Envie um arquivo de áudio para ser classificado pelo modelo treinado.**
+        
+        **Explicação para Leigos:**
+        - **O que você faz:** Envie um arquivo de áudio (como um canto, fala ou som ambiente) para que o modelo identifique a qual categoria ele pertence.
+        - **O que acontece:** O aplicativo analisará o áudio, determinará a classe mais provável e mostrará a confiança dessa previsão. Além disso, você poderá visualizar a forma de onda, o espectrograma e as notas musicais detectadas.
+        
+        **Explicação para Técnicos:**
+        - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet. O classificador treinado em PyTorch utiliza esses embeddings para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
+        - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
+        """)
+        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
 
-        pca = PCA(n_components=2)
-        embeddings_pca = pca.fit_transform(embeddings)
-        df = pd.DataFrame({
-            'PCA1': embeddings_pca[:,0],
-            'PCA2': embeddings_pca[:,1],
-            'Classe': [classes[label] for label in labels]
-        })
+        if uploaded_audio is not None:
+            classify_new_audio(uploaded_audio)
 
-        plt.figure(figsize=(10, 8))
-        sns.scatterplot(data=df, x='PCA1', y='PCA2', hue='Classe', palette='Set2', s=60)
-        plt.title('Visualização dos Embeddings com PCA')
-        plt.xlabel('Componente Principal 1')
-        plt.ylabel('Componente Principal 2')
-        plt.legend(title='Classe', loc='best')
-        st.pyplot(plt.gcf())
-        plt.close()
+    # Documentação e Agradecimentos
+    st.write("### Documentação dos Procedimentos")
+    st.write("""
+    1. **Upload do SoundFont (SF2):** Faça o upload do seu arquivo SoundFont (`.sf2`) para permitir a conversão de MIDI para WAV.
+    
+    2. **Teste do SoundFont:** Execute o teste de conversão para garantir que o SoundFont está funcionando corretamente.
+    
+    3. **Baixando e Preparando Arquivos de Áudio:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
+    
+    4. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
+    
+    5. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
+    
+    6. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
+    
+    7. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados.
+    
+    8. **Treinamento com Validação Cruzada:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador utilizando validação cruzada para uma avaliação mais robusta.
+    
+    9. **Análise de Dados:** Visualize estatísticas descritivas, distribuição das classes e plotagens dos embeddings para melhor compreensão dos dados.
+    
+    10. **Resultados da Validação Cruzada:** Avalie o desempenho do modelo através de relatórios de classificação, matrizes de confusão e curvas ROC para cada fold.
+    
+    11. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
+    
+    12. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    
+    **Exemplo de Estrutura de Diretórios para Upload:**
+    ```
+    dados/
+        agua_quente/
+            audio1.wav
+            audio2.wav
+        agua_gelada/
+            audio3.wav
+            audio4.wav
+    ```
+    """)
 
-    if __name__ == "__main__":
-        main()
+    st.write("### Agradecimentos")
+    st.write("""
+    Desenvolvido por Marcelo Claro.
+    
+    - **Contato**: marceloclaro@gmail.com
+    - **Whatsapp**: (88)98158-7145
+    - **Instagram**: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
+    """)
+
+if __name__ == "__main__":
+    main()
