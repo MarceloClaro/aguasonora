@@ -81,12 +81,8 @@ def load_class_map(url):
     """
     Carrega o mapa de classes do YAMNet a partir de uma URL.
     """
-    try:
-        class_map = pd.read_csv(url)
-        return class_map
-    except Exception as e:
-        st.error(f"Erro ao carregar o mapa de classes do YAMNet: {e}")
-        return None
+    class_map = pd.read_csv(url)
+    return class_map
 
 def ensure_sample_rate(original_sr, waveform, desired_sr=16000):
     """
@@ -427,7 +423,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     # Relatório de Classificação
     st.write("### Relatório de Classificação")
-    target_names = [f"{cls}" for cls in set(classes)]
+    target_names = [f"Classe {cls}" for cls in set(classes)]
     report = classification_report(all_labels, all_preds, target_names=target_names, zero_division=0, output_dict=True)
     st.write(pd.DataFrame(report).transpose())
 
@@ -462,7 +458,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
             colors = sns.color_palette("hsv", num_classes)
             for i, color in zip(range(num_classes), colors):
                 ax_roc.plot(fpr[i], tpr[i], color=color, lw=2,
-                           label=f'Classe {classes[i]} (AUC = {roc_auc_dict[i]:0.2f})')
+                           label=f'Classe {i} (AUC = {roc_auc_dict[i]:0.2f})')
 
             ax_roc.plot([0, 1], [0, 1], 'k--', lw=2)
             ax_roc.set_xlim([0.0, 1.0])
@@ -834,15 +830,9 @@ def classify_new_audio(uploaded_audio):
     class_map = st.session_state.get('class_map', None)
     if class_map is None:
         # Carregar o mapa de classes se ainda não estiver carregado
-        class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/main/research/audioset/yamnet/yamnet_class_map.csv'  # URL correta
+        class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
         class_map = load_class_map(class_map_url)
-        if class_map is not None:
-            st.session_state['class_map'] = class_map
-            st.success("Mapa de classes do YAMNet carregado com sucesso.")
-            st.write("### Lista Completa de Classes do YAMNet")
-            st.dataframe(class_map)
-        else:
-            st.stop()
+        st.session_state['class_map'] = class_map
     pred_class, embedding = extract_yamnet_embeddings(yamnet_model, tmp_audio_path)
     mfcc_features = extract_mfcc_features(tmp_audio_path)
     vibration_features = extract_vibration_features(tmp_audio_path)
@@ -1286,15 +1276,9 @@ def main():
                     st.write("Modelo YAMNet carregado.")
 
                     # Carregar o mapa de classes do YAMNet
-                    class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/main/research/audioset/yamnet/yamnet_class_map.csv'  # URL correta
+                    class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
                     class_map = load_class_map(class_map_url)
-                    if class_map is not None:
-                        st.session_state['class_map'] = class_map  # Armazenar no session_state
-                        st.success("Mapa de classes do YAMNet carregado com sucesso.")
-                        st.write("### Lista Completa de Classes do YAMNet")
-                        st.dataframe(class_map)
-                    else:
-                        st.stop()  # Interromper a execução se o mapa de classes não for carregado
+                    st.session_state['class_map'] = class_map  # Armazenar no session_state
 
                     embeddings = []
                     labels = []
