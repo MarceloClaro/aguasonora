@@ -834,11 +834,13 @@ def classify_new_audio(uploaded_audio):
     class_map = st.session_state.get('class_map', None)
     if class_map is None:
         # Carregar o mapa de classes se ainda não estiver carregado
-        class_map_url = 'https://storage.googleapis.com/audioset/yamnet/yamnet_class_map.csv'  # URL correta
+        class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/main/research/audioset/yamnet/yamnet_class_map.csv'  # URL correta
         class_map = load_class_map(class_map_url)
         if class_map is not None:
             st.session_state['class_map'] = class_map
             st.success("Mapa de classes do YAMNet carregado com sucesso.")
+            st.write("### Lista Completa de Classes do YAMNet")
+            st.dataframe(class_map)
         else:
             st.stop()
     pred_class, embedding = extract_yamnet_embeddings(yamnet_model, tmp_audio_path)
@@ -1284,7 +1286,7 @@ def main():
                     st.write("Modelo YAMNet carregado.")
 
                     # Carregar o mapa de classes do YAMNet
-                    class_map_url = 'https://storage.googleapis.com/audioset/yamnet/yamnet_class_map.csv'  # URL correta
+                    class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/main/research/audioset/yamnet/yamnet_class_map.csv'  # URL correta
                     class_map = load_class_map(class_map_url)
                     if class_map is not None:
                         st.session_state['class_map'] = class_map  # Armazenar no session_state
