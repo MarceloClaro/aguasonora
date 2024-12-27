@@ -57,6 +57,11 @@ def set_seed(seed):
 
 set_seed(42)  # Definir a seed
 
+# Definir constantes globalmente
+note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+A4 = 440
+C0 = A4 * pow(2, -4.75)
+
 @st.cache_resource
 def load_yamnet_model():
     """
@@ -1105,9 +1110,7 @@ def main():
                     # Conversão de Pitches para Notas Musicais
                     st.subheader("Notas Musicais Detectadas")
                     # Definir constantes para conversão
-                    A4 = 440
-                    C0 = A4 * pow(2, -4.75)
-                    note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+                    # note_names e C0 já estão definidos globalmente
 
                     def hz2offset(freq):
                         # Medir o erro de quantização para uma única nota.
