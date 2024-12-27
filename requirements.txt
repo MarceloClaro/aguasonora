@@ -3,6 +3,7 @@ numpy
 pandas
 matplotlib
 seaborn
+fluidsynth
 Pillow
 torch
 scikit-learn
