@@ -11,7 +11,7 @@ from PIL import Image
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, f1_score
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
@@ -23,7 +23,6 @@ import tensorflow as tf
 import tensorflow_hub as hub
 from scipy.io import wavfile
 import scipy.signal
-from datetime import datetime
 import librosa
 import librosa.display
 import requests  # Para download de arquivos de áudio
@@ -1335,6 +1334,34 @@ def main():
                     avg_report_df = pd.DataFrame(avg_report).transpose()
                     st.write("**Média de Precision, Recall e F1-Score por Classe:**")
                     st.dataframe(avg_report_df)
+
+                    # Salvar o classificador no estado do Streamlit
+                    st.session_state['classifier'] = classifier
+                    st.session_state['classes'] = classes
+                    st.session_state['soundfont_path'] = soundfont_path
+
+                    # Exibir mensagem de conclusão do treinamento
+                    st.success("Treinamento do classificador concluído.")
+
+                    # Opção para download do modelo treinado
+                    buffer = io.BytesIO()
+                    torch.save(classifier.state_dict(), buffer)
+                    buffer.seek(0)
+                    st.download_button(
+                        label="Download do Modelo Treinado",
+                        data=buffer,
+                        file_name="audio_classifier.pth",
+                        mime="application/octet-stream"
+                    )
+
+                    # Opção para download do mapeamento de classes
+                    class_mapping = "\n".join([f"{cls}:{idx}" for cls, idx in label_mapping.items()])
+                    st.download_button(
+                        label="Download do Mapeamento de Classes",
+                        data=class_mapping,
+                        file_name="classes_mapping.txt",
+                        mime="text/plain"
+                    )
 
     # Classificação de Novo Áudio
     if 'classifier' in st.session_state and 'classes' in st.session_state and 'soundfont_path' in st.session_state:
