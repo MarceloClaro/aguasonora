@@ -76,6 +76,14 @@ def load_yamnet_model():
     yam_model = hub.load('https://tfhub.dev/google/yamnet/1')
     return yam_model
 
+@st.cache_data
+def load_class_map(url):
+    """
+    Carrega o mapa de classes do YAMNet a partir de uma URL.
+    """
+    class_map = pd.read_csv(url)
+    return class_map
+
 def ensure_sample_rate(original_sr, waveform, desired_sr=16000):
     """
     Resample se não estiver em 16 kHz.
@@ -131,7 +139,7 @@ def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_st
 def extract_yamnet_embeddings(yamnet_model, audio_path):
     """
     Extrai embeddings usando o modelo YAMNet para um arquivo de áudio.
-    Retorna a classe predita e a média dos embeddings das frames.
+    Retorna a classe predita, a média dos embeddings das frames e todas as pontuações de classes.
     """
     basename_audio = os.path.basename(audio_path)
     try:
@@ -182,10 +190,10 @@ def extract_yamnet_embeddings(yamnet_model, audio_path):
         mean_embedding = embeddings.numpy().mean(axis=0)  # Shape: (1024,)
         st.write(f"Média dos embeddings das frames: Forma = {mean_embedding.shape}")
     
-        return pred_class, mean_embedding
+        return pred_class, mean_embedding, mean_scores  # Retornando mean_scores para todas as classes
     except Exception as e:
         st.error(f"Erro ao processar {basename_audio}: {e}")
-        return -1, None
+        return -1, None, None
 
 def extract_mfcc_features(audio_path, n_mfcc=13):
     """
@@ -232,9 +240,10 @@ def balance_classes(X, y, method):
         X_bal, y_bal = X, y
     return X_bal, y_bal
 
-def plot_embeddings(embeddings, labels, classes):
+def plot_embeddings(embeddings, labels, classes, decibels_markers, fft_size, transform_interval, smoothing_factor):
     """
     Plota os embeddings utilizando PCA para redução de dimensionalidade.
+    Adiciona marcadores gráficos para decibels, FFT size e transform interval.
     """
     pca = PCA(n_components=2)
     embeddings_pca = pca.fit_transform(embeddings)
@@ -245,10 +254,17 @@ def plot_embeddings(embeddings, labels, classes):
     })
 
     plt.figure(figsize=(10, 8))
-    sns.scatterplot(data=df, x='PCA1', y='PCA2', hue='Classe', palette='Set2', s=60)
+    scatter = sns.scatterplot(data=df, x='PCA1', y='PCA2', hue='Classe', palette='Set2', s=60)
     plt.title('Visualização dos Embeddings com PCA')
     plt.xlabel('Componente Principal 1')
     plt.ylabel('Componente Principal 2')
+
+    # Adicionar legendas para os parâmetros
+    plt.figtext(0.15, 0.85, f"Decibels Markers: {decibels_markers} dB", fontsize=10)
+    plt.figtext(0.15, 0.80, f"FFT Size: {fft_size}", fontsize=10)
+    plt.figtext(0.15, 0.75, f"Transform Interval: {transform_interval}", fontsize=10)
+    plt.figtext(0.15, 0.70, f"Smoothing Factor: {smoothing_factor}", fontsize=10)
+
     plt.legend(title='Classe', loc='best')
     st.pyplot(plt.gcf())
     plt.close()
@@ -415,7 +431,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
 
     # Relatório de Classificação
     st.write("### Relatório de Classificação")
-    target_names = [f"Classe {cls}" for cls in set(classes)]
+    target_names = classes
     report = classification_report(all_labels, all_preds, target_names=target_names, zero_division=0, output_dict=True)
     st.write(pd.DataFrame(report).transpose())
 
@@ -450,7 +466,7 @@ def train_audio_classifier(X_train, y_train, X_val, y_val, input_dim, num_classe
             colors = sns.color_palette("hsv", num_classes)
             for i, color in zip(range(num_classes), colors):
                 ax_roc.plot(fpr[i], tpr[i], color=color, lw=2,
-                           label=f'Classe {i} (AUC = {roc_auc_dict[i]:0.2f})')
+                           label=f'Classe {classes[i]} (AUC = {roc_auc_dict[i]:0.2f})')
 
             ax_roc.plot([0, 1], [0, 1], 'k--', lw=2)
             ax_roc.set_xlim([0.0, 1.0])
@@ -693,7 +709,7 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
             # Converter MIDI para WAV usando FluidSynth via midi2audio ou síntese simples
             success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav', soundfont_path)
 
-            if success:
+            if success and os.path.exists(tmp_audio_path[:-4] + '.wav'):
                 # Oferecer o arquivo WAV para download e reprodução
                 try:
                     with open(tmp_audio_path[:-4] + '.wav', 'rb') as f:
@@ -761,7 +777,24 @@ def test_soundfont_conversion(soundfont_path):
     except Exception as e:
         st.error(f"Erro durante o teste de conversão SoundFont: {e}")
 
-def classify_new_audio(uploaded_audio):
+def get_class_name(class_index, class_map):
+    """
+    Retorna o nome da classe dado o índice.
+
+    Args:
+        class_index (int): Índice da classe predita.
+        class_map (pd.DataFrame): DataFrame contendo o mapa de classes.
+
+    Returns:
+        str: Nome da classe correspondente.
+    """
+    try:
+        class_name = class_map.iloc[class_index]['display_name']
+        return class_name
+    except IndexError:
+        return "Índice de classe inválido."
+
+def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_interval, smoothing_factor):
     """
     Função para classificar um novo arquivo de áudio.
     """
@@ -802,11 +835,17 @@ def classify_new_audio(uploaded_audio):
 
     # Extrair embeddings
     yamnet_model = load_yamnet_model()
-    pred_class, embedding = extract_yamnet_embeddings(yamnet_model, tmp_audio_path)
+    class_map = st.session_state.get('class_map', None)
+    if class_map is None:
+        # Carregar o mapa de classes se ainda não estiver carregado
+        class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
+        class_map = load_class_map(class_map_url)
+        st.session_state['class_map'] = class_map
+    pred_class, embedding, mean_scores = extract_yamnet_embeddings(yamnet_model, tmp_audio_path)
     mfcc_features = extract_mfcc_features(tmp_audio_path)
     vibration_features = extract_vibration_features(tmp_audio_path)
 
-    if embedding is not None and mfcc_features is not None and vibration_features is not None:
+    if wav_data is not None and embedding is not None and mfcc_features is not None and vibration_features is not None:
         # Obter o modelo treinado
         classifier = st.session_state['classifier']
         classes = st.session_state['classes']
@@ -839,9 +878,22 @@ def classify_new_audio(uploaded_audio):
             class_name = classes[class_idx]
             confidence_score = confidence.item()
 
+        # Mapear o índice predito pelo YAMNet para o nome da classe
+        class_name_yamnet = get_class_name(pred_class, class_map)
+
         # Exibir resultados
-        st.write(f"**Classe Predita:** {class_name}")
-        st.write(f"**Confiança:** {confidence_score:.4f}")
+        st.write(f"**Classe Predita pelo YAMNet:** {pred_class} - {class_name_yamnet}")
+        st.write(f"**Classe Predita pelo Classificador Personalizado:** {class_name}")
+        st.write(f"**Confiança do Classificador Personalizado:** {confidence_score:.4f}")
+
+        # Exibir todas as classes com suas pontuações
+        st.subheader("Pontuações de Todas as Classes pelo YAMNet")
+        class_scores = pd.DataFrame({
+            'Classe': class_map['display_name'],
+            'Pontuação': mean_scores
+        }).sort_values(by='Pontuação', ascending=False).reset_index(drop=True)
+        st.write(class_scores.head(20))  # Exibir as 20 principais classes
+        st.bar_chart(class_scores.head(20).set_index('Classe'), use_container_width=True)
 
         # Visualização do Áudio
         st.subheader("Visualização do Áudio")
@@ -853,14 +905,16 @@ def classify_new_audio(uploaded_audio):
         ax[0].set_xlabel("Amostras")
         ax[0].set_ylabel("Amplitude")
 
-        # Plot do Espectrograma
-        S = librosa.feature.melspectrogram(y=wav_data, sr=sr, n_mels=128)
+        # Plot do Espectrograma com marcadores de decibéis
+        S = librosa.feature.melspectrogram(y=wav_data, sr=sr, n_fft=fft_size, hop_length=int(transform_interval * fft_size))
         S_DB = librosa.power_to_db(S, ref=np.max)
         librosa.display.specshow(S_DB, sr=sr, x_axis='time', y_axis='mel', ax=ax[1])
         fig.colorbar(ax[1].collections[0], ax=ax[1], format='%+2.0f dB')
         ax[1].set_title("Espectrograma Mel")
+        ax[1].axhline(y=decibels_markers, color='r', linestyle='--', label=f'{decibels_markers} dB')
+        ax[1].legend()
 
-        st.pyplot(fig)
+        st.pyplot(fig, use_container_width=True)
         plt.close(fig)
 
         # Detecção de Pitch com SPICE
@@ -871,8 +925,11 @@ def classify_new_audio(uploaded_audio):
         # Normalizar as amostras de áudio
         audio_samples = wav_data / np.max(np.abs(wav_data)) if np.max(np.abs(wav_data)) != 0 else wav_data
 
+        # Aplicar Suavização Exponencial
+        audio_samples_smoothed = scipy.signal.lfilter([smoothing_factor], [1, smoothing_factor - 1], audio_samples)
+
         # Executar o modelo SPICE
-        model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples, tf.float32))
+        model_output = spice_model.signatures["serving_default"](tf.constant(audio_samples_smoothed, tf.float32))
 
         pitch_outputs = model_output["pitch"].numpy().flatten()
         uncertainty_outputs = model_output["uncertainty"].numpy().flatten()
@@ -886,7 +943,7 @@ def classify_new_audio(uploaded_audio):
         ax_pitch.plot(confidence_outputs, label='Confiança')
         ax_pitch.legend(loc="lower right")
         ax_pitch.set_title("Pitch e Confiança com SPICE")
-        st.pyplot(fig_pitch)
+        st.pyplot(fig_pitch, use_container_width=True)
         plt.close(fig_pitch)
 
         # Remover pitches com baixa confiança (ajuste o limiar)
@@ -902,7 +959,7 @@ def classify_new_audio(uploaded_audio):
         ax_confident_pitch.set_xlabel("Amostras")
         ax_confident_pitch.set_ylabel("Pitch (Hz)")
         ax_confident_pitch.legend()
-        st.pyplot(fig_confident_pitch)
+        st.pyplot(fig_confident_pitch, use_container_width=True)
         plt.close(fig_confident_pitch)
 
         # Conversão de Pitches para Notas Musicais
@@ -1059,28 +1116,29 @@ def main():
 
     # Parâmetros de Treinamento
     st.sidebar.subheader("Parâmetros de Treinamento")
-    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=100, step=1)
-    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
-    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64, 128], index=2)
-    l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
-    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=20, value=5, step=1)
+    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=100, step=1, key="epochs_slider")
+    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001, key="learning_rate_slider")
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64, 128], index=2, key="batch_size_selectbox")
+    l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda_input")
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=20, value=5, step=1, key="patience_input")
 
     # Definir a seed com base na entrada do usuário
-    seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1)
+    seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1, key="seed_input")
     set_seed(seed)  # Usar a seed escolhida pelo usuário
 
     # Opções de Data Augmentation
     st.sidebar.subheader("Data Augmentation")
-    augment = st.sidebar.checkbox("Aplicar Data Augmentation")
+    augment = st.sidebar.checkbox("Aplicar Data Augmentation", key="augment_checkbox")
     if augment:
         augmentation_methods = st.sidebar.multiselect(
             "Métodos de Data Augmentation:",
             options=["Adicionar Ruído", "Esticar Tempo", "Mudar Pitch"],
-            default=["Adicionar Ruído", "Esticar Tempo"]
+            default=["Adicionar Ruído", "Esticar Tempo"],
+            key="augmentation_methods_multiselect"
         )
         # Parâmetros adicionais para Data Augmentation
-        rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.2, step=0.1)
-        n_steps = st.sidebar.slider("Passos para Mudar Pitch:", min_value=-12, max_value=12, value=3, step=1)
+        rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.2, step=0.1, key="rate_slider")
+        n_steps = st.sidebar.slider("Passos para Mudar Pitch:", min_value=-12, max_value=12, value=3, step=1, key="n_steps_slider")
     else:
         augmentation_methods = []
         rate = 1.2
@@ -1091,7 +1149,8 @@ def main():
     balance_method = st.sidebar.selectbox(
         "Método de Balanceamento:",
         options=["Nenhum", "Oversample", "Undersample"],
-        index=0
+        index=0,
+        key="balance_method_selectbox"
     )
 
     # Seção de Upload do SoundFont
@@ -1099,7 +1158,7 @@ def main():
     st.write("""
     Para converter arquivos MIDI em WAV, é necessário um SoundFont (arquivo `.sf2`). Faça o upload do seu SoundFont aqui.
     """)
-    uploaded_soundfont = st.file_uploader("Faça upload do arquivo SoundFont (.sf2)", type=["sf2"])
+    uploaded_soundfont = st.file_uploader("Faça upload do arquivo SoundFont (.sf2)", type=["sf2"], key="soundfont_uploader")
 
     if uploaded_soundfont is not None:
         try:
@@ -1120,7 +1179,7 @@ def main():
         st.write("""
         Clique no botão abaixo para testar a conversão de um MIDI simples para WAV usando o SoundFont carregado.
         """)
-        if st.button("Executar Teste de Conversão SoundFont"):
+        if st.button("Executar Teste de Conversão SoundFont", key="test_soundfont_button"):
             test_soundfont_conversion(soundfont_path)
 
         # Seção de Download e Preparação de Arquivos de Áudio
@@ -1150,15 +1209,15 @@ def main():
         # Botões de Download
         col1, col2 = st.columns(2)
         with col1:
-            if st.button(f"Baixar {sample_audio_1}"):
+            if st.button(f"Baixar {sample_audio_1}", key="download_sample1_button"):
                 download_audio(sample_audio_1_url, sample_audio_1)
         with col2:
-            if st.button(f"Baixar {sample_audio_2}"):
+            if st.button(f"Baixar {sample_audio_2}", key="download_sample2_button"):
                 download_audio(sample_audio_2_url, sample_audio_2)
 
         # Audição de Arquivos de Áudio de Exemplo
         st.subheader("Audição de Arquivos de Áudio de Exemplo")
-        uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["Nenhum", sample_audio_1, sample_audio_2])
+        uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["Nenhum", sample_audio_1, sample_audio_2], key="select_example_audio")
 
         if uploaded_file_example != "Nenhum" and os.path.exists(uploaded_file_example):
             try:
@@ -1204,7 +1263,7 @@ def main():
                 audio4.wav
         ```
         """)
-        uploaded_zip = st.file_uploader("Faça upload do arquivo ZIP com os dados de áudio supervisionados", type=["zip"])
+        uploaded_zip = st.file_uploader("Faça upload do arquivo ZIP com os dados de áudio supervisionados", type=["zip"], key="uploaded_zip")
 
         if uploaded_zip is not None:
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -1240,6 +1299,11 @@ def main():
                     yamnet_model = load_yamnet_model()
                     st.write("Modelo YAMNet carregado.")
 
+                    # Carregar o mapa de classes do YAMNet
+                    class_map_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
+                    class_map = load_class_map(class_map_url)
+                    st.session_state['class_map'] = class_map  # Armazenar no session_state
+
                     embeddings = []
                     labels = []
                     mfccs = []
@@ -1249,13 +1313,11 @@ def main():
                     total_files = sum(class_counts.values())
                     processed_files = 0
                     progress_bar = st.progress(0)
-
-                    scaler = StandardScaler()
                     for cls in classes:
                         cls_dir = os.path.join(tmpdir, cls)
                         audio_files = [os.path.join(cls_dir, f) for f in os.listdir(cls_dir) if f.lower().endswith(('.wav', '.mp3', '.ogg', '.flac'))]
                         for audio_file in audio_files:
-                            pred_class, embedding = extract_yamnet_embeddings(yamnet_model, audio_file)
+                            pred_class, embedding, mean_scores = extract_yamnet_embeddings(yamnet_model, audio_file)
                             mfcc_feature = extract_mfcc_features(audio_file)
                             vibration_feature = extract_vibration_features(audio_file)
                             if embedding is not None and mfcc_feature is not None and vibration_feature is not None:
@@ -1268,7 +1330,7 @@ def main():
                                             # Salvar temporariamente o áudio aumentado para processar
                                             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
                                                 sf.write(temp_audio.name, aug_waveform, sr)
-                                                aug_pred_class, aug_embedding = extract_yamnet_embeddings(yamnet_model, temp_audio.name)
+                                                aug_pred_class, aug_embedding, aug_mean_scores = extract_yamnet_embeddings(yamnet_model, temp_audio.name)
                                                 aug_mfcc = extract_mfcc_features(temp_audio.name)
                                                 aug_vibration = extract_vibration_features(temp_audio.name)
                                                 if aug_embedding is not None and aug_mfcc is not None and aug_vibration is not None:
@@ -1317,6 +1379,7 @@ def main():
                     st.write(f"Características combinadas: Forma = {combined_features.shape}")
 
                     # Normalizar os recursos
+                    scaler = StandardScaler()
                     combined_features = scaler.fit_transform(combined_features)
                     st.write("Características normalizadas com StandardScaler.")
 
@@ -1328,11 +1391,18 @@ def main():
 
                     st.write("**Distribuição das Classes:**")
                     class_distribution = pd.Series(labels).value_counts().rename(index={v: k for k, v in label_mapping.items()})
-                    st.bar_chart(class_distribution)
+                    st.bar_chart(class_distribution, use_container_width=True)  # Removido 'key'
 
-                    # Plotagem dos Embeddings
+                    # Plotagem dos Embeddings com parâmetros ajustáveis
                     st.write("**Visualização dos Embeddings com PCA:**")
-                    plot_embeddings(combined_features, labels, classes)
+                    # Adicionar controles para parâmetros gráficos
+                    st.sidebar.subheader("Parâmetros Gráficos")
+                    decibels_markers = st.sidebar.slider("Marcadores de Decibéis:", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0, key="decibels_markers_pca")
+                    fft_size = st.sidebar.selectbox("Tamanho da FFT:", options=[512, 1024, 2048, 4096], index=2, key="fft_size_pca")
+                    transform_interval = st.sidebar.slider("Intervalo de Transformação Desejado:", min_value=0.1, max_value=1.0, value=0.5, step=0.1, key="transform_interval_pca")
+                    smoothing_factor = st.sidebar.slider("Fator de Suavização Exponencial:", min_value=0.1, max_value=0.99, value=0.8, step=0.01, key="smoothing_factor_pca")
+
+                    plot_embeddings(combined_features, labels, classes, decibels_markers, fft_size, transform_interval, smoothing_factor)
 
                     # Balanceamento de Classes
                     if balance_method != "Nenhum":
@@ -1472,10 +1542,17 @@ def main():
         - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet, MFCCs são calculados para capturar características espectrais, e características vibracionais são extraídas via FFT. O classificador treinado em PyTorch utiliza esses recursos combinados para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
         - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
         """)
-        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
+        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"], key="upload_new_audio")
 
         if uploaded_audio is not None:
-            classify_new_audio(uploaded_audio)
+            # Adicionar controles para parâmetros ajustáveis durante a classificação
+            st.sidebar.subheader("Parâmetros de Classificação")
+            decibels_markers = st.sidebar.slider("Marcadores de Decibéis:", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0, key="decibels_markers_classification")
+            fft_size = st.sidebar.selectbox("Tamanho da FFT:", options=[512, 1024, 2048, 4096], index=2, key="fft_size_classification")
+            transform_interval = st.sidebar.slider("Intervalo de Transformação Desejado:", min_value=0.1, max_value=1.0, value=0.5, step=0.1, key="transform_interval_classification")
+            smoothing_factor = st.sidebar.slider("Fator de Suavização Exponencial:", min_value=0.1, max_value=0.99, value=0.8, step=0.01, key="smoothing_factor_classification")
+
+            classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_interval, smoothing_factor)
 
     # Documentação e Agradecimentos
     st.write("### Documentação dos Procedimentos")
@@ -1502,7 +1579,7 @@ def main():
     
     11. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
     
-    12. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita, a confiança, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    12. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita pelo YAMNet, a classe predita pelo classificador personalizado, a confiança da predição, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
     
     **Exemplo de Estrutura de Diretórios para Upload:**
     ```
