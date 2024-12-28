@@ -718,10 +718,9 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
                         label="Download do Arquivo WAV",
                         data=wav_data,
                         file_name=os.path.basename(tmp_audio_path[:-4] + '.wav'),
-                        mime="audio/wav",
-                        key="download_wav"
+                        mime="audio/wav"
                     )
-                    st.audio(wav_data, format='audio/wav', key="audio_wav")
+                    st.audio(wav_data, format='audio/wav')
                     st.success("Arquivo WAV gerado, reproduzido e disponível para download.")
                 except Exception as e:
                     st.error(f"Erro ao gerar ou reproduzir o arquivo WAV: {e}")
@@ -768,7 +767,7 @@ def test_soundfont_conversion(soundfont_path):
                     st.success("Testes de conversão SoundFont: Sucesso!")
                     with open(test_wav_path, 'rb') as f:
                         wav_data = f.read()
-                    st.audio(wav_data, format='audio/wav', key="test_audio_wav")
+                    st.audio(wav_data, format='audio/wav')
                 else:
                     st.error("Testes de conversão SoundFont: Falhou.")
 
@@ -829,7 +828,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         st.write(f"**Taxa de Amostragem:** {sr} Hz")
         st.write(f"**Duração Total:** {duration:.2f}s")
         st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-        st.audio(wav_data, format='audio/wav', sample_rate=sr, key="uploaded_audio")
+        st.audio(wav_data, format='audio/wav', sample_rate=sr, key="uploaded_audio_playback")
     except Exception as e:
         st.error(f"Erro ao processar o áudio para audição: {e}")
         wav_data = None
@@ -894,7 +893,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
             'Pontuação': mean_scores
         }).sort_values(by='Pontuação', ascending=False).reset_index(drop=True)
         st.write(class_scores.head(20))  # Exibir as 20 principais classes
-        st.bar_chart(class_scores.head(20).set_index('Classe'), use_container_width=True, key="bar_chart_yamnet")
+        st.bar_chart(class_scores.head(20).set_index('Classe'), use_container_width=True)
 
         # Visualização do Áudio
         st.subheader("Visualização do Áudio")
@@ -915,7 +914,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         ax[1].axhline(y=decibels_markers, color='r', linestyle='--', label=f'{decibels_markers} dB')
         ax[1].legend()
 
-        st.pyplot(fig, use_container_width=True, key="audio_visualization")
+        st.pyplot(fig, use_container_width=True)
         plt.close(fig)
 
         # Detecção de Pitch com SPICE
@@ -944,7 +943,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         ax_pitch.plot(confidence_outputs, label='Confiança')
         ax_pitch.legend(loc="lower right")
         ax_pitch.set_title("Pitch e Confiança com SPICE")
-        st.pyplot(fig_pitch, use_container_width=True, key="pitch_confidence_plot")
+        st.pyplot(fig_pitch, use_container_width=True)
         plt.close(fig_pitch)
 
         # Remover pitches com baixa confiança (ajuste o limiar)
@@ -960,7 +959,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         ax_confident_pitch.set_xlabel("Amostras")
         ax_confident_pitch.set_ylabel("Pitch (Hz)")
         ax_confident_pitch.legend()
-        st.pyplot(fig_confident_pitch, use_container_width=True, key="confident_pitch_plot")
+        st.pyplot(fig_confident_pitch, use_container_width=True)
         plt.close(fig_confident_pitch)
 
         # Conversão de Pitches para Notas Musicais
@@ -1242,7 +1241,7 @@ def main():
                 st.write(f"**Taxa de Amostragem:** {sr} Hz")
                 st.write(f"**Duração Total:** {duration:.2f}s")
                 st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-                st.audio(wav_data, format='audio/wav', sample_rate=sr, key="example_audio_playback")
+                st.audio(wav_data, format='audio/wav', sample_rate=sr)
             except Exception as e:
                 st.error(f"Erro ao processar o arquivo de áudio: {e}")
         elif uploaded_file_example != "Nenhum":
@@ -1392,7 +1391,7 @@ def main():
 
                     st.write("**Distribuição das Classes:**")
                     class_distribution = pd.Series(labels).value_counts().rename(index={v: k for k, v in label_mapping.items()})
-                    st.bar_chart(class_distribution, use_container_width=True, key="class_distribution_bar_chart")
+                    st.bar_chart(class_distribution, use_container_width=True)  # Removido 'key'
 
                     # Plotagem dos Embeddings com parâmetros ajustáveis
                     st.write("**Visualização dos Embeddings com PCA:**")
@@ -1517,8 +1516,7 @@ def main():
                         label="Download do Modelo Treinado",
                         data=buffer,
                         file_name="audio_classifier.pth",
-                        mime="application/octet-stream",
-                        key="download_model_button"
+                        mime="application/octet-stream"
                     )
 
                     # Opção para download do mapeamento de classes
@@ -1527,8 +1525,7 @@ def main():
                         label="Download do Mapeamento de Classes",
                         data=class_mapping,
                         file_name="classes_mapping.txt",
-                        mime="text/plain",
-                        key="download_class_mapping_button"
+                        mime="text/plain"
                     )
 
     # Classificação de Novo Áudio
