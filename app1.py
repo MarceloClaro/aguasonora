@@ -709,7 +709,7 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
             # Converter MIDI para WAV usando FluidSynth via midi2audio ou síntese simples
             success = midi_to_wav(converted_audio_file_as_midi, tmp_audio_path[:-4] + '.wav', soundfont_path)
 
-            if success:
+            if success and os.path.exists(tmp_audio_path[:-4] + '.wav'):
                 # Oferecer o arquivo WAV para download e reprodução
                 try:
                     with open(tmp_audio_path[:-4] + '.wav', 'rb') as f:
@@ -828,7 +828,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         st.write(f"**Taxa de Amostragem:** {sr} Hz")
         st.write(f"**Duração Total:** {duration:.2f}s")
         st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-        st.audio(wav_data, format='audio/wav', sample_rate=sr, key="uploaded_audio_playback")
+        st.audio(wav_data, format='audio/wav', sample_rate=sr)
     except Exception as e:
         st.error(f"Erro ao processar o áudio para audição: {e}")
         wav_data = None
@@ -845,7 +845,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
     mfcc_features = extract_mfcc_features(tmp_audio_path)
     vibration_features = extract_vibration_features(tmp_audio_path)
 
-    if embedding is not None and mfcc_features is not None and vibration_features is not None:
+    if wav_data is not None and embedding is not None and mfcc_features is not None and vibration_features is not None:
         # Obter o modelo treinado
         classifier = st.session_state['classifier']
         classes = st.session_state['classes']
