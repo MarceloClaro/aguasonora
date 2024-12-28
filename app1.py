@@ -139,7 +139,7 @@ def perform_data_augmentation(waveform, sr, augmentation_methods, rate=1.1, n_st
 def extract_yamnet_embeddings(yamnet_model, audio_path):
     """
     Extrai embeddings usando o modelo YAMNet para um arquivo de áudio.
-    Retorna a classe predita e a média dos embeddings das frames.
+    Retorna a classe predita, a média dos embeddings das frames e todas as pontuações de classes.
     """
     basename_audio = os.path.basename(audio_path)
     try:
@@ -718,9 +718,10 @@ def create_music_score(best_notes_and_rests, tempo, showScore, tmp_audio_path, s
                         label="Download do Arquivo WAV",
                         data=wav_data,
                         file_name=os.path.basename(tmp_audio_path[:-4] + '.wav'),
-                        mime="audio/wav"
+                        mime="audio/wav",
+                        key="download_wav"
                     )
-                    st.audio(wav_data, format='audio/wav')
+                    st.audio(wav_data, format='audio/wav', key="audio_wav")
                     st.success("Arquivo WAV gerado, reproduzido e disponível para download.")
                 except Exception as e:
                     st.error(f"Erro ao gerar ou reproduzir o arquivo WAV: {e}")
@@ -767,7 +768,7 @@ def test_soundfont_conversion(soundfont_path):
                     st.success("Testes de conversão SoundFont: Sucesso!")
                     with open(test_wav_path, 'rb') as f:
                         wav_data = f.read()
-                    st.audio(wav_data, format='audio/wav')
+                    st.audio(wav_data, format='audio/wav', key="test_audio_wav")
                 else:
                     st.error("Testes de conversão SoundFont: Falhou.")
 
@@ -828,7 +829,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         st.write(f"**Taxa de Amostragem:** {sr} Hz")
         st.write(f"**Duração Total:** {duration:.2f}s")
         st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-        st.audio(wav_data, format='audio/wav', sample_rate=sr)
+        st.audio(wav_data, format='audio/wav', sample_rate=sr, key="uploaded_audio")
     except Exception as e:
         st.error(f"Erro ao processar o áudio para audição: {e}")
         wav_data = None
@@ -893,7 +894,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
             'Pontuação': mean_scores
         }).sort_values(by='Pontuação', ascending=False).reset_index(drop=True)
         st.write(class_scores.head(20))  # Exibir as 20 principais classes
-        st.bar_chart(class_scores.head(20).set_index('Classe'))
+        st.bar_chart(class_scores.head(20).set_index('Classe'), use_container_width=True, key="bar_chart_yamnet")
 
         # Visualização do Áudio
         st.subheader("Visualização do Áudio")
@@ -914,7 +915,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         ax[1].axhline(y=decibels_markers, color='r', linestyle='--', label=f'{decibels_markers} dB')
         ax[1].legend()
 
-        st.pyplot(fig)
+        st.pyplot(fig, use_container_width=True, key="audio_visualization")
         plt.close(fig)
 
         # Detecção de Pitch com SPICE
@@ -943,7 +944,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         ax_pitch.plot(confidence_outputs, label='Confiança')
         ax_pitch.legend(loc="lower right")
         ax_pitch.set_title("Pitch e Confiança com SPICE")
-        st.pyplot(fig_pitch)
+        st.pyplot(fig_pitch, use_container_width=True, key="pitch_confidence_plot")
         plt.close(fig_pitch)
 
         # Remover pitches com baixa confiança (ajuste o limiar)
@@ -959,7 +960,7 @@ def classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_int
         ax_confident_pitch.set_xlabel("Amostras")
         ax_confident_pitch.set_ylabel("Pitch (Hz)")
         ax_confident_pitch.legend()
-        st.pyplot(fig_confident_pitch)
+        st.pyplot(fig_confident_pitch, use_container_width=True, key="confident_pitch_plot")
         plt.close(fig_confident_pitch)
 
         # Conversão de Pitches para Notas Musicais
@@ -1116,28 +1117,29 @@ def main():
 
     # Parâmetros de Treinamento
     st.sidebar.subheader("Parâmetros de Treinamento")
-    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=100, step=1)
-    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001)
-    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64, 128], index=2)
-    l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01)
-    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=20, value=5, step=1)
+    epochs = st.sidebar.number_input("Número de Épocas:", min_value=1, max_value=500, value=100, step=1, key="epochs_slider")
+    learning_rate = st.sidebar.select_slider("Taxa de Aprendizagem:", options=[0.1, 0.01, 0.001, 0.0001], value=0.001, key="learning_rate_slider")
+    batch_size = st.sidebar.selectbox("Tamanho de Lote:", options=[8, 16, 32, 64, 128], index=2, key="batch_size_selectbox")
+    l2_lambda = st.sidebar.number_input("Regularização L2 (Weight Decay):", min_value=0.0, max_value=0.1, value=0.01, step=0.01, key="l2_lambda_input")
+    patience = st.sidebar.number_input("Paciência para Early Stopping:", min_value=1, max_value=20, value=5, step=1, key="patience_input")
 
     # Definir a seed com base na entrada do usuário
-    seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1)
+    seed = st.sidebar.number_input("Seed (número para tornar os resultados iguais sempre):", min_value=0, max_value=10000, value=42, step=1, key="seed_input")
     set_seed(seed)  # Usar a seed escolhida pelo usuário
 
     # Opções de Data Augmentation
     st.sidebar.subheader("Data Augmentation")
-    augment = st.sidebar.checkbox("Aplicar Data Augmentation")
+    augment = st.sidebar.checkbox("Aplicar Data Augmentation", key="augment_checkbox")
     if augment:
         augmentation_methods = st.sidebar.multiselect(
             "Métodos de Data Augmentation:",
             options=["Adicionar Ruído", "Esticar Tempo", "Mudar Pitch"],
-            default=["Adicionar Ruído", "Esticar Tempo"]
+            default=["Adicionar Ruído", "Esticar Tempo"],
+            key="augmentation_methods_multiselect"
         )
         # Parâmetros adicionais para Data Augmentation
-        rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.2, step=0.1)
-        n_steps = st.sidebar.slider("Passos para Mudar Pitch:", min_value=-12, max_value=12, value=3, step=1)
+        rate = st.sidebar.slider("Taxa para Esticar Tempo:", min_value=0.5, max_value=2.0, value=1.2, step=0.1, key="rate_slider")
+        n_steps = st.sidebar.slider("Passos para Mudar Pitch:", min_value=-12, max_value=12, value=3, step=1, key="n_steps_slider")
     else:
         augmentation_methods = []
         rate = 1.2
@@ -1148,7 +1150,8 @@ def main():
     balance_method = st.sidebar.selectbox(
         "Método de Balanceamento:",
         options=["Nenhum", "Oversample", "Undersample"],
-        index=0
+        index=0,
+        key="balance_method_selectbox"
     )
 
     # Seção de Upload do SoundFont
@@ -1156,7 +1159,7 @@ def main():
     st.write("""
     Para converter arquivos MIDI em WAV, é necessário um SoundFont (arquivo `.sf2`). Faça o upload do seu SoundFont aqui.
     """)
-    uploaded_soundfont = st.file_uploader("Faça upload do arquivo SoundFont (.sf2)", type=["sf2"])
+    uploaded_soundfont = st.file_uploader("Faça upload do arquivo SoundFont (.sf2)", type=["sf2"], key="soundfont_uploader")
 
     if uploaded_soundfont is not None:
         try:
@@ -1177,7 +1180,7 @@ def main():
         st.write("""
         Clique no botão abaixo para testar a conversão de um MIDI simples para WAV usando o SoundFont carregado.
         """)
-        if st.button("Executar Teste de Conversão SoundFont"):
+        if st.button("Executar Teste de Conversão SoundFont", key="test_soundfont_button"):
             test_soundfont_conversion(soundfont_path)
 
         # Seção de Download e Preparação de Arquivos de Áudio
@@ -1207,15 +1210,15 @@ def main():
         # Botões de Download
         col1, col2 = st.columns(2)
         with col1:
-            if st.button(f"Baixar {sample_audio_1}"):
+            if st.button(f"Baixar {sample_audio_1}", key="download_sample1_button"):
                 download_audio(sample_audio_1_url, sample_audio_1)
         with col2:
-            if st.button(f"Baixar {sample_audio_2}"):
+            if st.button(f"Baixar {sample_audio_2}", key="download_sample2_button"):
                 download_audio(sample_audio_2_url, sample_audio_2)
 
         # Audição de Arquivos de Áudio de Exemplo
         st.subheader("Audição de Arquivos de Áudio de Exemplo")
-        uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["Nenhum", sample_audio_1, sample_audio_2])
+        uploaded_file_example = st.selectbox("Selecione um arquivo de áudio de exemplo para ouvir:", options=["Nenhum", sample_audio_1, sample_audio_2], key="select_example_audio")
 
         if uploaded_file_example != "Nenhum" and os.path.exists(uploaded_file_example):
             try:
@@ -1239,7 +1242,7 @@ def main():
                 st.write(f"**Taxa de Amostragem:** {sr} Hz")
                 st.write(f"**Duração Total:** {duration:.2f}s")
                 st.write(f"**Tamanho da Entrada:** {len(wav_data)} amostras")
-                st.audio(wav_data, format='audio/wav', sample_rate=sr)
+                st.audio(wav_data, format='audio/wav', sample_rate=sr, key="example_audio_playback")
             except Exception as e:
                 st.error(f"Erro ao processar o arquivo de áudio: {e}")
         elif uploaded_file_example != "Nenhum":
@@ -1261,7 +1264,7 @@ def main():
                 audio4.wav
         ```
         """)
-        uploaded_zip = st.file_uploader("Faça upload do arquivo ZIP com os dados de áudio supervisionados", type=["zip"])
+        uploaded_zip = st.file_uploader("Faça upload do arquivo ZIP com os dados de áudio supervisionados", type=["zip"], key="uploaded_zip")
 
         if uploaded_zip is not None:
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -1311,8 +1314,6 @@ def main():
                     total_files = sum(class_counts.values())
                     processed_files = 0
                     progress_bar = st.progress(0)
-
-                    scaler = StandardScaler()
                     for cls in classes:
                         cls_dir = os.path.join(tmpdir, cls)
                         audio_files = [os.path.join(cls_dir, f) for f in os.listdir(cls_dir) if f.lower().endswith(('.wav', '.mp3', '.ogg', '.flac'))]
@@ -1379,6 +1380,7 @@ def main():
                     st.write(f"Características combinadas: Forma = {combined_features.shape}")
 
                     # Normalizar os recursos
+                    scaler = StandardScaler()
                     combined_features = scaler.fit_transform(combined_features)
                     st.write("Características normalizadas com StandardScaler.")
 
@@ -1390,16 +1392,16 @@ def main():
 
                     st.write("**Distribuição das Classes:**")
                     class_distribution = pd.Series(labels).value_counts().rename(index={v: k for k, v in label_mapping.items()})
-                    st.bar_chart(class_distribution)
+                    st.bar_chart(class_distribution, use_container_width=True, key="class_distribution_bar_chart")
 
                     # Plotagem dos Embeddings com parâmetros ajustáveis
                     st.write("**Visualização dos Embeddings com PCA:**")
                     # Adicionar controles para parâmetros gráficos
                     st.sidebar.subheader("Parâmetros Gráficos")
-                    decibels_markers = st.sidebar.slider("Marcadores de Decibéis:", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0)
-                    fft_size = st.sidebar.selectbox("Tamanho da FFT:", options=[512, 1024, 2048, 4096], index=2)
-                    transform_interval = st.sidebar.slider("Intervalo de Transformação Desejado:", min_value=0.1, max_value=1.0, value=0.5, step=0.1)
-                    smoothing_factor = st.sidebar.slider("Fator de Suavização Exponencial:", min_value=0.1, max_value=0.99, value=0.8, step=0.01)
+                    decibels_markers = st.sidebar.slider("Marcadores de Decibéis:", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0, key="decibels_markers_pca")
+                    fft_size = st.sidebar.selectbox("Tamanho da FFT:", options=[512, 1024, 2048, 4096], index=2, key="fft_size_pca")
+                    transform_interval = st.sidebar.slider("Intervalo de Transformação Desejado:", min_value=0.1, max_value=1.0, value=0.5, step=0.1, key="transform_interval_pca")
+                    smoothing_factor = st.sidebar.slider("Fator de Suavização Exponencial:", min_value=0.1, max_value=0.99, value=0.8, step=0.01, key="smoothing_factor_pca")
 
                     plot_embeddings(combined_features, labels, classes, decibels_markers, fft_size, transform_interval, smoothing_factor)
 
@@ -1515,7 +1517,8 @@ def main():
                         label="Download do Modelo Treinado",
                         data=buffer,
                         file_name="audio_classifier.pth",
-                        mime="application/octet-stream"
+                        mime="application/octet-stream",
+                        key="download_model_button"
                     )
 
                     # Opção para download do mapeamento de classes
@@ -1524,7 +1527,8 @@ def main():
                         label="Download do Mapeamento de Classes",
                         data=class_mapping,
                         file_name="classes_mapping.txt",
-                        mime="text/plain"
+                        mime="text/plain",
+                        key="download_class_mapping_button"
                     )
 
     # Classificação de Novo Áudio
@@ -1541,15 +1545,15 @@ def main():
         - **Processo:** O áudio carregado é pré-processado para garantir a taxa de amostragem de 16kHz e convertido para mono. Em seguida, os embeddings são extraídos usando o modelo YAMNet, MFCCs são calculados para capturar características espectrais, e características vibracionais são extraídas via FFT. O classificador treinado em PyTorch utiliza esses recursos combinados para prever a classe do áudio, fornecendo uma pontuação de confiança baseada na função softmax.
         - **Detecção de Pitch:** Utilizando o modelo SPICE, o aplicativo realiza a detecção de pitch no áudio, convertendo os valores normalizados para Hz e quantizando-os em notas musicais utilizando a biblioteca `music21`. As notas detectadas são visualizadas e podem ser convertidas em um arquivo MIDI para reprodução.
         """)
-        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"])
+        uploaded_audio = st.file_uploader("Faça upload do arquivo de áudio para classificação", type=["wav", "mp3", "ogg", "flac"], key="upload_new_audio")
 
         if uploaded_audio is not None:
             # Adicionar controles para parâmetros ajustáveis durante a classificação
             st.sidebar.subheader("Parâmetros de Classificação")
-            decibels_markers = st.sidebar.slider("Marcadores de Decibéis:", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0)
-            fft_size = st.sidebar.selectbox("Tamanho da FFT:", options=[512, 1024, 2048, 4096], index=2)
-            transform_interval = st.sidebar.slider("Intervalo de Transformação Desejado:", min_value=0.1, max_value=1.0, value=0.5, step=0.1)
-            smoothing_factor = st.sidebar.slider("Fator de Suavização Exponencial:", min_value=0.1, max_value=0.99, value=0.8, step=0.01)
+            decibels_markers = st.sidebar.slider("Marcadores de Decibéis:", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0, key="decibels_markers_classification")
+            fft_size = st.sidebar.selectbox("Tamanho da FFT:", options=[512, 1024, 2048, 4096], index=2, key="fft_size_classification")
+            transform_interval = st.sidebar.slider("Intervalo de Transformação Desejado:", min_value=0.1, max_value=1.0, value=0.5, step=0.1, key="transform_interval_classification")
+            smoothing_factor = st.sidebar.slider("Fator de Suavização Exponencial:", min_value=0.1, max_value=0.99, value=0.8, step=0.01, key="smoothing_factor_classification")
 
             classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_interval, smoothing_factor)
 
