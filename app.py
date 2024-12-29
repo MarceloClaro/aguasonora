@@ -1692,7 +1692,7 @@ def main():
         é o ruído e 
         """)
     st.latex(r'''
-\alpha \) 
+        \alpha 
         ''')
     st.write(""" 
 é o fator de ruído.
