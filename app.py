@@ -1610,33 +1610,175 @@ def main():
             classify_new_audio(uploaded_audio, decibels_markers, fft_size, transform_interval, smoothing_factor)
 
     # Documentação e Agradecimentos
-    st.write("### Documentação dos Procedimentos")
+    st.write("### ")
     st.write("""
-    1. **Upload do SoundFont (SF2):** Faça o upload do seu arquivo SoundFont (`.sf2`) para permitir a conversão de MIDI para WAV.
+    Claro! A seguir, apresento uma versão aprimorada e detalhada da sua ficha técnica, com explicações aprofundadas sobre cada etapa do processo. Este texto visa esclarecer conceitos, fornecer fundamentos teóricos e descrever os processos físico-matemáticos envolvidos, facilitando a compreensão tanto para especialistas quanto para acadêmicos.
     
-    2. **Teste do SoundFont:** Execute o teste de conversão para garantir que o SoundFont está funcionando corretamente.
+    ---
     
-    3. **Baixando e Preparando Arquivos de Áudio:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
+    ## Guia Detalhado de Operações do Sistema
     
-    4. **Upload de Dados Supervisionados:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
+    ### 1. **Upload do SoundFont (SF2)**
+    **Descrição:** Faça o upload do seu arquivo SoundFont (`.sf2`) para permitir a conversão de MIDI para WAV.
     
-    5. **Data Augmentation:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
+    **Explicação Detalhada:**
+    - **SoundFont (SF2):** É um formato de arquivo que contém amostras de áudio (samples) de instrumentos musicais. Ele permite a síntese de som, convertendo comandos MIDI em áudio realista.
+    - **MIDI (Musical Instrument Digital Interface):** É um protocolo que transmite informações sobre notas musicais, tempo, e outros parâmetros, mas não contém áudio real. Ele serve como uma linguagem para controlar instrumentos digitais.
+    - **WAV (Waveform Audio File Format):** É um formato de áudio que armazena dados de áudio sem compressão, preservando a qualidade original.
     
-    6. **Balanceamento de Classes:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
+    **Processo Físico-Matemático:**
+    A conversão de MIDI para WAV envolve mapear comandos MIDI (como notas, duração e intensidade) para amostras de áudio correspondentes no SoundFont. Matemáticamente, isso implica na reconstrução do sinal de áudio através da síntese aditiva ou subtrativa, utilizando funções matemáticas como senóides para representar as ondas sonoras das notas musicais.
     
-    7. **Extração de Embeddings:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados, além de MFCCs e características vibracionais para uma análise mais detalhada.
+    ---
     
-    8. **Treinamento com Validação Cruzada:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador utilizando validação cruzada para uma avaliação mais robusta.
+    ### 2. **Teste do SoundFont**
+    **Descrição:** Execute o teste de conversão para garantir que o SoundFont está funcionando corretamente.
     
-    9. **Análise de Dados:** Visualize estatísticas descritivas, distribuição das classes e plotagens dos embeddings para melhor compreensão dos dados.
+    **Explicação Detalhada:**
+    Após o upload, é essencial verificar se o SoundFont foi carregado e configurado corretamente no sistema. Isso assegura que as amostras de áudio serão sintetizadas de forma precisa durante a conversão de MIDI para WAV.
     
-    10. **Resultados da Validação Cruzada:** Avalie o desempenho do modelo através de relatórios de classificação, matrizes de confusão e curvas ROC para cada fold.
+    **Processo Físico-Matemático:**
+    O teste geralmente envolve a conversão de um arquivo MIDI de exemplo utilizando o SoundFont carregado e a reprodução do arquivo WAV resultante. Matemáticamente, confirma-se a correta aplicação das transformações de síntese sonora, garantindo que as frequências e amplitudes das notas sintetizadas correspondem às especificações do SoundFont.
     
-    11. **Download dos Resultados:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
+    ---
     
-    12. **Classificação de Novo Áudio:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita pelo YAMNet, a classe predita pelo classificador personalizado, a confiança da predição, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    ### 3. **Baixando e Preparando Arquivos de Áudio**
+    **Descrição:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
     
-    **Exemplo de Estrutura de Diretórios para Upload:**
+    **Explicação Detalhada:**
+    Oferecemos arquivos de áudio de exemplo para que os usuários possam iniciar o processo sem a necessidade de fornecer seus próprios dados imediatamente. Alternativamente, usuários avançados podem preferir carregar seus próprios arquivos de áudio para análise personalizada.
+    
+    **Processo Físico-Matemático:**
+    Os arquivos de áudio carregados são processados para extrair características relevantes. Matemáticamente, isso envolve a análise do domínio do tempo e da frequência do sinal de áudio, utilizando técnicas como a Transformada de Fourier para decompor o sinal em suas componentes frequenciais.
+    
+    ---
+    
+    ### 4. **Upload de Dados Supervisionados**
+    **Descrição:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
+    
+    **Explicação Detalhada:**
+    Para treinar modelos de aprendizado de máquina supervisionado, é necessário fornecer dados etiquetados. Cada subpasta dentro do arquivo ZIP representa uma classe específica (por exemplo, "água_quente", "água_gelada"), contendo arquivos de áudio correspondentes a essa categoria.
+    
+    **Processo Físico-Matemático:**
+    Durante o treinamento, o modelo aprende a associar padrões específicos extraídos dos sinais de áudio com suas respectivas classes. Matemáticamente, isso envolve a otimização de funções de perda (como Cross-Entropy) para ajustar os parâmetros do modelo de forma que minimize a discrepância entre as previsões e as etiquetas reais.
+    
+    ---
+    
+    ### 5. **Data Augmentation**
+    **Descrição:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
+    
+    **Explicação Detalhada:**
+    - **Data Augmentation:** Técnicas que aumentam a diversidade dos dados de treinamento sem coletar novos dados. Isso ajuda a melhorar a generalização do modelo.
+    - **Adição de Ruído:** Introduz ruído aleatório ao sinal de áudio para simular variações ambientais.
+    - **Estiramento de Tempo (Time Stretching):** Altera a duração do áudio sem modificar a altura das notas.
+    - **Mudança de Pitch (Pitch Shifting):** Transforma a altura das notas musicais sem alterar a duração.
+    
+    **Processo Físico-Matemático:**
+    - **Adição de Ruído:** Adiciona um componente aleatório ao sinal de áudio original, representado matematicamente como \( y(t) = x(t) + \alpha \cdot n(t) \), onde \( x(t) \) é o sinal original, \( n(t) \) é o ruído e \( \alpha \) é o fator de ruído.
+    - **Estiramento de Tempo:** Utiliza técnicas como a Transformada de Fourier de Tempo Curto (STFT) para modificar a taxa de reprodução do áudio sem afetar sua frequência.
+    - **Mudança de Pitch:** Aplica a transformação \( y(t) = x(t) \cdot e^{j2\pi \Delta f t} \), onde \( \Delta f \) é a mudança na frequência, alterando a altura percebida das notas.
+    
+    ---
+    
+    ### 6. **Balanceamento de Classes**
+    **Descrição:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
+    
+    **Explicação Detalhada:**
+    - **Oversampling (SMOTE):** Técnica que sintetiza novos exemplos para classes minoritárias, equilibrando o número de exemplos entre classes.
+    - **Undersampling:** Reduz o número de exemplos nas classes majoritárias para igualar as classes minoritárias.
+    
+    **Processo Físico-Matemático:**
+    - **SMOTE (Synthetic Minority Over-sampling Technique):** Gera novos exemplos sintetizando interpolação linear entre exemplos existentes na classe minoritária. Matemáticamente, para cada exemplo minoritário, cria-se novos exemplos no espaço feature utilizando \( x_{\text{new}} = x_i + \delta \cdot (x_j - x_i) \), onde \( x_i \) e \( x_j \) são exemplos próximos e \( \delta \) é um fator aleatório entre 0 e 1.
+    - **Undersampling:** Seleciona aleatoriamente um subconjunto dos exemplos das classes majoritárias, reduzindo a sua representatividade no conjunto de treinamento.
+    
+    ---
+    
+    ### 7. **Extração de Embeddings**
+    **Descrição:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados, além de MFCCs e características vibracionais para uma análise mais detalhada.
+    
+    **Explicação Detalhada:**
+    - **YAMNet:** Modelo pré-treinado baseado em redes neurais profundas que extrai embeddings (representações vetoriais) de sinais de áudio, capturando características semânticas.
+    - **MFCCs (Mel-Frequency Cepstral Coefficients):** Representações que capturam a forma espectral do áudio, alinhadas à percepção humana de frequência.
+    - **Características Vibracionais (FFT):** Análise de frequência que identifica padrões vibracionais no sinal de áudio.
+    
+    **Processo Físico-Matemático:**
+    - **YAMNet:** Aplica convoluções e outras operações de redes neurais para transformar o sinal de áudio em um vetor de alta dimensão que representa suas características semânticas.
+    - **MFCCs:** Calcula a Transformada de Fourier de Tempo Curto (STFT), mapeia as frequências para a escala Mel, aplica o logaritmo e, finalmente, a Transformada Discreta do Coseno (DCT) para obter os coeficientes.
+    - **FFT:** Decompõe o sinal de áudio em suas componentes de frequência através da Transformada Rápida de Fourier, permitindo a análise das características vibracionais.
+    
+    ---
+    
+    ### 8. **Treinamento com Validação Cruzada**
+    **Descrição:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador utilizando validação cruzada para uma avaliação mais robusta.
+    
+    **Explicação Detalhada:**
+    - **Validação Cruzada Estratificada (Stratified Cross-Validation):** Técnica que divide o conjunto de dados em múltiplos folds, garantindo que a proporção das classes seja mantida em cada fold.
+    - **Classificador:** Modelo de aprendizado de máquina treinado para prever a classe de um áudio com base nos embeddings e outras características extraídas.
+    
+    **Processo Físico-Matemático:**
+    A validação cruzada estratificada envolve dividir o conjunto de dados em \( k \) folds, treinando o modelo em \( k-1 \) folds e validando no fold restante, repetindo o processo para cada fold. Isso assegura uma avaliação mais precisa do desempenho do modelo, reduzindo a variância associada à divisão específica dos dados.
+    
+    ---
+    
+    ### 9. **Análise de Dados**
+    **Descrição:** Visualize estatísticas descritivas, distribuição das classes e plotagens dos embeddings para melhor compreensão dos dados.
+    
+    **Explicação Detalhada:**
+    - **Estatísticas Descritivas:** Incluem métricas como média, mediana, desvio padrão, que fornecem insights sobre a distribuição das características extraídas.
+    - **Distribuição das Classes:** Visualização da quantidade de exemplos em cada classe para identificar desequilíbrios ou padrões.
+    - **Plotagem dos Embeddings:** Utiliza técnicas de redução de dimensionalidade como PCA (Análise de Componentes Principais) para visualizar a distribuição dos embeddings em um espaço bidimensional.
+    
+    **Processo Físico-Matemático:**
+    - **PCA:** Reduz a dimensionalidade dos embeddings através da projeção linear, preservando a maior variação possível dos dados. Calcula os autovalores e autovetores da matriz de covariância dos dados, selecionando os principais componentes que capturam a maior parte da variância.
+    
+    ---
+    
+    ### 10. **Resultados da Validação Cruzada**
+    **Descrição:** Avalie o desempenho do modelo através de relatórios de classificação, matrizes de confusão e curvas ROC para cada fold.
+    
+    **Explicação Detalhada:**
+    - **Relatório de Classificação:** Fornece métricas como precisão, recall, F1-score para cada classe, permitindo avaliar a performance detalhada do modelo.
+    - **Matriz de Confusão:** Visualiza o número de previsões corretas e incorretas para cada classe, ajudando a identificar padrões de erro.
+    - **Curvas ROC (Receiver Operating Characteristic):** Avaliam a capacidade do modelo em discriminar entre classes através das taxas de verdadeiros positivos e falsos positivos.
+    
+    **Processo Físico-Matemático:**
+    - **Precisão (\( \text{Precision} \)):** \( \frac{TP}{TP + FP} \), onde TP é Verdadeiro Positivo e FP é Falso Positivo.
+    - **Recall (\( \text{Recall} \)):** \( \frac{TP}{TP + FN} \), onde FN é Falso Negativo.
+    - **F1-Score:** Média harmônica entre precisão e recall, \( \text{F1} = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} \).
+    - **Curvas ROC:** Plotagem da Taxa de Verdadeiros Positivos (TPR) contra a Taxa de Falsos Positivos (FPR) em diferentes limiares de classificação, calculando a Área Sob a Curva (AUC) para quantificar o desempenho geral.
+    
+    ---
+    
+    ### 11. **Download dos Resultados**
+    **Descrição:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
+    
+    **Explicação Detalhada:**
+    - **Modelo Treinado:** Arquivo contendo os pesos e a arquitetura do classificador treinado, permitindo sua reutilização sem necessidade de re-treinamento.
+    - **Mapeamento de Classes:** Documento que relaciona as classes de áudio às suas respectivas etiquetas numéricas utilizadas durante o treinamento.
+    
+    **Processo Físico-Matemático:**
+    O modelo treinado encapsula os parâmetros ajustados durante o treinamento, representando a função matemática aprendida para mapear entradas (embeddings) às saídas (classes). O mapeamento de classes facilita a interpretação das previsões do modelo, traduzindo índices numéricos de volta para suas categorias originais.
+    
+    ---
+    
+    ### 12. **Classificação de Novo Áudio**
+    **Descrição:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita pelo YAMNet, a classe predita pelo classificador personalizado, a confiança da predição, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
+    
+    **Explicação Detalhada:**
+    - **Processamento do Novo Áudio:** O áudio enviado é pré-processado da mesma forma que os dados de treinamento, garantindo consistência nas características extraídas.
+    - **Predição com YAMNet:** Fornece uma classificação inicial baseada nas características semânticas extraídas.
+    - **Predição com Classificador Personalizado:** Utiliza o modelo treinado para fornecer uma classificação final com uma pontuação de confiança.
+    - **Visualização:** Inclui a forma de onda do áudio, espectrograma que representa a distribuição de frequências ao longo do tempo, e a detecção de pitch que identifica as frequências predominantes.
+    - **Conversão para Partitura Musical:** Transforma as notas detectadas em uma representação visual de partitura, permitindo a reprodução musical.
+    
+    **Processo Físico-Matemático:**
+    - **Detecção de Pitch com SPICE:** Utiliza modelos de redes neurais para identificar a frequência fundamental das notas musicais presentes no áudio.
+    - **Transformada de Fourier no Espectrograma:** Decompõe o sinal de áudio em suas componentes de frequência ao longo do tempo, representando-as visualmente.
+    - **Conversão para Partitura:** Mapeia as frequências detectadas para notas musicais específicas, utilizando relações matemáticas entre frequência e altura musical (ex.: \( f = 440 \cdot 2^{(n-49)/12} \), onde \( n \) é o número da nota MIDI).
+    
+    ---
+    
+    ### **Exemplo de Estrutura de Diretórios para Upload:**
     ```
     dados/
         agua_quente/
@@ -1646,6 +1788,19 @@ def main():
             audio3.wav
             audio4.wav
     ```
+    
+    **Explicação Detalhada:**
+    - **Estrutura de Diretórios:** Organizar os arquivos de áudio em subpastas representa diferentes classes ou categorias para classificação. Cada subpasta deve conter apenas os arquivos de áudio pertencentes à sua classe específica.
+    - **Nomenclatura das Subpastas:** Utilize nomes descritivos e consistentes para cada classe (por exemplo, "agua_quente" para representar sons relacionados a água quente).
+    - **Formato dos Arquivos:** Assegure-se de que todos os arquivos de áudio estejam em formatos suportados (como `.wav`, `.mp3`, `.ogg`, `.flac`) para evitar erros durante o processamento.
+    
+    ---
+    
+    ## Conclusão
+    
+    Este guia detalhado visa proporcionar uma compreensão abrangente de cada etapa envolvida no sistema de classificação de áudio para avaliação da qualidade e temperatura da água. Desde a preparação inicial dos dados até a interpretação dos resultados, cada componente e processo é essencial para garantir a eficácia e a precisão do modelo treinado. Com explicações que abrangem desde conceitos básicos até fundamentos matemáticos, este documento serve como uma referência completa para especialistas e acadêmicos interessados na aplicação de técnicas avançadas de processamento de áudio e aprendizado de máquina.
+    
+
     """)
 
     st.write("### Agradecimentos")
