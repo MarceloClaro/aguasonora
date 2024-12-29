@@ -1727,7 +1727,8 @@ def main():
     st.write("""  
     Onde
         """)    
-     st.latex(r'''    
+
+    st.latex(r'''    
      x_i  e  x_j  
         ''')    
     st.write("""  
