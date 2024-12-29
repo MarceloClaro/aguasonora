@@ -1104,6 +1104,7 @@ def output2hz(pitch_output):
     return FMIN * 2.0 ** (1.0 * cqt_bin / BINS_PER_OCTAVE)
 
 
+
 #----------------------------------------------------------------------
 def main():
     # Definir o caminho do ícone
@@ -1140,8 +1141,8 @@ def main():
     else:
         st.sidebar.text("Imagem do logotipo não encontrada.")
 
-    st.title("Classificação e Segmentação de Imagens com Aprendizado Profundo")
-    st.write("Este aplicativo permite treinar um modelo de classificação de imagens, aplicar algoritmos de clustering para análise comparativa e realizar segmentação de objetos.")
+    st.title("Classificação de Áudio Avançada para Avaliação da Qualidade e Temperatura da Água")
+    st.write( "Este aplicativo permite treinar um classificador de áudio supervisionado utilizando o modelo **YAMNet** para extrair embeddings, **MFCCs** para capturar características espectrais, e análise de **vibração** para detectar variações sonoras e vibracionais da água. Além disso, incorpora o modelo **SPICE** para detecção de pitch, melhorando a classificação da qualidade potável, poluída e a temperatura da água.")
     st.write("As etapas são cuidadosamente documentadas para auxiliar na reprodução e análise científica.")
 
  
