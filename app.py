@@ -1722,14 +1722,15 @@ def main():
     - **SMOTE (Synthetic Minority Over-sampling Technique):** Gera novos exemplos sintetizando interpolação linear entre exemplos existentes na classe minoritária. Matemáticamente, para cada exemplo minoritário, cria-se novos exemplos no espaço feature utilizando 
         """)    
     st.latex(r'''    
-    x_{\text{new}} = x_i + \delta \cdot (x_j - x_i) \)
+    x_{\text{new}} = x_i + \delta \cdot (x_j - x_i) 
         ''')  
     st.write("""  
     Onde
         """)    
 
     st.latex(r'''    
-     x_i  e  x_j  
+     x_i     e      
+     x_j  
         ''')    
     st.write("""  
     são exemplos próximos e 
