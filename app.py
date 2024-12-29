@@ -1677,7 +1677,25 @@ def main():
             ( y(t) = x(t) + \alpha \cdot n(t) )
             ''')
     st.write("""
-             , onde \( x(t) \) é o sinal original, \( n(t) \) é o ruído e \( \alpha \) é o fator de ruído.
+             Onde
+        """)
+    st.latex(r'''
+            x(t) 
+           ''')          
+    st.write("""         
+             é o sinal original,
+        """)
+    st.latex(r'''
+        n(t)
+        ''')
+    st.write("""  
+        é o ruído e 
+        """)
+    st.latex(r'''
+\alpha \) 
+        ''')
+    st.write(""" 
+é o fator de ruído.
     - **Estiramento de Tempo:** Utiliza técnicas como a Transformada de Fourier de Tempo Curto (STFT) para modificar a taxa de reprodução do áudio sem afetar sua frequência.
     - **Mudança de Pitch:** Aplica a transformação \( y(t) = x(t) \cdot e^{j2\pi \Delta f t} \), onde \( \Delta f \) é a mudança na frequência, alterando a altura percebida das notas.
     
