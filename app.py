@@ -1625,9 +1625,7 @@ def main():
     
     **Processo Físico-Matemático:**
     A conversão de MIDI para WAV envolve mapear comandos MIDI (como notas, duração e intensidade) para amostras de áudio correspondentes no SoundFont. Matemáticamente, isso implica na reconstrução do sinal de áudio através da síntese aditiva ou subtrativa, utilizando funções matemáticas como senóides para representar as ondas sonoras das notas musicais.
-    
-    ---
-    
+
     ### 2. **Teste do SoundFont**
     **Descrição:** Execute o teste de conversão para garantir que o SoundFont está funcionando corretamente.
     
@@ -1637,8 +1635,6 @@ def main():
     **Processo Físico-Matemático:**
     O teste geralmente envolve a conversão de um arquivo MIDI de exemplo utilizando o SoundFont carregado e a reprodução do arquivo WAV resultante. Matemáticamente, confirma-se a correta aplicação das transformações de síntese sonora, garantindo que as frequências e amplitudes das notas sintetizadas correspondem às especificações do SoundFont.
     
-    ---
-    
     ### 3. **Baixando e Preparando Arquivos de Áudio**
     **Descrição:** Você pode baixar arquivos de áudio de exemplo ou carregar seus próprios arquivos para começar.
     
@@ -1647,9 +1643,7 @@ def main():
     
     **Processo Físico-Matemático:**
     Os arquivos de áudio carregados são processados para extrair características relevantes. Matemáticamente, isso envolve a análise do domínio do tempo e da frequência do sinal de áudio, utilizando técnicas como a Transformada de Fourier para decompor o sinal em suas componentes frequenciais.
-    
-    ---
-    
+
     ### 4. **Upload de Dados Supervisionados**
     **Descrição:** Envie um arquivo ZIP contendo subpastas, onde cada subpasta representa uma classe com seus respectivos arquivos de áudio.
     
@@ -1658,9 +1652,7 @@ def main():
     
     **Processo Físico-Matemático:**
     Durante o treinamento, o modelo aprende a associar padrões específicos extraídos dos sinais de áudio com suas respectivas classes. Matemáticamente, isso envolve a otimização de funções de perda (como Cross-Entropy) para ajustar os parâmetros do modelo de forma que minimize a discrepância entre as previsões e as etiquetas reais.
-    
-    ---
-    
+       
     ### 5. **Data Augmentation**
     **Descrição:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
     
@@ -1681,25 +1673,25 @@ def main():
             ( y(t) = x(t) + \alpha \cdot n(t) )
             ''')
     st.write("""
-             Onde
+        Onde
         """)
     st.latex(r'''
             x(t) 
            ''')          
     st.write("""         
-             é o sinal original,
+        É o sinal original,
         """)
     st.latex(r'''
         n(t)
         ''')
     st.write("""  
-        é o ruído e 
+        É o ruído e 
         """)
     st.latex(r'''
         \alpha 
         ''')
     st.write(""" 
-        é o fator de ruído.
+        É o fator de ruído.
 
         - **Estiramento de Tempo:** Utiliza técnicas como a Transformada de Fourier de Tempo Curto (STFT) para modificar a taxa de reprodução do áudio sem afetar sua frequência.
     
@@ -1708,16 +1700,16 @@ def main():
     st.latex(r'''
      y(t) = x(t) \cdot e^{j2\pi \Delta f t}
         ''')
-    st.write(""" 
+
+    st.write("""     
     Onde
         """)
     st.latex(r'''
     \Delta f  
         ''')
     st.write("""     
-    é a mudança na frequência, alterando a altura percebida das notas.
+    É a mudança na frequência, alterando a altura percebida das notas.
     
-      
     ### 6. **Balanceamento de Classes**
     **Descrição:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
     
@@ -1726,10 +1718,21 @@ def main():
     - **Undersampling:** Reduz o número de exemplos nas classes majoritárias para igualar as classes minoritárias.
     
     **Processo Físico-Matemático:**
-    - **SMOTE (Synthetic Minority Over-sampling Technique):** Gera novos exemplos sintetizando interpolação linear entre exemplos existentes na classe minoritária. Matemáticamente, para cada exemplo minoritário, cria-se novos exemplos no espaço feature utilizando \( x_{\text{new}} = x_i + \delta \cdot (x_j - x_i) \), onde \( x_i \) e \( x_j \) são exemplos próximos e \( \delta \) é um fator aleatório entre 0 e 1.
-    - **Undersampling:** Seleciona aleatoriamente um subconjunto dos exemplos das classes majoritárias, reduzindo a sua representatividade no conjunto de treinamento.
     
-    ---
+    - **SMOTE (Synthetic Minority Over-sampling Technique):** Gera novos exemplos sintetizando interpolação linear entre exemplos existentes na classe minoritária. Matemáticamente, para cada exemplo minoritário, cria-se novos exemplos no espaço feature utilizando 
+        """)    
+    st.latex(r'''    
+    x_{\text{new}} = x_i + \delta \cdot (x_j - x_i) \), onde \( x_i \) e \( x_j \) 
+        ''')    
+    st.write("""  
+    são exemplos próximos e 
+        """)
+    st.latex(r'''    
+    \( \delta \) 
+        ''')   
+    st.write("""  
+    é um fator aleatório entre 0 e 1.
+    - **Undersampling:** Seleciona aleatoriamente um subconjunto dos exemplos das classes majoritárias, reduzindo a sua representatividade no conjunto de treinamento.
     
     ### 7. **Extração de Embeddings**
     **Descrição:** Utilizamos o YAMNet para extrair embeddings dos arquivos de áudio enviados, além de MFCCs e características vibracionais para uma análise mais detalhada.
@@ -1744,8 +1747,6 @@ def main():
     - **MFCCs:** Calcula a Transformada de Fourier de Tempo Curto (STFT), mapeia as frequências para a escala Mel, aplica o logaritmo e, finalmente, a Transformada Discreta do Coseno (DCT) para obter os coeficientes.
     - **FFT:** Decompõe o sinal de áudio em suas componentes de frequência através da Transformada Rápida de Fourier, permitindo a análise das características vibracionais.
     
-    ---
-    
     ### 8. **Treinamento com Validação Cruzada**
     **Descrição:** Com os embeddings extraídos e após as opções de data augmentation e balanceamento, treinamos um classificador utilizando validação cruzada para uma avaliação mais robusta.
     
@@ -1754,10 +1755,20 @@ def main():
     - **Classificador:** Modelo de aprendizado de máquina treinado para prever a classe de um áudio com base nos embeddings e outras características extraídas.
     
     **Processo Físico-Matemático:**
-    A validação cruzada estratificada envolve dividir o conjunto de dados em \( k \) folds, treinando o modelo em \( k-1 \) folds e validando no fold restante, repetindo o processo para cada fold. Isso assegura uma avaliação mais precisa do desempenho do modelo, reduzindo a variância associada à divisão específica dos dados.
-    
-    ---
-    
+    A validação cruzada estratificada envolve dividir o conjunto de dados em 
+        """)
+    st.latex(r'''  
+    \( k \) folds
+        ''') 
+    st.write("""  
+    treinando o modelo em 
+        """)
+    st.latex(r''' 
+        \( k-1 \) folds
+        ''') 
+    st.write("""  
+    e validando no fold restante, repetindo o processo para cada fold. Isso assegura uma avaliação mais precisa do desempenho do modelo, reduzindo a variância associada à divisão específica dos dados.
+      
     ### 9. **Análise de Dados**
     **Descrição:** Visualize estatísticas descritivas, distribuição das classes e plotagens dos embeddings para melhor compreensão dos dados.
     
@@ -1768,9 +1779,7 @@ def main():
     
     **Processo Físico-Matemático:**
     - **PCA:** Reduz a dimensionalidade dos embeddings através da projeção linear, preservando a maior variação possível dos dados. Calcula os autovalores e autovetores da matriz de covariância dos dados, selecionando os principais componentes que capturam a maior parte da variância.
-    
-    ---
-    
+
     ### 10. **Resultados da Validação Cruzada**
     **Descrição:** Avalie o desempenho do modelo através de relatórios de classificação, matrizes de confusão e curvas ROC para cada fold.
     
@@ -1780,9 +1789,26 @@ def main():
     - **Curvas ROC (Receiver Operating Characteristic):** Avaliam a capacidade do modelo em discriminar entre classes através das taxas de verdadeiros positivos e falsos positivos.
     
     **Processo Físico-Matemático:**
-    - **Precisão (\( \text{Precision} \)):** \( \frac{TP}{TP + FP} \), onde TP é Verdadeiro Positivo e FP é Falso Positivo.
-    - **Recall (\( \text{Recall} \)):** \( \frac{TP}{TP + FN} \), onde FN é Falso Negativo.
-    - **F1-Score:** Média harmônica entre precisão e recall, \( \text{F1} = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} \).
+    
+    - **Precisão 
+        """)
+      st.latex(r'''    
+    (\( \text{Precision} \)):** \( \frac{TP}{TP + FP} \)
+        ''') 
+    st.write("""  
+    onde TP é Verdadeiro Positivo e FP é Falso Positivo.
+        """)
+     st.latex(r'''     
+    - **Recall (\( \text{Recall} \)):** \( \frac{TP}{TP + FN} \)
+        ''')     
+    st.write("""        
+    onde FN é Falso Negativo.
+    - **F1-Score:** Média harmônica entre precisão e recall,
+         """)   
+    st.latex(r'''    
+    \( \text{F1} = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} \)
+        ''') 
+    st.write("""  
     - **Curvas ROC:** Plotagem da Taxa de Verdadeiros Positivos (TPR) contra a Taxa de Falsos Positivos (FPR) em diferentes limiares de classificação, calculando a Área Sob a Curva (AUC) para quantificar o desempenho geral.
     
     ---
