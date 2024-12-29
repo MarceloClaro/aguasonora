@@ -1152,7 +1152,26 @@ def main():
         index=0,
         key="balance_method_selectbox"
     )
+#--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    st.sidebar.image("eu.ico", width=80)
+    st.sidebar.write("""
+    Produzido pelo:
 
+    Projeto Geomaker + IA 
+
+    https://doi.org/10.5281/zenodo.13910277
+
+    - Professor: Marcelo Claro.
+
+    Contatos: marceloclaro@gmail.com
+
+    Whatsapp: (88)981587145
+
+    Instagram: [marceloclaro.geomaker](https://www.instagram.com/marceloclaro.geomaker/)
+
+    """)
+
+#--------------------------------------------------------------------------------------------------------------------------------------------------------------------    
     # Seção de Upload do SoundFont
     st.header("Upload do SoundFont (SF2)")
     st.write("""
