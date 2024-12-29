@@ -1665,9 +1665,13 @@ def main():
     **Descrição:** Se selecionado, aplica métodos de data augmentation como adição de ruído, estiramento de tempo e mudança de pitch nos dados de treinamento. Você pode ajustar os parâmetros `rate` e `n_steps` para controlar a intensidade dessas transformações.
     
     **Explicação Detalhada:**
+    
     - **Data Augmentation:** Técnicas que aumentam a diversidade dos dados de treinamento sem coletar novos dados. Isso ajuda a melhorar a generalização do modelo.
+   
     - **Adição de Ruído:** Introduz ruído aleatório ao sinal de áudio para simular variações ambientais.
+   
     - **Estiramento de Tempo (Time Stretching):** Altera a duração do áudio sem modificar a altura das notas.
+   
     - **Mudança de Pitch (Pitch Shifting):** Transforma a altura das notas musicais sem alterar a duração.
     
     **Processo Físico-Matemático:**
@@ -1695,12 +1699,25 @@ def main():
         \alpha 
         ''')
     st.write(""" 
-é o fator de ruído.
-    - **Estiramento de Tempo:** Utiliza técnicas como a Transformada de Fourier de Tempo Curto (STFT) para modificar a taxa de reprodução do áudio sem afetar sua frequência.
-    - **Mudança de Pitch:** Aplica a transformação \( y(t) = x(t) \cdot e^{j2\pi \Delta f t} \), onde \( \Delta f \) é a mudança na frequência, alterando a altura percebida das notas.
+        é o fator de ruído.
+
+        - **Estiramento de Tempo:** Utiliza técnicas como a Transformada de Fourier de Tempo Curto (STFT) para modificar a taxa de reprodução do áudio sem afetar sua frequência.
     
-    ---
+        - **Mudança de Pitch:** Aplica a transformação 
+        """)
+    st.latex(r'''
+     y(t) = x(t) \cdot e^{j2\pi \Delta f t}
+        ''')
+    st.write(""" 
+    Onde
+        """)
+    st.latex(r'''
+    \Delta f  
+        ''')
+    st.write("""     
+    é a mudança na frequência, alterando a altura percebida das notas.
     
+      
     ### 6. **Balanceamento de Classes**
     **Descrição:** Se selecionado, aplica métodos de balanceamento como oversampling (SMOTE) ou undersampling para tratar classes desbalanceadas.
     
