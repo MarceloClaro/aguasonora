@@ -1793,26 +1793,24 @@ def main():
     - **Precisão 
         """)
     st.latex(r'''    
-    (\( \text{Precision} \)):** \( \frac{TP}{TP + FP} \)
+    ( \text{Precision} \)):** \( \frac{TP}{TP + FP} 
         ''') 
     st.write("""  
     onde TP é Verdadeiro Positivo e FP é Falso Positivo.
         """)
     st.latex(r'''     
-    - **Recall (\( \text{Recall} \)):** \( \frac{TP}{TP + FN} \)
+    - **Recall ( \text{Recall} \)):** \( \frac{TP}{TP + FN} 
         ''')     
     st.write("""        
     onde FN é Falso Negativo.
     - **F1-Score:** Média harmônica entre precisão e recall,
          """)   
     st.latex(r'''    
-    \( \text{F1} = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} \)
+    \text{F1} = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} 
         ''') 
     st.write("""  
     - **Curvas ROC:** Plotagem da Taxa de Verdadeiros Positivos (TPR) contra a Taxa de Falsos Positivos (FPR) em diferentes limiares de classificação, calculando a Área Sob a Curva (AUC) para quantificar o desempenho geral.
-    
-    ---
-    
+        
     ### 11. **Download dos Resultados**
     **Descrição:** Após o treinamento, você poderá baixar o modelo treinado e o mapeamento de classes.
     
@@ -1822,8 +1820,6 @@ def main():
     
     **Processo Físico-Matemático:**
     O modelo treinado encapsula os parâmetros ajustados durante o treinamento, representando a função matemática aprendida para mapear entradas (embeddings) às saídas (classes). O mapeamento de classes facilita a interpretação das previsões do modelo, traduzindo índices numéricos de volta para suas categorias originais.
-    
-    ---
     
     ### 12. **Classificação de Novo Áudio**
     **Descrição:** Após o treinamento, você pode enviar um novo arquivo de áudio para ser classificado pelo modelo treinado. O aplicativo exibirá a classe predita pelo YAMNet, a classe predita pelo classificador personalizado, a confiança da predição, visualizará a forma de onda e o espectrograma do áudio carregado, realizará a detecção de pitch com SPICE e converterá as notas detectadas em uma partitura musical que poderá ser baixada e reproduzida.
