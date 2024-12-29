@@ -1674,8 +1674,8 @@ def main():
     - **Adição de Ruído:** Adiciona um componente aleatório ao sinal de áudio original, representado matematicamente como
         """)
     st.latex(r'''
-    \( y(t) = x(t) + \alpha \cdot n(t) \)
-    ''')
+            ( y(t) = x(t) + \alpha \cdot n(t) )
+            ''')
     st.write("""
              , onde \( x(t) \) é o sinal original, \( n(t) \) é o ruído e \( \alpha \) é o fator de ruído.
     - **Estiramento de Tempo:** Utiliza técnicas como a Transformada de Fourier de Tempo Curto (STFT) para modificar a taxa de reprodução do áudio sem afetar sua frequência.
