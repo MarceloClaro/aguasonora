@@ -1798,7 +1798,7 @@ def main():
     st.write("""  
     onde TP é Verdadeiro Positivo e FP é Falso Positivo.
         """)
-     st.latex(r'''     
+    st.latex(r'''     
     - **Recall (\( \text{Recall} \)):** \( \frac{TP}{TP + FN} \)
         ''')     
     st.write("""        
