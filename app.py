@@ -1792,7 +1792,7 @@ def main():
     
     - **Precisão 
         """)
-      st.latex(r'''    
+    st.latex(r'''    
     (\( \text{Precision} \)):** \( \frac{TP}{TP + FP} \)
         ''') 
     st.write("""  
