@@ -1729,7 +1729,12 @@ def main():
         """)    
 
     st.latex(r'''    
-     x_i     e      
+     x_i  
+        ''') 
+    st.write("""  
+     e      
+        """)   
+    st.latex(r'''    
      x_j  
         ''')    
     st.write("""  
