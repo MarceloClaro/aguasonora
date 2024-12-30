@@ -1771,13 +1771,13 @@ def main():
     A validação cruzada estratificada envolve dividir o conjunto de dados em 
         """)
     st.latex(r'''  
-     k  folds
+     k  = folds
         ''') 
     st.write("""  
     treinando o modelo em 
         """)
     st.latex(r''' 
-        k-1 folds
+        k-1 = folds
         ''') 
     st.write("""  
     e validando no fold restante, repetindo o processo para cada fold. Isso assegura uma avaliação mais precisa do desempenho do modelo, reduzindo a variância associada à divisão específica dos dados.
