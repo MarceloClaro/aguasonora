@@ -1803,23 +1803,23 @@ def main():
     
     **Processo Físico-Matemático:**
     
-    - **Precisão 
+    - Precisão 
         """)
     st.latex(r'''    
-    text{Precision}:**  \frac{TP}{TP + FP} 
+    {Precision}:  \frac{TP}{TP + FP} 
         ''') 
     st.write("""  
     onde TP é Verdadeiro Positivo e FP é Falso Positivo.
         """)
     st.latex(r'''     
-    - **Recall ( \text{Recall} \)):** \( \frac{TP}{TP + FN} 
+    - **Recall {Recall}: \frac{TP}{TP + FN} 
         ''')     
     st.write("""        
     onde FN é Falso Negativo.
     - **F1-Score:** Média harmônica entre precisão e recall,
          """)   
     st.latex(r'''    
-    \text{F1} = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} 
+  {F1} = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} 
         ''') 
     st.write("""  
     - **Curvas ROC:** Plotagem da Taxa de Verdadeiros Positivos (TPR) contra a Taxa de Falsos Positivos (FPR) em diferentes limiares de classificação, calculando a Área Sob a Curva (AUC) para quantificar o desempenho geral.
