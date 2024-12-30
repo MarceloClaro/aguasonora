@@ -1806,7 +1806,7 @@ def main():
     - **Precisão 
         """)
     st.latex(r'''    
-    ( \text{Precision} \)):** \( \frac{TP}{TP + FP} 
+    text{Precision} \)):** \( \frac{TP}{TP + FP} 
         ''') 
     st.write("""  
     onde TP é Verdadeiro Positivo e FP é Falso Positivo.
