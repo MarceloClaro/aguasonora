@@ -1812,7 +1812,7 @@ def main():
     onde TP é Verdadeiro Positivo e FP é Falso Positivo.
         """)
     st.latex(r'''     
-    - **Recall {Recall}: \frac{TP}{TP + FN} 
+    {Recall}: \frac{TP}{TP + FN} 
         ''')     
     st.write("""        
     onde FN é Falso Negativo.
