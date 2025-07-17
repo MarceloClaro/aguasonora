@@ -74,3 +74,4 @@ torchvision
 torchcam
 opencv-python
 torch
+biopython
