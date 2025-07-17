@@ -2027,7 +2027,7 @@ def main():
     **Processo Físico-Matemático:**
     - **Detecção de Pitch com SPICE:** Utiliza modelos de redes neurais para identificar a frequência fundamental das notas musicais presentes no áudio.
     - **Transformada de Fourier no Espectrograma:** Decompõe o sinal de áudio em suas componentes de frequência ao longo do tempo, representando-as visualmente.
-    - **Conversão para Partitura:** Mapeia as frequências detectadas para notas musicais específicas, utilizando relações matemáticas entre frequência e altura musical (ex.: \( f = 440 \cdot 2^{(n-49)/12} \), onde \( n \) é o número da nota MIDI).
+    - **Conversão para Partitura:** Mapeia as frequências detectadas para notas musicais específicas, utilizando relações matemáticas entre frequência e altura musical (ex.: f = 440 * 2^((n-49)/12), onde n é o número da nota MIDI).
     
     ---
     
